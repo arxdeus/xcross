@@ -71,13 +71,16 @@ final class FlutterAssetsCompiler {
     required PubspecInfo pubspec,
     required ImpellerShaderCompiler<T> shaders,
     IconTreeShaker<T>? icons,
+    bool precompiled = false,
   }) async {
-    await _copyDataAssets(
-      assetsDir,
-      vmSnapshotData,
-      isolateSnapshotData,
-      appDill,
-    );
+    if (!precompiled) {
+      await _copyDataAssets(
+        assetsDir,
+        vmSnapshotData,
+        isolateSnapshotData,
+        appDill,
+      );
+    }
     final manifest = await copyPubspecAssets(assetsDir, pubspec);
     final fonts = await copyFonts(assetsDir, pubspec);
     await compileShaders(assetsDir, pubspec, shaders, manifest);

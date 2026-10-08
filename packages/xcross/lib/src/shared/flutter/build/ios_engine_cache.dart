@@ -11,6 +11,7 @@ import 'package:xcross/src/host/shared/flutter/engine_archive_writer.dart';
 import 'package:xcross/src/host/shared/flutter/native_host_tools.dart';
 import 'package:xcross/src/shared/flutter/constants.dart';
 import 'package:xcross/src/shared/flutter/errors.dart';
+import 'package:xcross/src/shared/flutter/models/flutter/flutter_build_mode.dart';
 import 'package:xcross/src/target/shared/flutter/flutter_target_build_policy.dart';
 
 /// Resolves Flutter iOS engine artifacts needed for a debug iOS bundle.
@@ -36,6 +37,7 @@ final class IosEngineCache<T extends PlatformHostInterface> {
     required this.targetPolicy,
     required this.hostTools,
     required this.flutterRoot,
+    this.mode = FlutterBuildMode.debug,
     String? cacheRoot,
   }) : cacheRoot =
            cacheRoot ??
@@ -57,6 +59,14 @@ final class IosEngineCache<T extends PlatformHostInterface> {
   final String cacheRoot;
   final NativeHostTools<T> hostTools;
   final FlutterTargetBuildPolicy<T> targetPolicy;
+
+  /// Build mode whose engine and platform kernel this cache provides.
+  final FlutterBuildMode mode;
+
+  /// Engine artifact directory for [mode]: the target's JIT engine in debug,
+  /// the device AOT engine (`ios-release`, `ios-profile`) otherwise.
+  String get engineArtifact =>
+      mode.isPrecompiled ? mode.engineArtifact : targetPolicy.engineArtifact;
   String get hostArtifactPlatform => hostTools.artifactPlatform;
   String get hostEngineCacheDirectory => hostTools.engineCacheDirectory;
 
@@ -80,16 +90,11 @@ final class IosEngineCache<T extends PlatformHostInterface> {
   String get _engineDir {
     if (_sdkIosEngineUsable) return _flutterSdkIosEngineDir;
 
-    return host.paths.context.join(
-      _userEngineRoot,
-      targetPolicy.engineArtifact,
-    );
+    return host.paths.context.join(_userEngineRoot, engineArtifact);
   }
 
-  String get _flutterSdkIosEngineDir => host.paths.context.join(
-    _flutterSdkEngineRoot,
-    targetPolicy.engineArtifact,
-  );
+  String get _flutterSdkIosEngineDir =>
+      host.paths.context.join(_flutterSdkEngineRoot, engineArtifact);
 
   bool get _sdkIosEngineUsable {
     final directory = _flutterSdkIosEngineDir;
@@ -366,7 +371,7 @@ final class IosEngineCache<T extends PlatformHostInterface> {
     final flutterSdkDirectory = host.paths.context.join(
       _flutterSdkEngineRoot,
       'common',
-      'flutter_patched_sdk',
+      mode.patchedSdk,
     );
     final sdkCommonIsCurrent = !_isStale(sdkCommonEngineRevision);
     if (sdkCommonIsCurrent &&
@@ -374,11 +379,7 @@ final class IosEngineCache<T extends PlatformHostInterface> {
       return flutterSdkDirectory;
     }
 
-    return host.paths.context.join(
-      _userEngineRoot,
-      'common',
-      'flutter_patched_sdk',
-    );
+    return host.paths.context.join(_userEngineRoot, 'common', mode.patchedSdk);
   }
 
   /// Reads the engine hash that pins the artifact set.
@@ -508,8 +509,7 @@ final class IosEngineCache<T extends PlatformHostInterface> {
 
   Future<void> _downloadIosArtifacts() async {
     final hash = _readEngineHash();
-    final url =
-        '$flutterArtifactBaseUrl/$hash/${targetPolicy.engineArtifact}/artifacts.zip';
+    final url = '$flutterArtifactBaseUrl/$hash/$engineArtifact/artifacts.zip';
     log.logTrace('downloading Flutter iOS engine artifacts from $url');
     await _fetchAndExtract(
       url,

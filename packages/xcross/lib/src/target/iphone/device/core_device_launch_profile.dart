@@ -6,16 +6,22 @@ import 'package:xcross/src/shared/flutter/models/hot_reload_config.dart';
 final class CoreDeviceLaunchProfile {
   const CoreDeviceLaunchProfile.native({this.arguments = const []})
     : hotReload = null,
+      debuggingEnabled = false,
       _flutterRuntime = false;
 
   const CoreDeviceLaunchProfile.flutter({
     required this.hotReload,
     this.arguments = const [],
+    this.debuggingEnabled = true,
   }) : _flutterRuntime = true;
 
   final List<String> arguments;
   final HotReloadConfig? hotReload;
   final bool _flutterRuntime;
+
+  /// Debug (JIT) builds run with checked mode; profile and release builds
+  /// run precompiled code, which rejects those flags, as `flutter run` does.
+  final bool debuggingEnabled;
 
   List<String> argumentsForLaunch({
     required bool isDap,
@@ -27,7 +33,10 @@ final class CoreDeviceLaunchProfile {
       '--disable-service-auth-codes',
       if (isDap) '--start-paused',
     ],
-    if (_flutterRuntime) ...['--enable-checked-mode', '--verify-entry-points'],
+    if (_flutterRuntime && debuggingEnabled) ...[
+      '--enable-checked-mode',
+      '--verify-entry-points',
+    ],
     ...arguments,
   ];
 }

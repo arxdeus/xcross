@@ -1,4 +1,5 @@
 import 'package:meta/meta.dart';
+import 'package:xcross/src/shared/flutter/models/flutter/flutter_build_mode.dart';
 import 'package:xcross/src/shared/flutter/models/flutter/flutter_build_options.dart';
 import 'package:xcross/src/shared/flutter/project/dart_defines_reader.dart';
 
@@ -18,8 +19,10 @@ final class FlutterBuildOptionsResolver {
     String? buildName,
     String? buildNumber,
     String? flavor,
-    String buildMode = 'debug',
+    FlutterBuildMode buildMode = FlutterBuildMode.debug,
     bool treeShakeIcons = true,
+    String? splitDebugInfo,
+    bool obfuscate = false,
   }) async => FlutterBuildOptions(
     target: target,
     dartDefines: await defines.mergeDartDefines(dartDefineFromFile, dartDefine),
@@ -29,5 +32,7 @@ final class FlutterBuildOptionsResolver {
     flavor: flavor,
     buildMode: buildMode,
     treeShakeIcons: treeShakeIcons,
+    splitDebugInfo: splitDebugInfo,
+    obfuscate: obfuscate,
   );
 }

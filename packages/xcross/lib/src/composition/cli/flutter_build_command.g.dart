@@ -20,6 +20,8 @@ FlutterBuildArgs _$parseFlutterBuildArgsResult(ArgResults result) =>
       ..buildName = result['build-name'] as String?
       ..buildNumber = result['build-number'] as String?
       ..treeShakeIcons = result['tree-shake-icons'] as bool
+      ..splitDebugInfo = result['split-debug-info'] as String?
+      ..obfuscate = result['obfuscate'] as bool
       ..ipa = result['ipa'] as bool;
 
 ArgParser _$populateFlutterBuildArgsParser(ArgParser parser) => parser
@@ -54,17 +56,17 @@ ArgParser _$populateFlutterBuildArgsParser(ArgParser parser) => parser
   )
   ..addFlag(
     'debug',
-    help: 'Build in debug mode (the only supported mode).',
+    help: 'Build a debug (JIT) app (default).',
     negatable: false,
   )
   ..addFlag(
     'profile',
-    help: 'Profile mode is unsupported by xcross.',
+    help: 'Build an ahead-of-time compiled profile app (devices only).',
     negatable: false,
   )
   ..addFlag(
     'release',
-    help: 'Release mode is unsupported by xcross.',
+    help: 'Build an ahead-of-time compiled release app (devices only).',
     negatable: false,
   )
   ..addOption('build-name', help: 'Version name (CFBundleShortVersionString).')
@@ -74,6 +76,17 @@ ArgParser _$populateFlutterBuildArgsParser(ArgParser parser) => parser
     help:
         'Tree shake icon fonts so that only glyphs used by the application remain. Applies to profile and release builds.',
     defaultsTo: true,
+  )
+  ..addOption(
+    'split-debug-info',
+    help:
+        'Write Dart debug symbols to this directory instead of the app. Applies to profile and release builds.',
+  )
+  ..addFlag(
+    'obfuscate',
+    help:
+        'Obfuscate Dart symbol names. Requires --split-debug-info; applies to profile and release builds.',
+    negatable: false,
   )
   ..addFlag(
     'ipa',

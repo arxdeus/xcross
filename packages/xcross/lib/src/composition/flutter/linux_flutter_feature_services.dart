@@ -26,6 +26,7 @@ final class LinuxFlutterFeatureServices<T extends LinuxHostInterface>
     required super.publicationCoordinator,
     required super.transport,
     required super.copyPolicy,
+    super.aotCompilers,
   });
 
   @override

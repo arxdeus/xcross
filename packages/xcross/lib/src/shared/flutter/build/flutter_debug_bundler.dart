@@ -1,6 +1,7 @@
 import 'package:cli_kit/shared/platform/platform_host.dart';
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
+import 'package:xcross/src/shared/flutter/build/flutter_aot_snapshotter.dart';
 import 'package:xcross/src/shared/flutter/build/icon_tree_shaker.dart';
 import 'package:xcross/src/shared/flutter/build/impeller_shader_compiler.dart';
 import 'package:xcross/src/shared/flutter/build/internal/toolchain.dart';
@@ -38,6 +39,9 @@ final class FlutterDebugBundler<T extends PlatformHostInterface> {
     this.dartDefines = const [],
     this.flavor,
     this.treeShakeIcons = false,
+    this.snapshotter,
+    this.splitDebugInfo,
+    this.obfuscate = false,
   });
   final FlutterBuildRuntime<T> runtime;
   final FlutterKernelCompiler<T> kernel;
@@ -63,15 +67,30 @@ final class FlutterDebugBundler<T extends PlatformHostInterface> {
 
   /// Whether icon fonts are subset to the glyphs the app uses.
   final bool treeShakeIcons;
+
+  /// Compiles the kernel to native code for profile and release builds;
+  /// `null` builds the debug (JIT) framework.
+  final FlutterAotSnapshotter<T>? snapshotter;
+
+  /// `--split-debug-info` directory for AOT builds.
+  final String? splitDebugInfo;
+
+  /// `--obfuscate` for AOT builds.
+  final bool obfuscate;
+
+  bool get _precompiled => snapshotter != null;
   Future<String> build() async {
-    final engineCache = runtime.engineCache(flutterRoot);
+    final engineCache = runtime.engineCache(
+      flutterRoot,
+      mode: kernel.buildMode,
+    );
     await runtime.runner.log.logStep(
       'Fetching Flutter engine artifacts',
       engineCache.ensureArtifactsAvailable,
     );
 
     runtime.runner.log.logTrace('resolving iOS debug toolchain');
-    final toolchain = await _resolveToolchain();
+    final toolchain = _precompiled ? null : await _resolveToolchain();
 
     runtime.runner.log.logTrace('preparing App.framework output');
     await runtime.host.fileSystem.directory(outputDir).create(recursive: true);
@@ -108,10 +127,21 @@ final class FlutterDebugBundler<T extends PlatformHostInterface> {
                 fontSubset: engineCache.fontSubset,
               )
             : null,
+        precompiled: _precompiled,
       ),
     );
 
-    await buildAppStub(appFramework, toolchain);
+    if (snapshotter case final snapshotter?) {
+      await snapshotter.compile(
+        appDill: appDill,
+        appFramework: appFramework,
+        objectFile: p.join(outputDir, 'app.o'),
+        splitDebugInfo: splitDebugInfo,
+        obfuscate: obfuscate,
+      );
+    } else {
+      await buildAppStub(appFramework, toolchain!);
+    }
 
     runtime.runner.log.logTrace('writing App.framework Info.plist');
     _writeAppFrameworkInfoPlist(appFramework);

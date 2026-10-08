@@ -24,6 +24,7 @@ import 'package:xcross/src/host/shared/flutter/native_host_tools.dart';
 import 'package:xcross/src/host/windows/flutter/native_host_tools.dart';
 import 'package:xcross/src/shared/flutter/build/ios_engine_cache.dart';
 import 'package:xcross/src/shared/flutter/errors.dart';
+import 'package:xcross/src/shared/flutter/models/flutter/flutter_build_mode.dart';
 import 'package:xcross/src/target/iphone/flutter/iphone_flutter_target.dart';
 import 'package:xcross/src/target/shared/flutter/flutter_target_build_policy.dart';
 import 'package:xcross/src/target/simulator/flutter/simulator_flutter_target.dart';
@@ -141,13 +142,16 @@ void main() {
     ),
   );
   final policy = IPhoneFlutterTarget(IPhoneTarget(host));
-  IosEngineCache<LinuxHost> cache() => IosEngineCache(
+  IosEngineCache<LinuxHost> cache({
+    FlutterBuildMode mode = FlutterBuildMode.debug,
+  }) => IosEngineCache(
     targetPolicy: policy,
     hostTools: hostTools,
     flutterRoot: flutterRoot,
     cacheRoot: cacheRoot,
     log: _log(),
     downloader: _downloader(),
+    mode: mode,
   );
   setUp(() async {
     IosEngineCache.resetWarningsForTesting();
@@ -642,6 +646,31 @@ void main() {
       ).ensureArtifactsAvailable();
       expect(output.stderrLines, isEmpty);
     });
+  });
+  test('profile and release use the device AOT engine and platform kernel', () {
+    String user(String leaf) =>
+        p.join(cacheRoot, 'engine-hash', 'artifacts', 'engine', leaf);
+    final release = cache(mode: FlutterBuildMode.release);
+    expect(release.engineArtifact, 'ios-release');
+    expect(
+      release.flutterXcframework,
+      p.join(user('ios-release'), 'Flutter.xcframework'),
+    );
+    expect(
+      release.patchedSdkRoot,
+      p.join(user('common'), 'flutter_patched_sdk_product'),
+    );
+    final profile = cache(mode: FlutterBuildMode.profile);
+    expect(profile.engineArtifact, 'ios-profile');
+    expect(
+      profile.flutterXcframework,
+      p.join(user('ios-profile'), 'Flutter.xcframework'),
+    );
+    expect(
+      profile.patchedSdkRoot,
+      p.join(user('common'), 'flutter_patched_sdk'),
+    );
+    expect(cache().engineArtifact, 'ios');
   });
   test('prefers SDK artifacts, otherwise uses explicit user cache', () {
     final engine = cache();

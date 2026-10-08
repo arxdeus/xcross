@@ -34,7 +34,10 @@ FlutterRunArgs _$parseFlutterRunArgsResult(ArgResults result) =>
       )
       ..route = result['route'] as String?
       ..dartEntrypointArgs = result['dart-entrypoint-args'] as List<String>
-      ..verbose = result['verbose'] as bool;
+      ..verbose = result['verbose'] as bool
+      ..debug = result['debug'] as bool
+      ..profile = result['profile'] as bool
+      ..release = result['release'] as bool;
 
 const _$DeviceConnectionEnumMapBuildCli = <DeviceConnection, String>{
   DeviceConnection.attached: 'attached',
@@ -87,7 +90,22 @@ ArgParser _$populateFlutterRunArgsParser(ArgParser parser) => parser
     abbr: 'a',
     help: 'Pass arguments to the app main() (repeatable).',
   )
-  ..addFlag('verbose', abbr: 'v', help: 'Verbose output.', negatable: false);
+  ..addFlag('verbose', abbr: 'v', help: 'Verbose output.', negatable: false)
+  ..addFlag(
+    'debug',
+    help: 'Run a debug (JIT) build (default).',
+    negatable: false,
+  )
+  ..addFlag(
+    'profile',
+    help: 'Run an ahead-of-time compiled profile build, without hot reload.',
+    negatable: false,
+  )
+  ..addFlag(
+    'release',
+    help: 'Run an ahead-of-time compiled release build, without hot reload.',
+    negatable: false,
+  );
 
 final _$parserForFlutterRunArgs = _$populateFlutterRunArgsParser(ArgParser());
 

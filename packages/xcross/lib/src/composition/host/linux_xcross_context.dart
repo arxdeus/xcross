@@ -19,6 +19,7 @@ import 'package:darwin_sdk_kit/shared/sdk/darwin_sdk_repository.dart';
 import 'package:darwin_sdk_kit/shared/toolchain/darwin_toolchain_resolver.dart';
 import 'package:http/http.dart' as http;
 import 'package:meta/meta.dart';
+import 'package:xcross/src/composition/flutter/ios_gen_snapshot.dart';
 import 'package:xcross/src/composition/flutter/linux_flutter_feature_services.dart';
 import 'package:xcross/src/composition/flutter/swiftpm_checkout.dart';
 import 'package:xcross/src/composition/host_operations.dart';
@@ -205,6 +206,7 @@ final class LinuxXcrossHostContext
       localHttp: localHttp,
       installer: installer,
       resolution: resolution,
+      config: config,
     );
     final runtime = _createRuntime(
       config: config,
@@ -267,6 +269,7 @@ final class LinuxXcrossHostContext
     required LocalHttp<LinuxHostInterface> localHttp,
     required SdkInstall<LinuxHostInterface> installer,
     required FlutterResolutionConfiguration resolution,
+    required XcrossRuntimeConfig config,
   }) {
     final artifactFileSystem = PosixSwiftPmArtifactFileSystem(host);
     final publicationCoordinator = SwiftPmPublicationCoordinator(
@@ -319,6 +322,12 @@ final class LinuxXcrossHostContext
         platformIdentity: '${host.name}-${host.architecture}',
       ),
       resolution: resolution,
+      aotCompilers: composeIosAotCompilerLocator(
+        runner: runner,
+        downloader: downloader,
+        createHttpClient: createHttpClient,
+        config: config,
+      ),
     );
   }
 

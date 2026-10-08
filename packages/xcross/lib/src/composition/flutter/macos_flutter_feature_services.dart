@@ -26,6 +26,7 @@ final class MacOSFlutterFeatureServices<T extends MacOSHostInterface>
     required super.publicationCoordinator,
     required super.transport,
     required super.copyPolicy,
+    super.aotCompilers,
   });
 
   @override

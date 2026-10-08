@@ -13,6 +13,7 @@ import 'package:xcross/src/host/windows/flutter/swiftpm/dependency_preparation.d
 import 'package:xcross/src/host/windows/flutter/swiftpm/gate_platform.dart';
 import 'package:xcross/src/host/windows/flutter/swiftpm/host_build_services.dart';
 import 'package:xcross/src/host/windows/flutter/swiftpm/windows_swift_plan_repair.dart';
+import 'package:xcross/src/shared/flutter/build/flutter_aot_snapshotter.dart';
 import 'package:xcross/src/shared/flutter/build/internal/apple_tool_shims.dart';
 import 'package:xcross/src/shared/flutter/build/internal/swiftpm_binary_fixture.dart';
 import 'package:xcross/src/shared/flutter/build/ios_plugin_package.dart';
@@ -52,7 +53,10 @@ final class WindowsFlutterFeatureServices<T extends WindowsHostInterface>
     required this.publicationCoordinator,
     required this.transport,
     required this.copyPolicy,
+    this.aotCompilers,
   });
+
+  final IosAotCompilerLocator? aotCompilers;
 
   final SwiftPmPublicationCoordinator publicationCoordinator;
   final SwiftPmArchiveTransport transport;
@@ -116,6 +120,7 @@ final class WindowsFlutterFeatureServices<T extends WindowsHostInterface>
       downloader: downloader,
       plugins: plugins,
       resolution: resolution,
+      aotCompilers: aotCompilers,
     );
   }
 

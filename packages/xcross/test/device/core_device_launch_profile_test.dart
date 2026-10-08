@@ -43,6 +43,18 @@ void main() {
     );
   });
 
+  test('precompiled flutter runs omit the JIT checked-mode flags', () {
+    const profile = CoreDeviceLaunchProfile.flutter(
+      hotReload: null,
+      arguments: ['--route=/home'],
+      debuggingEnabled: false,
+    );
+    expect(
+      profile.argumentsForLaunch(isDap: false, vmServiceBindAddress: '::0'),
+      ['--route=/home'],
+    );
+  });
+
   test('kernel tunnel binds VM Service to IPv6', () {
     const hotReload = HotReloadConfig(
       dart: 'dart',

@@ -13,6 +13,7 @@ import 'package:xcross/src/shared/flutter/build/dart_plugin_registrant.dart';
 import 'package:xcross/src/shared/flutter/build/internal/kernel_compiler.dart';
 import 'package:xcross/src/shared/flutter/build/ios_plugins.dart';
 import 'package:xcross/src/shared/flutter/flutter_kernel_compiler.dart';
+import 'package:xcross/src/shared/flutter/models/flutter/flutter_build_mode.dart';
 import 'package:xcross/src/target/iphone/flutter/iphone_flutter_target.dart';
 
 import '../../host_operations_fixtures.dart';
@@ -501,6 +502,84 @@ void _frontendServerFlags() {
           '-Dflutter.dart_plugin_registrant=$registration',
         ]),
       );
+    });
+
+    test('compiles a whole-program AOT kernel for release like flutter build '
+        'ios', () {
+      final flutter = Directory.systemTemp.createTempSync(
+        'xcross_frontend_aot_args_',
+      );
+      addTearDown(() => flutter.deleteSync(recursive: true));
+      File(p.join(flutter.path, 'bin', 'internal', 'engine.version'))
+        ..createSync(recursive: true)
+        ..writeAsStringSync('engine-hash\n');
+      final runtime = testIPhoneRuntime();
+      List<String> argumentsFor(FlutterBuildMode mode) =>
+          FlutterKernelCompiler(
+            runtime: runtime,
+            registrant: DartPluginRegistrant(runtime.host.fileSystem),
+            plugins: PluginDiscovery(runtime.host.fileSystem),
+            projectRoot: flutter.path,
+            flutterRoot: flutter.path,
+            buildMode: mode,
+            versionDefines: const ['FLUTTER_VERSION=3.47.0'],
+          ).frontendServerArguments(
+            compiler: const KernelCompiler(
+              snapshot: '/frontend_server_aot.dart.snapshot',
+              runtime: '/dartaotruntime',
+              runtimeName: 'dartaotruntime',
+              isAot: true,
+            ),
+            engineCache: runtime.engineCache(flutter.path, mode: mode),
+            packageConfig: '/packages.json',
+            outputDill: '/app.dill',
+            entrypointArg: 'package:app/main.dart',
+          );
+
+      final release = argumentsFor(FlutterBuildMode.release);
+      expect(
+        release,
+        containsAllInOrder([
+          '--target=flutter',
+          '--no-print-incremental-dependencies',
+          '-DFLUTTER_VERSION=3.47.0',
+          '-Ddart.vm.profile=false',
+          '-Ddart.vm.product=true',
+          '--delete-tostring-package-uri=dart:ui',
+          '--delete-tostring-package-uri=package:flutter',
+          '--aot',
+          '--tfa',
+          '--target-os',
+          'ios',
+          '--packages',
+        ]),
+      );
+      expect(
+        release[release.indexOf('--sdk-root') + 1],
+        endsWith('flutter_patched_sdk_product/'),
+      );
+      expect(release, isNot(contains('--track-widget-creation')));
+      expect(
+        release,
+        isNot(contains('-Ddart.developer.serviceExtensionStream.enabled=true')),
+      );
+
+      final profile = argumentsFor(FlutterBuildMode.profile);
+      expect(
+        profile,
+        containsAllInOrder([
+          '-Ddart.vm.profile=true',
+          '-Ddart.vm.product=false',
+        ]),
+      );
+      expect(
+        profile[profile.indexOf('--sdk-root') + 1],
+        endsWith('flutter_patched_sdk/'),
+      );
+
+      final debug = argumentsFor(FlutterBuildMode.debug);
+      expect(debug, contains('--track-widget-creation'));
+      expect(debug, isNot(contains('--aot')));
     });
 
     test('builds a file:// URI rather than a bare path', () {

@@ -1,16 +1,19 @@
 import 'package:cli_kit/shared/platform/platform_host.dart';
 import 'package:meta/meta.dart';
 import 'package:xcross/src/shared/flutter/build/dart_plugin_registrant.dart';
+import 'package:xcross/src/shared/flutter/build/flutter_aot_snapshotter.dart';
 import 'package:xcross/src/shared/flutter/build/flutter_debug_bundler.dart';
 import 'package:xcross/src/shared/flutter/build/internal/swiftpm_workspace.dart';
 import 'package:xcross/src/shared/flutter/build/ios_deployment_target.dart';
 import 'package:xcross/src/shared/flutter/build/ios_native_assets.dart';
 import 'package:xcross/src/shared/flutter/build/ios_plugin_package.dart';
 import 'package:xcross/src/shared/flutter/build/ios_plugins.dart';
+import 'package:xcross/src/shared/flutter/errors.dart';
 import 'package:xcross/src/shared/flutter/flutter_assets_compiler.dart';
 import 'package:xcross/src/shared/flutter/flutter_build_runtime.dart';
 import 'package:xcross/src/shared/flutter/flutter_build_steps.dart';
 import 'package:xcross/src/shared/flutter/flutter_kernel_compiler.dart';
+import 'package:xcross/src/shared/flutter/flutter_version_defines.dart';
 import 'package:xcross/src/shared/flutter/models/flutter/flutter_build_options.dart';
 
 @internal
@@ -45,7 +48,7 @@ final class FlutterArtifactCompiler<T extends PlatformHostInterface>
         hooks: runtime.nativeAssetHooks,
         runner: runtime.runner,
         tools: runtime.nativeTools,
-        engineCache: runtime.engineCache(flutterRoot),
+        engineCache: runtime.engineCache(flutterRoot, mode: options.buildMode),
         renderer: runtime.toolShimRenderer,
         projectRoot: projectRoot,
         flutterRoot: flutterRoot,
@@ -98,6 +101,11 @@ final class FlutterArtifactCompiler<T extends PlatformHostInterface>
     if (assembleDir.existsSync()) await assembleDir.delete(recursive: true);
     await assembleDir.create(recursive: true);
 
+    final mode = options.buildMode;
+    final snapshotter = await _snapshotter(
+      flutterRoot,
+      deploymentTarget: deploymentTarget,
+    );
     final debugBundle = await FlutterDebugBundler(
       runtime: runtime,
       assets: FlutterAssetsCompiler(
@@ -116,6 +124,8 @@ final class FlutterArtifactCompiler<T extends PlatformHostInterface>
         entrypoint: options.target,
         dartDefines: options.dartDefines,
         flavor: options.flavor,
+        buildMode: mode,
+        versionDefines: FlutterVersionDefines.read(runtime.host, flutterRoot),
       ),
       projectRoot: projectRoot,
       flutterRoot: flutterRoot,
@@ -125,8 +135,31 @@ final class FlutterArtifactCompiler<T extends PlatformHostInterface>
       dartDefines: options.dartDefines,
       flavor: options.flavor,
       treeShakeIcons: options.shakesIcons,
+      snapshotter: snapshotter,
+      splitDebugInfo: options.splitDebugInfo,
+      obfuscate: options.obfuscate,
     ).build();
     return debugBundle;
+  }
+
+  Future<FlutterAotSnapshotter<T>?> _snapshotter(
+    String flutterRoot, {
+    required IosDeploymentTarget deploymentTarget,
+  }) async {
+    final mode = options.buildMode.genSnapshotMode;
+    if (mode == null) return null;
+    final locate = runtime.aotCompilers;
+    if (locate == null) {
+      throw FlutterBuildError(
+        '${options.buildMode.name} builds need the iOS AOT compiler, which '
+        'this xcross host does not provide.',
+      );
+    }
+    return FlutterAotSnapshotter(
+      runtime: runtime,
+      compiler: await locate(flutterRoot: flutterRoot, mode: mode),
+      deploymentTarget: deploymentTarget,
+    );
   }
 
   /// Discover the project's iOS plugins and build the aggregate Swift
@@ -172,7 +205,9 @@ final class FlutterArtifactCompiler<T extends PlatformHostInterface>
     }
     if (spmPlugins.isEmpty) return null;
 
-    final xcframework = runtime.engineCache(flutterRoot).flutterXcframework;
+    final xcframework = runtime
+        .engineCache(flutterRoot, mode: options.buildMode)
+        .flutterXcframework;
     final capabilities =
         await artifactJunctionCapabilityResolver?.call() ??
         (

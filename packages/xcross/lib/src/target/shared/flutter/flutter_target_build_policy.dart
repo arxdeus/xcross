@@ -12,6 +12,10 @@ abstract interface class FlutterTargetBuildPolicy<
   String outputDirectory(String projectRoot);
   String buildDirectory(String projectRoot, String name);
   String get engineArtifact;
+
+  /// Whether this target runs ahead-of-time compiled Flutter code. Flutter's
+  /// simulator engines are JIT-only in every build mode.
+  bool get supportsPrecompiledModes;
   List<String> get engineSliceIdentifiers;
   String selectEngineSlice(String xcframework);
   bool matchesLibraryVariant(String? variant);

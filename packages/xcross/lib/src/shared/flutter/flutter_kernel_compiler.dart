@@ -9,6 +9,7 @@ import 'package:xcross/src/shared/flutter/build/ios_plugins.dart';
 import 'package:xcross/src/shared/flutter/errors.dart';
 import 'package:xcross/src/shared/flutter/flutter_build_runtime.dart';
 import 'package:xcross/src/shared/flutter/models/flutter/dart_defines.dart';
+import 'package:xcross/src/shared/flutter/models/flutter/flutter_build_mode.dart';
 
 @internal
 final class FlutterKernelCompiler<T extends PlatformHostInterface> {
@@ -21,6 +22,8 @@ final class FlutterKernelCompiler<T extends PlatformHostInterface> {
     this.entrypoint = 'lib/main.dart',
     this.dartDefines = const [],
     this.flavor,
+    this.buildMode = FlutterBuildMode.debug,
+    this.versionDefines = const [],
   }) : packageUriLoader = PackageUriLoader(
          fileSystem: runtime.host.fileSystem,
          paths: runtime.host.paths.context,
@@ -34,6 +37,13 @@ final class FlutterKernelCompiler<T extends PlatformHostInterface> {
   final String entrypoint;
   final List<String> dartDefines;
   final String? flavor;
+
+  /// Debug compiles a hot-reloadable kernel; profile and release compile a
+  /// whole-program AOT kernel for `gen_snapshot`.
+  final FlutterBuildMode buildMode;
+
+  /// `FLUTTER_VERSION`-style defines flutter_tools adds to every build.
+  final List<String> versionDefines;
   Future<String> compile(IosEngineCache<T> engineCache) async {
     final compiler = _resolveKernelCompiler(engineCache);
     _validateKernelDependencies(compiler, engineCache);
@@ -213,10 +223,20 @@ final class FlutterKernelCompiler<T extends PlatformHostInterface> {
     '--sdk-root', '${engineCache.patchedSdkRoot}/',
     '--target=flutter',
     '--no-print-incremental-dependencies',
-    '-Ddart.developer.serviceExtensionStream.enabled=true',
-    '-Ddart.vm.profile=false',
-    '-Ddart.vm.product=false',
-    '--track-widget-creation',
+    for (final define in versionDefines) '-D$define',
+    if (buildMode.isPrecompiled) ...[
+      ...buildMode.vmDefines,
+      '--delete-tostring-package-uri=dart:ui',
+      '--delete-tostring-package-uri=package:flutter',
+      '--aot',
+      '--tfa',
+      '--target-os',
+      'ios',
+    ] else ...[
+      '-Ddart.developer.serviceExtensionStream.enabled=true',
+      ...buildMode.vmDefines,
+      '--track-widget-creation',
+    ],
     '--packages', packageConfig,
     '--output-dill', outputDill,
     // User-supplied dart-defines forwarded as -D<KEY=VALUE>.

@@ -51,13 +51,28 @@ final class FlutterRunArgs extends CommonFlutterArgs {
 
   @CliOption(abbr: 'v', help: 'Verbose output.', negatable: false)
   late bool verbose;
+
+  @CliOption(negatable: false, help: 'Run a debug (JIT) build (default).')
+  late bool debug;
+
+  @CliOption(
+    negatable: false,
+    help: 'Run an ahead-of-time compiled profile build, without hot reload.',
+  )
+  late bool profile;
+
+  @CliOption(
+    negatable: false,
+    help: 'Run an ahead-of-time compiled release build, without hot reload.',
+  )
+  late bool release;
 }
 
 /// `xcross flutter run` — build, sign, install, launch, and hot-reload a
 /// Flutter app on a connected iOS 17+ device.
 ///
-/// Always builds a debug (JIT) app and always launches with hot reload (the
-/// flutter default).
+/// Debug builds (the default) launch with hot reload; `--profile` and
+/// `--release` run ahead-of-time compiled code without it.
 @internal
 final class FlutterRunCommand<T extends PlatformHostInterface>
     extends ParsedCommand<FlutterRunArgs, void> {
@@ -106,6 +121,12 @@ final class FlutterRunCommand<T extends PlatformHostInterface>
   Future<void> run() async {
     if (options.verbose) runtime.log.setVerbose();
 
+    final buildMode = flutterBuildModeOf(
+      debug: options.debug,
+      profile: options.profile,
+      release: options.release,
+      usageException: usageException,
+    );
     final buildRuntime = features.flutterRuntime;
     final buildOptions = await buildRuntime.options.resolve(
       target: options.target,
@@ -113,6 +134,7 @@ final class FlutterRunCommand<T extends PlatformHostInterface>
       dartDefineFromFile: options.dartDefineFromFile,
       pub: options.pub,
       flavor: options.flavor,
+      buildMode: buildMode,
     );
     final pack = await FlutterPackOperation.pack(
       projectRoot: runtime.host.paths.context.current,
@@ -120,22 +142,28 @@ final class FlutterRunCommand<T extends PlatformHostInterface>
       options: buildOptions,
     );
 
-    final hotReload = await HotReloadSetup.buildHotReloadConfig(
-      projectRoot: runtime.host.paths.context.current,
-      runtime: buildRuntime,
-      target: buildOptions.target,
-      dartDefines: buildOptions.dartDefines,
-      verbose: options.verbose,
-    );
+    final hotReload = buildMode.isPrecompiled
+        ? null
+        : await HotReloadSetup.buildHotReloadConfig(
+            projectRoot: runtime.host.paths.context.current,
+            runtime: buildRuntime,
+            target: buildOptions.target,
+            dartDefines: buildOptions.dartDefines,
+            verbose: options.verbose,
+          );
     if (hotReload == null &&
         runtime.runner.effectiveEnvironment['XCROSS_DAP'] == '1') {
       throw XcrossError(
-        'DAP launch requires the Flutter frontend_server artifacts needed '
-        'for hot reload.',
+        buildMode.isPrecompiled
+            ? 'DAP launch requires a debug build.'
+            : 'DAP launch requires the Flutter frontend_server artifacts '
+                  'needed for hot reload.',
       );
     }
 
-    final mode = hotReload != null
+    final mode = buildMode.isPrecompiled
+        ? '${buildMode.name}/AOT'
+        : hotReload != null
         ? 'debug/JIT, hot reload'
         : 'debug/JIT, attached via CoreDevice';
     runtime.log.logInfo('App', '${pack.bundleId} ${runtime.log.dim(mode)}');
@@ -157,6 +185,7 @@ final class FlutterRunCommand<T extends PlatformHostInterface>
       launchProfile: CoreDeviceLaunchProfile.flutter(
         arguments: _appArguments,
         hotReload: hotReload,
+        debuggingEnabled: !buildMode.isPrecompiled,
       ),
     );
   }

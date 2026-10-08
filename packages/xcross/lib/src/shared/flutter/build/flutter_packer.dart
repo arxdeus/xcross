@@ -52,7 +52,9 @@ final class FlutterPacker<T extends PlatformHostInterface> {
     runtime,
   ).resolveFlutterRoot(projectRoot: projectRoot, root: root);
   Future<String> pack() async {
-    options.validate();
+    options.validate(
+      supportsPrecompiledModes: runtime.policy.supportsPrecompiledModes,
+    );
     final context = await _resolve.resolve(request);
     if (!identical(context.request, request)) {
       throw ArgumentError('Flutter resolver must retain the original request');

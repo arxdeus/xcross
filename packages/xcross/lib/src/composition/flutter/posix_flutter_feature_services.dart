@@ -12,6 +12,7 @@ import 'package:xcross/src/host/shared/flutter/native_host_tools.dart';
 import 'package:xcross/src/host/shared/flutter/swiftpm/posix_build_execution.dart';
 import 'package:xcross/src/host/shared/flutter/swiftpm/posix_dependency_preparation.dart';
 import 'package:xcross/src/host/shared/flutter/swiftpm/posix_gate_platform.dart';
+import 'package:xcross/src/shared/flutter/build/flutter_aot_snapshotter.dart';
 import 'package:xcross/src/shared/flutter/build/internal/apple_tool_shims.dart';
 import 'package:xcross/src/shared/flutter/build/ios_plugin_package.dart';
 import 'package:xcross/src/shared/flutter/flutter_build_runtime.dart';
@@ -50,7 +51,10 @@ abstract class PosixFlutterFeatureServices<T extends PlatformHostInterface>
     required this.publicationCoordinator,
     required this.transport,
     required this.copyPolicy,
+    this.aotCompilers,
   });
+
+  final IosAotCompilerLocator? aotCompilers;
 
   final SwiftPmPublicationCoordinator publicationCoordinator;
   final SwiftPmArchiveTransport transport;
@@ -136,6 +140,7 @@ abstract class PosixFlutterFeatureServices<T extends PlatformHostInterface>
       downloader: downloader,
       plugins: plugins,
       resolution: resolution,
+      aotCompilers: aotCompilers,
     );
   }
 
