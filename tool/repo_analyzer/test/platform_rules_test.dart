@@ -1,3 +1,5 @@
+import 'package:repo_analyzer/src/rules/native_access_rules.dart';
+import 'package:repo_analyzer/src/rules/platform_dispatch_rules.dart';
 import 'package:repo_analyzer/src/rules/platform_rules.dart';
 import 'package:test_reflective_loader/test_reflective_loader.dart';
 

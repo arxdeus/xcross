@@ -4,6 +4,8 @@ import 'package:analysis_server_plugin/registry.dart';
 import 'package:repo_analyzer/src/rule_base.dart';
 import 'package:repo_analyzer/src/rules/declaration_rules.dart';
 import 'package:repo_analyzer/src/rules/dependency_rules.dart';
+import 'package:repo_analyzer/src/rules/native_access_rules.dart';
+import 'package:repo_analyzer/src/rules/platform_dispatch_rules.dart';
 import 'package:repo_analyzer/src/rules/platform_rules.dart';
 
 /// Entry point loaded by the Dart analysis server.
