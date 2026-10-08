@@ -25,6 +25,7 @@ final class XcrossConfigDecoder {
     'environment',
     'excluded_commands',
     'setup',
+    'ios_gen_snapshot',
   };
   static const _rootsKeys = {
     'darwinSdk',
@@ -55,6 +56,7 @@ final class XcrossConfigDecoder {
         root['excluded_commands'],
         r'$.excluded_commands',
       ),
+      iosGenSnapshot: _decodeIosGenSnapshot(root['ios_gen_snapshot']),
     );
     XcrossConfigValidator(
       fileSystem: host.fileSystem,
@@ -129,6 +131,29 @@ final class XcrossConfigDecoder {
           : _requiredString(entry.value, r'$.environment.' + entry.key);
     }
     return configured;
+  }
+
+  Map<String, XcrossIosGenSnapshotPin> _decodeIosGenSnapshot(Object? value) {
+    final node = _optionalMap(value, r'$.ios_gen_snapshot');
+    return {
+      for (final entry in node.entries)
+        entry.key: _decodeIosGenSnapshotPin(
+          entry.value,
+          r'$.ios_gen_snapshot.' + entry.key,
+        ),
+    };
+  }
+
+  XcrossIosGenSnapshotPin _decodeIosGenSnapshotPin(
+    Object? value,
+    String field,
+  ) {
+    final node = _stringMap(value, field, sourcePath);
+    _onlyKeys(node, XcrossIosGenSnapshotPin.modes, field, sourcePath);
+    return XcrossIosGenSnapshotPin(
+      release: _optionalString(node['release'], '$field.release'),
+      profile: _optionalString(node['profile'], '$field.profile'),
+    );
   }
 
   Map<String, Object?> _optionalMap(Object? value, String field) =>
@@ -316,6 +341,20 @@ final class XcrossConfigValidator {
     if (config.setup case final value?) _validateSetupScript(value);
     _validateExcludedCommands(config.excludedCommands);
     _validateEnvironment(config.environment);
+    _validateIosGenSnapshot(config.iosGenSnapshot);
+  }
+
+  void _validateIosGenSnapshot(Map<String, XcrossIosGenSnapshotPin> pins) {
+    for (final pin in pins.entries) {
+      for (final path in pin.value.toMap().entries) {
+        if (!pathContext.isAbsolute(path.value)) {
+          throw XcrossConfigException(
+            'iOS gen_snapshot ${pin.key} ${path.key} must be an absolute '
+            'path: ${path.value}',
+          );
+        }
+      }
+    }
   }
 
   void _validateRoots(XcrossConfigRoots roots) {

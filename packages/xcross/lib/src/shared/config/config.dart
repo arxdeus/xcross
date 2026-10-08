@@ -84,6 +84,22 @@ final class XcrossConfigToolchains {
   bool get isEmpty => swift == null && llvm.isEmpty;
 }
 
+/// iOS AOT compilers (`gen_snapshot`) a user pinned for one Flutter version.
+@internal
+final class XcrossIosGenSnapshotPin {
+  const XcrossIosGenSnapshotPin({this.release, this.profile});
+
+  static const modes = {'release', 'profile'};
+
+  final String? release;
+  final String? profile;
+
+  /// Pinned executable for a build mode name (`release` or `profile`).
+  String? forMode(String mode) => toMap()[mode];
+
+  Map<String, String> toMap() => {'release': ?release, 'profile': ?profile};
+}
+
 /// Contents of an xcross YAML configuration.
 @internal
 final class XcrossConfig {
@@ -94,7 +110,9 @@ final class XcrossConfig {
     Map<String, Object> environment = const {},
     this.setup,
     Iterable<String> excludedCommands = const [],
-  }) : toolchains = XcrossConfigToolchains(
+    Map<String, XcrossIosGenSnapshotPin> iosGenSnapshot = const {},
+  }) : iosGenSnapshot = Map.unmodifiable(_validatePins(iosGenSnapshot)),
+       toolchains = XcrossConfigToolchains(
          swift: toolchains.swift,
          llvm: List.unmodifiable(toolchains.llvm),
        ),
@@ -171,6 +189,9 @@ final class XcrossConfig {
   final String? setup;
   final Set<String> excludedCommands;
 
+  /// Pinned iOS AOT compilers keyed by Flutter version or engine revision.
+  final Map<String, XcrossIosGenSnapshotPin> iosGenSnapshot;
+
   XcrossConfig copyWith({
     XcrossConfigRoots? roots,
     XcrossConfigToolchains? toolchains,
@@ -178,6 +199,7 @@ final class XcrossConfig {
     Map<String, Object>? environment,
     Object? setup = _notProvided,
     Iterable<String>? excludedCommands,
+    Map<String, XcrossIosGenSnapshotPin>? iosGenSnapshot,
   }) => XcrossConfig(
     roots: roots ?? this.roots,
     toolchains: toolchains ?? this.toolchains,
@@ -185,6 +207,7 @@ final class XcrossConfig {
     environment: environment ?? this.environment,
     setup: setup == _notProvided ? this.setup : setup as String?,
     excludedCommands: excludedCommands ?? this.excludedCommands,
+    iosGenSnapshot: iosGenSnapshot ?? this.iosGenSnapshot,
   );
 
   String? tool(String name) => tools[name];
@@ -239,7 +262,43 @@ final class XcrossConfig {
         buffer.writeln('  ${entry.key}: ${_yamlString(entry.value as String)}');
       }
     }
+    if (iosGenSnapshot.isNotEmpty) {
+      buffer.writeln('ios_gen_snapshot:');
+      for (final version in iosGenSnapshot.keys.toList()..sort()) {
+        buffer.writeln('  ${_yamlString(version)}:');
+        for (final pin in iosGenSnapshot[version]!.toMap().entries) {
+          buffer.writeln('    ${pin.key}: ${_yamlString(pin.value)}');
+        }
+      }
+    }
     return buffer.toString();
+  }
+
+  static Map<String, XcrossIosGenSnapshotPin> _validatePins(
+    Map<String, XcrossIosGenSnapshotPin> source,
+  ) {
+    for (final entry in source.entries) {
+      rejectUnsafeConfigString(entry.key, 'iOS gen_snapshot pin version');
+      if (entry.key.trim().isEmpty || entry.key.contains(RegExp(r'\s'))) {
+        throw XcrossConfigException(
+          'iOS gen_snapshot pins must be keyed by a Flutter version or engine '
+          'revision: "${entry.key}"',
+        );
+      }
+      final paths = entry.value.toMap();
+      if (paths.isEmpty) {
+        throw XcrossConfigException(
+          'iOS gen_snapshot pin ${entry.key} must set release or profile',
+        );
+      }
+      for (final path in paths.entries) {
+        rejectUnsafeConfigString(
+          path.value,
+          'iOS gen_snapshot ${entry.key} ${path.key} path',
+        );
+      }
+    }
+    return source;
   }
 
   static Map<String, Object> _normalizeEnvironment(Map<String, Object> source) {
