@@ -17,7 +17,9 @@ final class SignedBundlePreparer {
 
   void validateContainment(String appPath) {
     final root = fileSystem.directory(appPath);
-    if (fileSystem.link(appPath).existsSync() || !root.existsSync()) {
+    final isRealDirectory =
+        !fileSystem.link(appPath).existsSync() && root.existsSync();
+    if (!isRealDirectory) {
       throw XcrossError('Bundle root must be a real directory: "$appPath"');
     }
     final canonicalRoot = root.resolveSymbolicLinksSync();
@@ -25,9 +27,11 @@ final class SignedBundlePreparer {
       if (entity is! Link) continue;
       final relative = paths.context.relative(entity.path, from: appPath);
       final components = paths.context.split(relative);
-      if (components.last == 'Info.plist' ||
+      final isPlugInsLink =
           components.first == 'PlugIns' &&
-              (components.length == 1 || components.last.endsWith('.appex'))) {
+          (components.length == 1 || components.last.endsWith('.appex'));
+      final isMutationTarget = components.last == 'Info.plist' || isPlugInsLink;
+      if (isMutationTarget) {
         throw XcrossError(
           'Bundle contains a linked mutation target: "${entity.path}"',
         );
@@ -40,8 +44,10 @@ final class SignedBundlePreparer {
           'Bundle contains an unresolved link: "${entity.path}"',
         );
       }
-      if (paths.pathKey(resolved) != paths.pathKey(canonicalRoot) &&
-          !paths.context.isWithin(canonicalRoot, resolved)) {
+      final staysInRoot =
+          paths.pathKey(resolved) == paths.pathKey(canonicalRoot) ||
+          paths.context.isWithin(canonicalRoot, resolved);
+      if (!staysInRoot) {
         throw XcrossError('Bundle link escapes its root: "${entity.path}"');
       }
     }
