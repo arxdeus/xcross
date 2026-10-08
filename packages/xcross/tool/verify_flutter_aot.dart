@@ -44,7 +44,7 @@ void main(List<String> arguments) {
     }
   }
   final binary = File.fromUri(framework.uri.resolve('App'));
-  final digests = sectionDigests(binary.readAsBytesSync());
+  final digests = _sectionDigests(binary.readAsBytesSync());
 
   final flutter = File.fromUri(
     app.uri.resolve('Frameworks/Flutter.framework/Flutter'),
@@ -92,7 +92,7 @@ Directory _findApp(String path) {
 /// SHA-256 of `__TEXT,__text` (Dart machine code) and `__TEXT,__const` (the
 /// snapshot) of an arm64 App dylib exporting the two Dart snapshot symbols.
 /// flutter build ios wraps the dylib in a one-architecture universal binary.
-Map<String, String> sectionDigests(Uint8List input) {
+Map<String, String> _sectionDigests(Uint8List input) {
   Never invalid(String message) => throw StateError('App: $message');
   final bytes = _arm64Slice(input, invalid);
   final file = MachOFile.parse(bytes, invalid: invalid);

@@ -143,6 +143,7 @@ final class IosNativeAssetsBuilder<T extends PlatformHostInterface> {
     );
     final frameworks = await nativeAssetFrameworks.stage(sources, output);
     await nativeAssetFrameworks.thin(frameworks, lipo: config.lipo);
+    if (engineCache.mode.isPrecompiled) await _strip(frameworks);
     await nativeAssetFrameworks.align(frameworks);
     await nativeAssetFrameworks.normalize(frameworks);
 
@@ -191,6 +192,31 @@ final class IosNativeAssetsBuilder<T extends PlatformHostInterface> {
     );
   }
 
+  /// Strips local and debug symbols from code assets of profile and release
+  /// builds, as flutter_tools does (`strip -x -S`).
+  Future<void> _strip(Iterable<String> frameworks) async {
+    final strip = await tools.toolchain.locateLlvmTool('llvm-strip');
+    if (strip == null) {
+      runner.log.logWarn(
+        'llvm-strip not found; native asset frameworks keep their symbols.',
+      );
+      return;
+    }
+    for (final framework in frameworks) {
+      final binary = host.paths.context.join(
+        framework,
+        host.paths.context.basenameWithoutExtension(framework),
+      );
+      await runner.runChecked(strip, [
+        '-x',
+        '-S',
+        binary,
+        '-o',
+        binary,
+      ], label: 'llvm-strip');
+    }
+  }
+
   /// Flutter assemble inputs shared by the bundle and native-hook targets.
   /// Using assemble also preserves explicit FLUTTER_APP_FLAVOR overrides,
   /// which the higher-level `build bundle` command rejects.
@@ -201,7 +227,7 @@ final class IosNativeAssetsBuilder<T extends PlatformHostInterface> {
     '-o',
     output,
     '-dTargetPlatform=ios',
-    '-dBuildMode=debug',
+    '-dBuildMode=${engineCache.mode.name}',
     '-dIosArchs=arm64',
     if (iosSdk != null) '-dSdkRoot=$iosSdk',
     '-dTargetFile=$entrypoint',
