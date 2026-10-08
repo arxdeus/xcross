@@ -35,7 +35,7 @@ xcross reimplements the Flutter iOS build pipeline and the iOS 17+ CoreDevice la
 | **Direct build pipeline** | `frontend_server` → `clang` → `ld64.lld` → `.app` / `.ipa` - no Xcode build system involved |
 
 > [!IMPORTANT]
-> xcross produces **debug (JIT) device builds**. Release/AOT builds still require Flutter's macOS build tooling. Launching with xcross requires **iOS 17 or later** on the device.
+> xcross builds **debug (JIT)** device and simulator apps, and **profile/release (AOT)** device apps. Launching with xcross requires **iOS 17 or later** on the device.
 
 ## Requirements
 
@@ -359,6 +359,7 @@ Edit it with `xcross config`, inspect it with `xcross config show`, prove it wit
 | `xcross tunnel` | Mount the Developer Disk Image + start the iOS 17+ RSD tunnel over USB |
 | `xcross tunnel --wifi` | Prepare wireless pairing, reconnect or advertise pair-host, mount DDI, and open the Wi-Fi RSD tunnel |
 | `xcross flutter run` | Build → sign → install → launch → hot reload |
+| `xcross flutter build --release` | Build an ahead-of-time compiled `.app` or `.ipa` (also `--profile`) |
 | `xcross flutter doctor` | Read-only check of the Flutter project, Swift/LLVM iOS toolchain, Darwin SDK, authentication, and devices |
 | `xcross compose setup` | Install Kotlin/Compose iOS cross-build helpers |
 | `xcross compose doctor` | Read-only check of the Gradle project, Kotlin/Native, JDK 21+, Gradle, swiftc, clang, Darwin SDK, `ld64.lld`, authentication, and devices |
@@ -496,9 +497,9 @@ Writes `.run/xcross_ios_device.run.xml` - a shared [LSP4IJ](https://plugins.jetb
 ## FAQ
 
 <details>
-<summary><b>Why can't it build release/AOT?</b></summary>
+<summary><b>How does it build release/AOT?</b></summary>
 
-Flutter's `gen_snapshot` for iOS AOT only runs on macOS hosts - Dart does not cross-compile an iOS AOT executable from Windows/Linux. Debug (JIT) builds don't need it, which is exactly what xcross produces. Release builds still need Flutter's macOS toolchain.
+Flutter publishes its iOS AOT compiler (`gen_snapshot`) for macOS only. On macOS xcross uses that compiler. On Linux and Windows it downloads the compiler [xcross_gen_snapshot](https://github.com/arxdeus/xcross_gen_snapshot) builds in GitHub Actions for each Flutter release, from the Dart revision that release pins. Each published compiler produced output byte-identical to Flutter's own on the reference app before it was released. xcross checks the engine revision and both digests before it uses a download. To use a compiler of your own, set `ios_gen_snapshot` in the xcross config. Simulators stay debug-only, because Flutter's simulator engines are JIT-only.
 </details>
 
 <details>
@@ -589,7 +590,7 @@ In debug mode Flutter apps are not compiled to machine code - the Dart VM runs *
 - `AssetManifest.bin/json`, `FontManifest.json`, fonts and assets - generated in Dart from your `pubspec.yaml`, replicating Flutter's asset bundling
 - The `App.framework` *binary* in a debug build is only a stub - xcross compiles that stub with `clang` targeting `arm64-apple-ios` and writes the framework's `Info.plist` itself.
 
-Because the app is pure JIT, no `gen_snapshot` is needed - which is precisely what makes macOS unnecessary (and why release/AOT is out of scope).
+Because a debug app is pure JIT, no `gen_snapshot` is needed. Profile and release builds instead compile a whole-program AOT kernel and let `gen_snapshot` write `App.framework/App` directly, as `flutter build ios` does; see the FAQ for where that compiler comes from on Linux and Windows.
 
 ### 3. Native code without Xcode
 
