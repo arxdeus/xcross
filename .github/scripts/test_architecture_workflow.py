@@ -129,7 +129,7 @@ class ArchitectureWorkflowTests(unittest.TestCase):
     def test_each_branch_rule_context_gets_its_own_verdict(self):
         jobs = workflow_jobs((ROOT / '.github/workflows/integration.yml').read_text())
         for job, context, required in (
-            ('verdict', 'Integration Tests', ['flutter-build', 'flutter-simulator', 'flutter-example-simulator-run', 'native-host', 'simulator-report']),
+            ('verdict', 'Integration Tests', ['flutter-build', 'flutter-aot-reference', 'flutter-aot-parity', 'flutter-simulator', 'flutter-example-simulator-run', 'native-host', 'simulator-report']),
             ('compose-verdict', 'Compose Integration Tests', ['compose-build', 'compose-simulator', 'simulator-report']),
         ):
             with self.subTest(job=job):

@@ -101,6 +101,8 @@ class WorkflowSecurityTests(unittest.TestCase):
                     allowed = {smoke, *staged}
                     if name == "integration.yml":
                         allowed.add("examples/flutter_example/build/xcross-ios-simulator/*.app")
+                        allowed.add("${{ runner.temp }}/aot-reference")
+                        allowed.add("${{ runner.temp }}/aot-digests")
                     self.assertTrue(paths)
                     self.assertLessEqual(set(paths), allowed)
                     self.assertEqual(paths.count(smoke), paths.count(staged[0]))

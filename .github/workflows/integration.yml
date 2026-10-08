@@ -653,6 +653,142 @@ jobs:
           dart run "$env:GITHUB_WORKSPACE/packages/xcross/tool/verify_flutter_notices.dart" build/xcross-ios
           if ($LASTEXITCODE -ne 0) { throw 'Packaged Flutter notices are invalid' }
 
+      - name: Build precompiled Flutter apps on Linux
+        if: runner.os == 'Linux' && steps.darwin.outputs.available == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          flutter create --platforms=ios --project-name=aot_smoke "$RUNNER_TEMP/aot-smoke"
+          mkdir -p "$RUNNER_TEMP/aot-digests"
+          for mode in release profile; do
+            (cd "$RUNNER_TEMP/aot-smoke" && "$RUNNER_TEMP/xcross-bundle/bin/xcross" --verbose flutter build "--$mode")
+            dart run "$GITHUB_WORKSPACE/packages/xcross/tool/verify_flutter_aot.dart" \
+              "$RUNNER_TEMP/aot-smoke/build/xcross-ios" \
+              "--write=$RUNNER_TEMP/aot-digests/$mode.json"
+          done
+
+      - name: Build precompiled Flutter apps on Windows
+        if: runner.os == 'Windows' && steps.darwin.outputs.available == 'true'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          flutter create --platforms=ios --project-name=aot_smoke "$env:RUNNER_TEMP/aot-smoke"
+          if ($LASTEXITCODE -ne 0) { throw 'Creating the AOT fixture failed' }
+          New-Item -ItemType Directory -Force "$env:RUNNER_TEMP/aot-digests" | Out-Null
+          foreach ($mode in 'release', 'profile') {
+            Push-Location "$env:RUNNER_TEMP/aot-smoke"
+            & "$env:RUNNER_TEMP\xcross-bundle\bin\xcross.exe" --verbose flutter build "--$mode"
+            $code = $LASTEXITCODE
+            Pop-Location
+            if ($code -ne 0) { throw "xcross flutter build --$mode failed" }
+            dart run "$env:GITHUB_WORKSPACE/packages/xcross/tool/verify_flutter_aot.dart" `
+              "$env:RUNNER_TEMP/aot-smoke/build/xcross-ios" `
+              "--write=$env:RUNNER_TEMP/aot-digests/$mode.json"
+            if ($LASTEXITCODE -ne 0) { throw "Precompiled $mode app is invalid" }
+          }
+
+      - name: Upload precompiled app digests
+        if: steps.darwin.outputs.available == 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: flutter-aot-digests-${{ matrix.os }}
+          path: ${{ runner.temp }}/aot-digests
+          if-no-files-found: error
+          retention-days: 7
+
+  flutter-aot-parity:
+    name: Flutter AOT parity (${{ matrix.host }})
+    needs: [gate, flutter-build, flutter-aot-reference]
+    if: >-
+      ${{ !cancelled() && needs.gate.outputs.run == 'true' &&
+      needs.gate.outputs.trusted == 'true' }}
+    permissions:
+      contents: read
+      actions: read
+    strategy:
+      fail-fast: false
+      matrix:
+        host: [ubuntu-24.04, ubuntu-24.04-arm, windows-2022, windows-11-arm]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Download flutter build ios digests
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: flutter-aot-reference
+          path: ${{ runner.temp }}/reference
+
+      - name: Download cross-built digests
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: flutter-aot-digests-${{ matrix.host }}
+          path: ${{ runner.temp }}/cross
+
+      # Release snapshots hold no host paths, so the whole App must match.
+      # Profile snapshots keep the SDK's absolute file: URIs for the
+      # profiler, so only their machine code can match across hosts.
+      - name: Compare with flutter build ios
+        shell: bash
+        run: |
+          set -euo pipefail
+          for mode in release profile; do
+            sections='.__text, .__const'
+            if [ "$mode" = profile ]; then sections='.__text'; fi
+            expected="$(jq -c "[$sections]" "$RUNNER_TEMP/reference/$mode.json")"
+            actual="$(jq -c "[$sections]" "$RUNNER_TEMP/cross/$mode.json")"
+            echo "$mode: flutter build ios $expected, xcross $actual"
+            test "$expected" = "$actual"
+          done
+
+  flutter-aot-reference:
+    name: Flutter AOT reference (macOS)
+    needs: gate
+    if: needs.gate.outputs.run == 'true'
+    permissions:
+      contents: read
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: ${{ needs.gate.outputs.sha }}
+          persist-credentials: false
+
+      - name: Select compatible native Xcode
+        uses: ./.github/actions/configure-xcode
+
+      - name: Install Flutter
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --depth 1 --branch "$FLUTTER_VERSION" \
+            https://github.com/flutter/flutter.git "$RUNNER_TEMP/flutter"
+          echo "$RUNNER_TEMP/flutter/bin" >> "$GITHUB_PATH"
+
+      - name: Record flutter build ios digests
+        shell: bash
+        run: |
+          set -euo pipefail
+          flutter config --no-analytics
+          flutter precache --ios
+          dart pub get
+          flutter create --platforms=ios --project-name=aot_smoke "$RUNNER_TEMP/aot-smoke"
+          mkdir -p "$RUNNER_TEMP/aot-reference"
+          for mode in release profile; do
+            (cd "$RUNNER_TEMP/aot-smoke" && flutter build ios "--$mode" --no-codesign)
+            dart run packages/xcross/tool/verify_flutter_aot.dart \
+              "$RUNNER_TEMP/aot-smoke/build/ios/iphoneos/Runner.app" \
+              "--write=$RUNNER_TEMP/aot-reference/$mode.json"
+          done
+
+      - name: Upload digests
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: flutter-aot-reference
+          path: ${{ runner.temp }}/aot-reference
+          if-no-files-found: error
+          retention-days: 7
+
   flutter-simulator:
     name: Flutter ARM64 iOS Simulator
     needs: gate
@@ -1468,7 +1604,7 @@ jobs:
 
   verdict:
     name: Verdict
-    needs: [gate, flutter-build, flutter-simulator, flutter-example-simulator-run, native-host, simulator-report]
+    needs: [gate, flutter-build, flutter-aot-reference, flutter-aot-parity, flutter-simulator, flutter-example-simulator-run, native-host, simulator-report]
     if: ${{ always() && needs.gate.outputs.run == 'true' && needs.gate.outputs.trusted == 'true' }}
     runs-on: ubuntu-24.04
     permissions:
