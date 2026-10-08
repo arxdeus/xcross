@@ -38,6 +38,7 @@ jobs:
     permissions:
       contents: read
       pull-requests: read
+      statuses: write
     outputs:
       run: ${{ steps.gate.outputs.run }}
       sha: ${{ steps.gate.outputs.sha }}
@@ -47,12 +48,22 @@ jobs:
       - name: Checkout gate action
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
-          sparse-checkout: .github/actions/integration-gate
+          sparse-checkout: |
+            .github/actions/integration-gate
+            .github/actions/commit-status
           persist-credentials: false
 
       - name: Resolve gate
         id: gate
         uses: ./.github/actions/integration-gate
+
+      - name: Mark the commit status pending
+        if: steps.gate.outputs.run == 'true' && steps.gate.outputs.trusted == 'true'
+        uses: ./.github/actions/commit-status
+        with:
+          sha: ${{ steps.gate.outputs.sha }}
+          context: Compose Integration Tests
+          state: pending
 
   compose-simulator:
     name: Compose ARM64 iOS Simulator
@@ -561,3 +572,29 @@ jobs:
             test -d "$app/compose-resources/composeResources"
           fi
           ls -la "$app"
+
+  verdict:
+    name: Verdict
+    needs: [gate, compose-build, compose-simulator, simulator-report]
+    if: ${{ always() && needs.gate.outputs.run == 'true' && needs.gate.outputs.trusted == 'true' }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      statuses: write
+    steps:
+      - name: Checkout status action
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          sparse-checkout: .github/actions/commit-status
+          persist-credentials: false
+
+      - name: Report the commit status
+        uses: ./.github/actions/commit-status
+        with:
+          sha: ${{ needs.gate.outputs.sha }}
+          context: Compose Integration Tests
+          state: ${{ (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')) && 'failure' || 'success' }}
+
+      - name: Fail when a required job failed
+        if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+        run: exit 1

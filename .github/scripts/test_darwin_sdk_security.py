@@ -314,6 +314,23 @@ class WorkflowSecurityTests(unittest.TestCase):
                         self.assertIn("ref: ${{ needs.gate.outputs.sha }}", checkout)
                 self.assertNotIn("github.event.comment.body }}", source)
 
+    def test_integration_reports_one_required_status_on_the_checked_commit(self):
+        for name, context in (("integration.yml", "Integration Tests"), ("compose-integration.yml", "Compose Integration Tests")):
+            with self.subTest(workflow=name):
+                source = (WORKFLOWS / name).read_text()
+                jobs = re.findall(r"(?m)^  ([a-z-]+):$", source.split("\njobs:\n", 1)[1])
+                verdict = job(source, "verdict")
+                needs = re.search(r"(?m)^    needs: \[(.+)\]$", verdict).group(1).split(", ")
+                self.assertEqual(sorted(needs), sorted(j for j in jobs if j != "verdict"))
+                self.assertIn("always() && needs.gate.outputs.run == 'true'", verdict)
+                self.assertIn("sha: ${{ needs.gate.outputs.sha }}", verdict)
+                self.assertIn(f"context: {context}\n", verdict)
+                self.assertIn("contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')", verdict)
+                self.assertIn("run: exit 1", verdict)
+                gate = job(source, "gate")
+                self.assertIn("state: pending", gate)
+                self.assertIn(f"context: {context}\n", gate)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,0 +1,35 @@
+name: Report commit status
+description: >-
+  Set a commit status on the commit the run checked out, so pull request
+  rules see Integration and Compose results for /check runs too.
+
+inputs:
+  sha:
+    description: Commit to annotate.
+    required: true
+  context:
+    description: Status name required by the branch rules.
+    required: true
+  state:
+    description: pending, success or failure.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Set status
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        SHA: ${{ inputs.sha }}
+        CONTEXT: ${{ inputs.context }}
+        STATE: ${{ inputs.state }}
+        TARGET: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      run: |
+        for attempt in 1 2 3; do
+          gh api "repos/${GITHUB_REPOSITORY}/statuses/${SHA}" \
+            -f state="$STATE" -f context="$CONTEXT" -f target_url="$TARGET" \
+            -f description="${STATE^} (${GITHUB_EVENT_NAME})" >/dev/null && exit 0
+          sleep $((attempt * 5))
+        done
+        exit 1
