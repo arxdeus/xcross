@@ -70,7 +70,7 @@ class WorkflowSecurityTests(unittest.TestCase):
         self.assertNotIn("revision", action)
         self.assertIn('os.environ["RUNNER_OS"].lower()', action)
         self.assertIn("uses: actions/cache/restore@", step(action, "Restore Darwin SDK cache"))
-        for name in ("integration.yml", "compose-integration.yml", "warm-darwin-sdk.yml"):
+        for name in ("integration.yml", "warm-darwin-sdk.yml"):
             source = (WORKFLOWS / name).read_text()
             with self.subTest(path=name):
                 caches = re.findall(r"(?i)actions/cache[^\s]*", source)
@@ -117,7 +117,7 @@ class WorkflowSecurityTests(unittest.TestCase):
                             self.assertIn("retention-days: 1", body)
 
     def test_trusted_cross_host_jobs_restore_cache_without_secrets_and_forks_keep_toolchain_checks(self):
-        for filename, job_name in (("integration.yml", "flutter-build"), ("compose-integration.yml", "compose-build")):
+        for filename, job_name in (("integration.yml", "flutter-build"), ("integration.yml", "compose-build")):
             with self.subTest(workflow=filename):
                 source = (WORKFLOWS / filename).read_text()
                 build = job(source, job_name)
@@ -148,7 +148,7 @@ class WorkflowSecurityTests(unittest.TestCase):
         for filename, job_name, pins in (
             ("integration.yml", "flutter-build",
              {"SWIFT_WINDOWS_X64_SHA256": x64, "SWIFT_WINDOWS_ARM64_SHA256": arm64}),
-            ("compose-integration.yml", "compose-build", {"SWIFT_WINDOWS_SHA256": x64}),
+            ("integration.yml", "compose-build", {"SWIFT_WINDOWS_X64_SHA256": x64}),
             ("warm-darwin-sdk.yml", "warm-cache",
              {"SWIFT_WINDOWS_X64_SHA256": x64, "SWIFT_WINDOWS_ARM64_SHA256": arm64}),
         ):
@@ -174,7 +174,7 @@ class WorkflowSecurityTests(unittest.TestCase):
                 self.assertIn("(swift-$($env:SWIFT_VERSION -replace '\\.0$')-RELEASE)", step(build, "Install official Swift and LLVM on Windows"))
 
     def test_native_simulator_jobs_use_installed_xcode_without_secrets(self):
-        for filename, job_name in (("integration.yml", "flutter-simulator"), ("compose-integration.yml", "compose-simulator")):
+        for filename, job_name in (("integration.yml", "flutter-simulator"), ("integration.yml", "compose-simulator")):
             with self.subTest(workflow=filename):
                 native = job((WORKFLOWS / filename).read_text(), job_name)
                 self.assertIn("runs-on: macos-15", native)
@@ -295,7 +295,7 @@ class WorkflowSecurityTests(unittest.TestCase):
         self.assertRegex(triggers, r"(?m)^  workflow_dispatch:\s*$")
 
     def test_integration_runs_on_main_push_pull_request_open_or_maintainer_check(self):
-        for name in ("integration.yml", "compose-integration.yml"):
+        for name in ("integration.yml",):
             with self.subTest(workflow=name):
                 source = (WORKFLOWS / name).read_text()
                 triggers = re.search(r"(?ms)^on:\n(.*?)^\S", source).group(1)
@@ -314,14 +314,19 @@ class WorkflowSecurityTests(unittest.TestCase):
                         self.assertIn("ref: ${{ needs.gate.outputs.sha }}", checkout)
                 self.assertNotIn("github.event.comment.body }}", source)
 
-    def test_integration_reports_one_required_status_on_the_checked_commit(self):
-        for name, context in (("integration.yml", "Integration Tests"), ("compose-integration.yml", "Compose Integration Tests")):
-            with self.subTest(workflow=name):
-                source = (WORKFLOWS / name).read_text()
-                jobs = re.findall(r"(?m)^  ([a-z-]+):$", source.split("\njobs:\n", 1)[1])
-                verdict = job(source, "verdict")
+    def test_integration_reports_one_required_status_per_context_on_the_checked_commit(self):
+        source = (WORKFLOWS / "integration.yml").read_text()
+        jobs = re.findall(r"(?m)^  ([a-z-]+):$", source.split("\njobs:\n", 1)[1])
+        verdicts = ("verdict", "compose-verdict")
+        covered = set()
+        for name, context in (("verdict", "Integration Tests"), ("compose-verdict", "Compose Integration Tests")):
+            with self.subTest(verdict=name):
+                verdict = job(source, name)
                 needs = re.search(r"(?m)^    needs: \[(.+)\]$", verdict).group(1).split(", ")
-                self.assertEqual(sorted(needs), sorted(j for j in jobs if j != "verdict"))
+                covered.update(needs)
+                self.assertIn("gate", needs)
+                self.assertIn("simulator-report", needs)
+                self.assertEqual(any(j.startswith("compose-") for j in needs), name == "compose-verdict")
                 self.assertIn("always() && needs.gate.outputs.run == 'true'", verdict)
                 self.assertIn("sha: ${{ needs.gate.outputs.sha }}", verdict)
                 self.assertIn(f"context: {context}\n", verdict)
@@ -330,6 +335,7 @@ class WorkflowSecurityTests(unittest.TestCase):
                 gate = job(source, "gate")
                 self.assertIn("state: pending", gate)
                 self.assertIn(f"context: {context}\n", gate)
+        self.assertEqual(covered, {j for j in jobs if j not in verdicts})
 
 
 if __name__ == "__main__":

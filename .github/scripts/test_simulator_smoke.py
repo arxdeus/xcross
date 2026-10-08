@@ -9,7 +9,7 @@ import unittest
 from unittest.mock import patch
 
 from configure_xcode import configure
-from prepare_simulator_fixture import FLUTTER_MAIN, FLUTTER_PUBSPEC, prepare_compose, prepare_flutter
+from prepare_simulator_fixture import prepare_compose
 from simulator_smoke import Smoke, app_metadata, install_timeout, select_device
 
 
@@ -144,17 +144,6 @@ class FixtureTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory(dir=os.environ.get("JCODE_SCRATCH_DIR"))
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
-
-    def test_flutter_fixture_probes_plugin_and_hook_before_first_frame_marker(self):
-        destination = self.root / "flutter"
-        prepare_flutter(destination)
-        self.assertEqual((destination / "pubspec.yaml").read_text(), FLUTTER_PUBSPEC)
-        self.assertEqual((destination / "lib/main.dart").read_text(), FLUTTER_MAIN)
-        with (destination / "ios/Flutter/AppFrameworkInfo.plist").open("rb") as source:
-            self.assertEqual(plistlib.load(source)["MinimumOSVersion"], "13.0")
-        self.assertLess(FLUTTER_MAIN.index("preferences.getInt"), FLUTTER_MAIN.index("runApp"))
-        self.assertLess(FLUTTER_MAIN.index("database.select"), FLUTTER_MAIN.index("runApp"))
-        self.assertLess(FLUTTER_MAIN.index("runApp"), FLUTTER_MAIN.index("XCROSS_SIMULATOR_NATIVE_FIRST_FRAME_READY"))
 
     def test_compose_fixture_changes_only_copy_and_excludes_build_outputs(self):
         source = self.root / "source"

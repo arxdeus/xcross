@@ -1,7 +1,7 @@
 name: Simulator report
 description: >-
   Publish staged simulator screenshots to the simulator-reports branch and
-  write one run summary that shows every platform's screenshot inline.
+  write one run summary that shows every Flutter and Compose screenshot inline.
 
 inputs:
   staged:
@@ -11,9 +11,12 @@ inputs:
     description: Summary heading.
     required: true
   pr:
-    description: Pull request to also post the report on (for /check runs).
+    description: Pull request to post the report on; earlier reports there are marked outdated.
     required: false
     default: ''
+  sha:
+    description: xcross commit the run checked out.
+    required: true
 
 runs:
   using: composite
@@ -60,6 +63,21 @@ runs:
         echo "::warning::Could not publish simulator screenshots"
         echo "published=false" >> "$GITHUB_OUTPUT"
 
+    - name: Resolve the xcross_examples commit
+      id: examples
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        SHA: ${{ inputs.sha }}
+      run: |
+        set -euo pipefail
+        if submodule=$(gh api "repos/${GITHUB_REPOSITORY}/contents/examples?ref=${SHA}"); then
+          echo "sha=$(jq -r '.sha // empty' <<< "$submodule")" >> "$GITHUB_OUTPUT"
+          echo "url=$(jq -r '.submodule_git_url // empty' <<< "$submodule")" >> "$GITHUB_OUTPUT"
+        else
+          echo "::warning::Could not resolve the examples submodule commit"
+        fi
+
     - name: Write run summary
       shell: bash
       env:
@@ -67,13 +85,18 @@ runs:
         TITLE: ${{ inputs.title }}
         PUBLISHED: ${{ steps.publish.outputs.published }}
         BASE: ${{ steps.publish.outputs.base }}
+        SHA: ${{ inputs.sha }}
+        REPOSITORY_URL: ${{ github.server_url }}/${{ github.repository }}
+        EXAMPLES_SHA: ${{ steps.examples.outputs.sha }}
+        EXAMPLES_URL: ${{ steps.examples.outputs.url }}
       run: |
         set -euo pipefail
+        args=(--title "$TITLE" --commit "$SHA" --repository-url "$REPOSITORY_URL"
+          --examples-commit "$EXAMPLES_SHA" --examples-url "$EXAMPLES_URL")
         if [ "$PUBLISHED" = true ]; then
-          python3 .github/scripts/simulator_report.py "$STAGED" --title "$TITLE" --image-base "$BASE"
-        else
-          python3 .github/scripts/simulator_report.py "$STAGED" --title "$TITLE"
-        fi > "$RUNNER_TEMP/simulator-report.md"
+          args+=(--image-base "$BASE")
+        fi
+        python3 .github/scripts/simulator_report.py "$STAGED" "${args[@]}" > "$RUNNER_TEMP/simulator-report.md"
 
     - name: Post report on the pull request
       if: inputs.pr != ''
@@ -85,4 +108,5 @@ runs:
       run: |
         set -euo pipefail
         { cat "$RUNNER_TEMP/simulator-report.md"; echo; echo "[Full run]($RUN_URL)"; } > "$RUNNER_TEMP/simulator-comment.md"
-        gh pr comment "$PR" --repo "$GITHUB_REPOSITORY" --body-file "$RUNNER_TEMP/simulator-comment.md"
+        python3 .github/scripts/report_comment.py --repository "$GITHUB_REPOSITORY" --pr "$PR" \
+          --body-file "$RUNNER_TEMP/simulator-comment.md"

@@ -54,9 +54,9 @@ def workflow_steps(lines):
 SMOKE_DIR = '${{ runner.temp }}/ios-simulator-smoke'
 REPORT_PATHS = [SMOKE_DIR + '/*/screenshot.png', SMOKE_DIR + '/*/result.json']
 SIMULATOR_JOBS = (
-    ('integration.yml', 'flutter-simulator', 'flutter-arm64-ios-simulator', 'simulator-report-native'),
-    ('integration.yml', 'flutter-example-simulator-run', 'flutter-example-simulator-run-${{ matrix.host }}', 'simulator-report-${{ matrix.host }}'),
-    ('compose-integration.yml', 'compose-simulator', 'compose-arm64-ios-simulator', 'simulator-report-compose'),
+    ('integration.yml', 'flutter-simulator', 'flutter-arm64-ios-simulator', 'simulator-report-flutter-native'),
+    ('integration.yml', 'flutter-example-simulator-run', 'flutter-example-simulator-run-${{ matrix.host }}', 'simulator-report-flutter-${{ matrix.host }}'),
+    ('integration.yml', 'compose-simulator', 'compose-arm64-ios-simulator', 'simulator-report-compose-native'),
 )
 STAGE = 'Stage simulator screenshots for the report'
 EVIDENCE = 'Upload simulator evidence'
@@ -107,6 +107,7 @@ class ArchitectureWorkflowTests(unittest.TestCase):
         report = step_body(lines, 'Publish screenshots and write the run report')
         self.assertIn('uses: ./.github/actions/simulator-report', report)
         self.assertIn(f'title: {title}', report)
+        self.assertIn('sha: ${{ needs.gate.outputs.sha }}', report)
         self.assertIn('pr: ${{ needs.gate.outputs.pr }}', report)
         self.assertNotIn('upload-artifact', text)
         self.assertNotIn('continue-on-error', text)
@@ -117,13 +118,28 @@ class ArchitectureWorkflowTests(unittest.TestCase):
             with self.subTest(job=job):
                 self.check_simulator_uploads((ROOT / '.github/workflows' / name).read_text(), job, artifact, staged)
 
-    def test_one_report_job_shows_every_platform_screenshot(self):
-        for name, simulator_jobs, title in (
-            ('integration.yml', ['flutter-simulator', 'flutter-example-simulator-run'], 'Flutter simulator report'),
-            ('compose-integration.yml', ['compose-simulator'], 'Compose simulator report'),
+    def test_one_report_job_shows_every_flutter_and_compose_screenshot(self):
+        self.check_simulator_report(
+            (ROOT / '.github/workflows/integration.yml').read_text(),
+            ['flutter-simulator', 'flutter-example-simulator-run', 'compose-simulator'],
+            'Integration simulator report',
+        )
+        self.assertFalse((ROOT / '.github/workflows/compose-integration.yml').exists())
+
+    def test_each_branch_rule_context_gets_its_own_verdict(self):
+        jobs = workflow_jobs((ROOT / '.github/workflows/integration.yml').read_text())
+        for job, context, required in (
+            ('verdict', 'Integration Tests', ['flutter-build', 'flutter-simulator', 'flutter-example-simulator-run', 'native-host', 'simulator-report']),
+            ('compose-verdict', 'Compose Integration Tests', ['compose-build', 'compose-simulator', 'simulator-report']),
         ):
-            with self.subTest(workflow=name):
-                self.check_simulator_report((ROOT / '.github/workflows' / name).read_text(), simulator_jobs, title)
+            with self.subTest(job=job):
+                text = '\n'.join(jobs[job])
+                self.assertIn(f"    needs: [gate, {', '.join(required)}]", jobs[job])
+                self.assertIn(f'context: {context}', text)
+                self.assertIn('run: exit 1', text)
+        gate = '\n'.join(jobs['gate'])
+        for context in ('Integration Tests', 'Compose Integration Tests'):
+            self.assertIn(f'context: {context}\n          state: pending', gate)
 
     def test_report_action_publishes_to_a_dedicated_branch_and_writes_the_summary(self):
         action = (ROOT / '.github/actions/simulator-report/action.yml').read_text()
@@ -133,7 +149,9 @@ class ArchitectureWorkflowTests(unittest.TestCase):
         self.assertIn('https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/${commit}/${REPORT_PATH}', action)
         self.assertIn('--image-base "$BASE"', action)
         self.assertIn('if: inputs.pr != \'\'', action)
-        self.assertIn('gh pr comment "$PR"', action)
+        self.assertIn('python3 .github/scripts/report_comment.py', action)
+        self.assertIn('contents/examples?ref=${SHA}', action)
+        self.assertIn('--examples-commit "$EXAMPLES_SHA"', action)
         self.assertNotIn('gh-pages', action)
 
     def test_broadened_or_unconditional_simulator_uploads_are_rejected(self):
@@ -207,8 +225,7 @@ class ArchitectureWorkflowTests(unittest.TestCase):
 
     def test_simulator_jobs_use_target_platform_and_preserve_smoke(self):
         for name, feature, marker in (
-            ('integration.yml', 'flutter', 'XCROSS_SIMULATOR_NATIVE_FIRST_FRAME_READY'),
-            ('compose-integration.yml', 'compose', 'XCROSS_COMPOSE_READY'),
+            ('integration.yml', 'compose', 'XCROSS_COMPOSE_READY'),
         ):
             with self.subTest(workflow=name):
                 self.check_simulator_job((ROOT / '.github/workflows' / name).read_text(), feature, marker)
@@ -379,7 +396,7 @@ class ArchitectureWorkflowTests(unittest.TestCase):
         workflow = (ROOT / '.github/workflows/integration.yml').read_text()
         key = self.check_open_apple_macros_cache(workflow, 'flutter-build', 'Build Flutter example on Linux', 'Build Flutter example on Windows')
         self.assertIn('${{ env.SWIFT_VERSION }}', key)
-        key = self.check_open_apple_macros_cache(workflow, 'flutter-simulator', 'Build ARM64 simulator app through production xcross', 'Build ARM64 simulator app through production xcross')
+        key = self.check_open_apple_macros_cache(workflow, 'flutter-simulator', 'Build Flutter example for ARM64 simulator through production xcross', 'Build Flutter example for ARM64 simulator through production xcross')
         self.assertIn('${{ steps.xcode.outputs.app }}', key)
 
     def test_unkeyed_or_skipped_open_apple_macros_cache_is_rejected(self):
@@ -410,22 +427,28 @@ class ArchitectureWorkflowTests(unittest.TestCase):
 
     def test_disabled_or_optional_real_smoke_is_rejected(self):
         original = (ROOT / '.github/workflows/integration.yml').read_text()
-        name = '      - name: Boot install launch and observe Flutter app headlessly\n'
+        name = '      - name: Boot install launch and observe Compose app headlessly\n'
         for replacement in (name + '        if: false\n', name + '        continue-on-error: true\n'):
             with self.subTest(replacement=replacement):
                 with self.assertRaises(AssertionError):
-                    self.check_simulator_job(original.replace(name, replacement), 'flutter', 'XCROSS_SIMULATOR_NATIVE_FIRST_FRAME_READY')
+                    self.check_simulator_job(original.replace(name, replacement), 'compose', 'XCROSS_COMPOSE_READY')
+
+    def test_scratch_flutter_fixture_is_not_compiled(self):
+        workflow = (ROOT / '.github/workflows/integration.yml').read_text()
+        self.assertNotIn('prepare_simulator_fixture.py flutter', workflow)
+        self.assertNotIn('XCROSS_SIMULATOR_NATIVE_FIRST_FRAME_READY', workflow)
+        self.assertNotIn('$RUNNER_TEMP/flutter-simulator', workflow)
 
     def test_comments_and_mock_commands_cannot_replace_real_build_or_smoke(self):
         original = (ROOT / '.github/workflows/integration.yml').read_text()
         for old, new in (
-            ('          xcross --verbose flutter build --target-platform simulator --debug', '          # xcross --verbose flutter build --target-platform simulator --debug'),
+            ('          xcross --verbose compose build --target-platform simulator', '          # xcross --verbose compose build --target-platform simulator'),
             ('          python3 .github/scripts/simulator_smoke.py "${apps[0]}"', '          echo mocked-smoke "${apps[0]}"'),
             ('          (cd packages/xcross && dart run tool/build_xcross.dart)', '          echo "dart run tool/build_xcross.dart"'),
         ):
             with self.subTest(command=old):
                 with self.assertRaises(AssertionError):
-                    self.check_simulator_job(original.replace(old, new), 'flutter', 'XCROSS_SIMULATOR_NATIVE_FIRST_FRAME_READY')
+                    self.check_simulator_job(original.replace(old, new), 'compose', 'XCROSS_COMPOSE_READY')
 
 
 if __name__ == '__main__':
