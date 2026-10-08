@@ -198,6 +198,8 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           git clone `
+            --config core.autocrlf=false `
+            --config core.eol=lf `
             --depth 1 `
             --branch $env:FLUTTER_VERSION `
             https://github.com/flutter/flutter.git `
@@ -723,9 +725,6 @@ jobs:
           name: flutter-aot-digests-${{ matrix.host }}
           path: ${{ runner.temp }}/cross
 
-      # Release snapshots hold no host paths, so the whole App must match.
-      # Profile snapshots keep the SDK's absolute file: URIs for the
-      # profiler, so only their machine code can match across hosts.
       - name: Compare with flutter build ios
         shell: bash
         run: |
