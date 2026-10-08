@@ -1,10 +1,13 @@
 name: Integration Tests
 
 on:
-  pull_request:
   push:
     branches:
       - main
+  pull_request:
+    types: [opened, reopened]
+  issue_comment:
+    types: [created]
   workflow_dispatch:
 
 permissions:
@@ -24,14 +27,42 @@ env:
     76F44EF1BA6EEB5A65904E9500F042F588FADE49952778CE48F0374DAA934396
 
 concurrency:
-  # Keyed by commit so a new push queues alongside in-flight runs
-  # instead of cancelling them.
-  group: integration-${{ github.event_name }}-${{ github.sha }}
+  # Keyed by event and commit so a new push queues alongside in-flight runs
+  # instead of cancelling them; /check comments are keyed by comment.
+  group: integration-${{ github.event_name }}-${{ github.event.comment.id || github.sha }}
   cancel-in-progress: false
 
 jobs:
+  gate:
+    name: Gate
+    if: >-
+      ${{ github.event_name != 'issue_comment' ||
+      (github.event.issue.pull_request &&
+      startsWith(github.event.comment.body, '/check')) }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      run: ${{ steps.gate.outputs.run }}
+      sha: ${{ steps.gate.outputs.sha }}
+      trusted: ${{ steps.gate.outputs.trusted }}
+      pr: ${{ steps.gate.outputs.pr }}
+    steps:
+      - name: Checkout gate action
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          sparse-checkout: .github/actions/integration-gate
+          persist-credentials: false
+
+      - name: Resolve gate
+        id: gate
+        uses: ./.github/actions/integration-gate
+
   flutter-build:
     name: Flutter SwiftPM build (${{ matrix.os }})
+    needs: gate
+    if: needs.gate.outputs.run == 'true'
     permissions:
       contents: read
     strategy:
@@ -47,9 +78,7 @@ jobs:
         id: darwin
         shell: bash
         env:
-          IS_FORK_PR: >-
-            ${{ github.event_name == 'pull_request' &&
-            github.event.pull_request.head.repo.full_name != github.repository }}
+          IS_FORK_PR: ${{ needs.gate.outputs.trusted != 'true' }}
         run: |
           set -euo pipefail
           if [[ "$IS_FORK_PR" == "true" ]]; then
@@ -66,6 +95,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803  # v6
         with:
+          ref: ${{ needs.gate.outputs.sha }}
           persist-credentials: false
 
       - name: Update example submodule
@@ -602,12 +632,15 @@ jobs:
 
   flutter-simulator:
     name: Flutter ARM64 iOS Simulator
+    needs: gate
+    if: needs.gate.outputs.run == 'true' && needs.gate.outputs.trusted == 'true'
     runs-on: macos-15
     timeout-minutes: 90
     steps:
       - name: Checkout
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
+          ref: ${{ needs.gate.outputs.sha }}
           persist-credentials: false
 
       - name: Update example submodule
@@ -739,14 +772,16 @@ jobs:
             --observe-seconds 30 --grace-seconds 10 \
             --ready-marker XCROSS_FLUTTER_EXAMPLE_READY
 
-      - name: Upload simulator screenshots
+      - name: Stage simulator screenshots for the report
         if: success()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: flutter-arm64-ios-simulator-screenshots-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/ios-simulator-smoke/**/screenshot*.png
+          name: simulator-report-native
+          path: |
+            ${{ runner.temp }}/ios-simulator-smoke/*/screenshot.png
+            ${{ runner.temp }}/ios-simulator-smoke/*/result.json
           if-no-files-found: warn
-          retention-days: 7
+          retention-days: 1
 
       - name: Upload simulator evidence
         if: failure() || cancelled()
@@ -759,10 +794,10 @@ jobs:
 
   flutter-example-simulator-run:
     name: Run cross-built Flutter example on simulator (${{ matrix.host }})
-    needs: flutter-build
+    needs: [gate, flutter-build]
     if: >-
-      ${{ !cancelled() && (github.event_name != 'pull_request' ||
-      github.event.pull_request.head.repo.full_name == github.repository) }}
+      ${{ !cancelled() && needs.gate.outputs.run == 'true' &&
+      needs.gate.outputs.trusted == 'true' }}
     permissions:
       contents: read
       actions: read
@@ -776,6 +811,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
+          ref: ${{ needs.gate.outputs.sha }}
           persist-credentials: false
 
       - name: Select compatible native Xcode
@@ -804,14 +840,16 @@ jobs:
             --observe-seconds 30 --grace-seconds 10 \
             --ready-marker XCROSS_FLUTTER_EXAMPLE_READY
 
-      - name: Upload simulator screenshots
+      - name: Stage simulator screenshots for the report
         if: success()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: flutter-example-simulator-run-${{ matrix.host }}-screenshots-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/ios-simulator-smoke/**/screenshot*.png
+          name: simulator-report-${{ matrix.host }}
+          path: |
+            ${{ runner.temp }}/ios-simulator-smoke/*/screenshot.png
+            ${{ runner.temp }}/ios-simulator-smoke/*/result.json
           if-no-files-found: warn
-          retention-days: 7
+          retention-days: 1
 
       - name: Upload simulator evidence
         if: failure() || cancelled()
@@ -822,8 +860,41 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
 
+  simulator-report:
+    name: Simulator report
+    needs: [gate, flutter-simulator, flutter-example-simulator-run]
+    if: ${{ !cancelled() && needs.gate.outputs.trusted == 'true' }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      actions: read
+      pull-requests: write
+    steps:
+      - name: Checkout report script
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          sparse-checkout: |
+            .github/scripts
+            .github/actions/simulator-report
+          persist-credentials: false
+
+      - name: Download staged simulator screenshots
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          pattern: simulator-report-*
+          path: ${{ runner.temp }}/simulator-report
+
+      - name: Publish screenshots and write the run report
+        uses: ./.github/actions/simulator-report
+        with:
+          staged: ${{ runner.temp }}/simulator-report
+          title: Flutter simulator report
+          pr: ${{ needs.gate.outputs.pr }}
+
   native-host:
     name: Native ARM64 host (${{ matrix.os }})
+    needs: gate
+    if: needs.gate.outputs.run == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -835,6 +906,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
+          ref: ${{ needs.gate.outputs.sha }}
           persist-credentials: false
 
       - name: Update example submodule

@@ -93,26 +93,28 @@ class WorkflowSecurityTests(unittest.TestCase):
                     self.assertEqual(uploads, [])
                 else:
                     paths = sorted(
-                        path for body in uploads for path in re.findall(r"(?m)^\s+path: (.+)$", body)
+                        path for body in uploads
+                        for path in re.findall(r"(?m)^\s+path: (?!\|)(.+)$", body) + re.findall(r"(?m)^ {12}(\S.*)$", body)
                     )
                     smoke = "${{ runner.temp }}/ios-simulator-smoke"
-                    screenshots = smoke + "/**/screenshot*.png"
-                    allowed = {smoke, screenshots}
+                    staged = (smoke + "/*/screenshot.png", smoke + "/*/result.json")
+                    allowed = {smoke, *staged}
                     if name == "integration.yml":
                         allowed.add("examples/flutter_example/build/xcross-ios-simulator/*.app")
-                    self.assertEqual(len(paths), len(uploads))
                     self.assertTrue(paths)
                     self.assertLessEqual(set(paths), allowed)
-                    self.assertEqual(paths.count(smoke), paths.count(screenshots))
-                    self.assertIn(screenshots, paths)
+                    self.assertEqual(paths.count(smoke), paths.count(staged[0]))
+                    self.assertEqual(paths.count(staged[0]), paths.count(staged[1]))
+                    self.assertIn(staged[0], paths)
                     for body in uploads:
-                        path = re.search(r"(?m)^\s+path: (.+)$", body).group(1)
+                        body_paths = set(re.findall(r"(?m)^\s+path: (.+)$", body)) | set(re.findall(r"(?m)^ {12}(\S.*)$", body))
                         condition = re.search(r"(?m)^\s+if: (.+)$", body)
                         condition = condition and condition.group(1)
-                        if path == smoke:
+                        if smoke in body_paths:
                             self.assertEqual(condition, "failure() || cancelled()")
-                        elif path == screenshots:
+                        elif staged[0] in body_paths:
                             self.assertEqual(condition, "success()")
+                            self.assertIn("retention-days: 1", body)
 
     def test_trusted_cross_host_jobs_restore_cache_without_secrets_and_forks_keep_toolchain_checks(self):
         for filename, job_name in (("integration.yml", "flutter-build"), ("compose-integration.yml", "compose-build")):
@@ -120,8 +122,9 @@ class WorkflowSecurityTests(unittest.TestCase):
                 source = (WORKFLOWS / filename).read_text()
                 build = job(source, job_name)
                 gate = step(build, "Resolve Darwin SDK availability")
-                self.assertIn("github.event_name == 'pull_request'", gate)
-                self.assertIn("github.event.pull_request.head.repo.full_name != github.repository", gate)
+                self.assertIn("IS_FORK_PR: ${{ needs.gate.outputs.trusted != 'true' }}", gate)
+                self.assertIn("    needs: gate", build)
+                self.assertIn("    if: needs.gate.outputs.run == 'true'", build)
                 for fork, expected in (("true", "false"), ("false", "true")):
                     with tempfile.TemporaryDirectory(dir=os.environ.get("JCODE_SCRATCH_DIR")) as directory:
                         output = Path(directory) / "output"
@@ -283,14 +286,33 @@ class WorkflowSecurityTests(unittest.TestCase):
         self.assertTrue(gate.group(1).startswith("$llvmDirMissing -or "))
         self.assertLess(missing.start(), gate.start())
 
-    def test_test_workflows_run_manually_without_inputs(self):
-        for name in ("architecture.yml", "integration.yml", "compose-integration.yml"):
+    def test_architecture_runs_on_every_push(self):
+        source = (WORKFLOWS / "architecture.yml").read_text()
+        triggers = re.search(r"(?ms)^on:\n(.*?)^\S", source).group(1)
+        self.assertRegex(triggers, r"(?m)^  push:\s*$")
+        self.assertNotIn("branches:", triggers)
+        self.assertRegex(triggers, r"(?m)^  pull_request:\s*$")
+        self.assertRegex(triggers, r"(?m)^  workflow_dispatch:\s*$")
+
+    def test_integration_runs_on_main_push_pull_request_open_or_maintainer_check(self):
+        for name in ("integration.yml", "compose-integration.yml"):
             with self.subTest(workflow=name):
                 source = (WORKFLOWS / name).read_text()
                 triggers = re.search(r"(?ms)^on:\n(.*?)^\S", source).group(1)
+                self.assertIn("  push:\n    branches:\n      - main\n", triggers)
+                self.assertIn("  pull_request:\n    types: [opened, reopened]\n", triggers)
+                self.assertIn("  issue_comment:\n    types: [created]\n", triggers)
                 self.assertRegex(triggers, r"(?m)^  workflow_dispatch:\s*$")
-                self.assertRegex(triggers, r"(?m)^  pull_request:\s*$")
                 self.assertNotIn("inputs", triggers)
+                self.assertNotIn("synchronize", triggers)
+                gate = job(source, "gate")
+                self.assertIn("startsWith(github.event.comment.body, '/check')", gate)
+                self.assertIn("uses: ./.github/actions/integration-gate", gate)
+                self.assertNotIn("contents: write", gate)
+                for checkout in re.findall(r"(?ms)uses: actions/checkout@\S+.*?\n\n", source):
+                    if "sparse-checkout" not in checkout:
+                        self.assertIn("ref: ${{ needs.gate.outputs.sha }}", checkout)
+                self.assertNotIn("github.event.comment.body }}", source)
 
 
 if __name__ == "__main__":

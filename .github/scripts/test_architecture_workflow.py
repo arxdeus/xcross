@@ -52,59 +52,105 @@ def workflow_steps(lines):
 
 
 SMOKE_DIR = '${{ runner.temp }}/ios-simulator-smoke'
-SCREENSHOTS = SMOKE_DIR + '/**/screenshot*.png'
+REPORT_PATHS = [SMOKE_DIR + '/*/screenshot.png', SMOKE_DIR + '/*/result.json']
 SIMULATOR_JOBS = (
-    ('integration.yml', 'flutter-simulator', 'flutter-arm64-ios-simulator'),
-    ('integration.yml', 'flutter-example-simulator-run', 'flutter-example-simulator-run-${{ matrix.host }}'),
-    ('compose-integration.yml', 'compose-simulator', 'compose-arm64-ios-simulator'),
+    ('integration.yml', 'flutter-simulator', 'flutter-arm64-ios-simulator', 'simulator-report-native'),
+    ('integration.yml', 'flutter-example-simulator-run', 'flutter-example-simulator-run-${{ matrix.host }}', 'simulator-report-${{ matrix.host }}'),
+    ('compose-integration.yml', 'compose-simulator', 'compose-arm64-ios-simulator', 'simulator-report-compose'),
 )
+STAGE = 'Stage simulator screenshots for the report'
+EVIDENCE = 'Upload simulator evidence'
+
+
+def step_body(lines, name):
+    text = '\n'.join(lines) + '\n'
+    return text.split(f'      - name: {name}\n', 1)[1].split('\n\n', 1)[0]
 
 
 class ArchitectureWorkflowTests(unittest.TestCase):
-    def check_simulator_uploads(self, workflow, job, artifact):
+    def check_simulator_uploads(self, workflow, job, artifact, staged):
         lines = workflow_jobs(workflow)[job]
         steps = workflow_steps(lines)
         names = list(steps)
         uploads = [name for name, step in steps.items() if step.get('uses', '').startswith('actions/upload-artifact@')]
-        self.assertEqual(uploads, ['Upload simulator screenshots', 'Upload simulator evidence'])
+        self.assertEqual(uploads, [STAGE, EVIDENCE])
         smokes = [name for name, step in steps.items() if any('simulator_smoke.py' in line for line in step['script'])]
         self.assertTrue(smokes)
-        self.assertLess(names.index(smokes[-1]), names.index('Upload simulator screenshots'))
-        self.assertLess(names.index('Upload simulator screenshots'), names.index('Upload simulator evidence'))
-        text = '\n'.join(lines) + '\n'
-        screenshots = text.split('      - name: Upload simulator screenshots\n', 1)[1].split('\n\n', 1)[0]
-        evidence = text.split('      - name: Upload simulator evidence\n', 1)[1].split('\n\n', 1)[0]
-        self.assertEqual(steps['Upload simulator screenshots'].get('if'), 'success()')
-        self.assertEqual(steps['Upload simulator evidence'].get('if'), 'failure() || cancelled()')
-        self.assertEqual(re.findall(r'(?m)^ +path: (.+)$', screenshots), [SCREENSHOTS])
+        self.assertLess(names.index(smokes[-1]), names.index(STAGE))
+        self.assertLess(names.index(STAGE), names.index(EVIDENCE))
+        stage = step_body(lines, STAGE)
+        evidence = step_body(lines, EVIDENCE)
+        self.assertEqual(steps[STAGE].get('if'), 'success()')
+        self.assertEqual(steps[EVIDENCE].get('if'), 'failure() || cancelled()')
+        self.assertEqual(re.findall(r'(?m)^ {12}(\S.*)$', stage.split('path: |\n', 1)[1].split('\n          if-no', 1)[0]), REPORT_PATHS)
         self.assertEqual(re.findall(r'(?m)^ +path: (.+)$', evidence), [SMOKE_DIR])
-        self.assertIn(f'          name: {artifact}-screenshots-${{{{ github.run_attempt }}}}\n', screenshots + '\n')
+        self.assertIn(f'          name: {staged}\n', stage + '\n')
         self.assertIn(f'          name: {artifact}-${{{{ github.run_attempt }}}}\n', evidence + '\n')
-        for body in (screenshots, evidence):
+        self.assertIn('          retention-days: 1', stage)
+        self.assertIn('          retention-days: 7', evidence)
+        for body in (stage, evidence):
             self.assertIn('          if-no-files-found: warn', body)
-            self.assertIn('          retention-days: 7', body)
             self.assertNotIn('continue-on-error', body)
 
-    def test_simulator_jobs_upload_screenshots_on_success_and_evidence_on_failure(self):
-        for name, job, artifact in SIMULATOR_JOBS:
+    def check_simulator_report(self, workflow, simulator_jobs, title):
+        jobs = workflow_jobs(workflow)
+        lines = jobs['simulator-report']
+        text = '\n'.join(lines)
+        self.assertIn(f"    needs: [gate, {', '.join(simulator_jobs)}]", lines)
+        self.assertIn("    if: ${{ !cancelled() && needs.gate.outputs.trusted == 'true' }}", lines)
+        self.assertIn('      contents: write', lines)
+        self.assertIn('      pull-requests: write', lines)
+        steps = workflow_steps(lines)
+        download = step_body(lines, 'Download staged simulator screenshots')
+        self.assertIn('uses: actions/download-artifact@', download)
+        self.assertIn('pattern: simulator-report-*', download)
+        report = step_body(lines, 'Publish screenshots and write the run report')
+        self.assertIn('uses: ./.github/actions/simulator-report', report)
+        self.assertIn(f'title: {title}', report)
+        self.assertIn('pr: ${{ needs.gate.outputs.pr }}', report)
+        self.assertNotIn('upload-artifact', text)
+        self.assertNotIn('continue-on-error', text)
+        self.assertTrue(steps)
+
+    def test_simulator_jobs_stage_screenshots_on_success_and_evidence_on_failure(self):
+        for name, job, artifact, staged in SIMULATOR_JOBS:
             with self.subTest(job=job):
-                self.check_simulator_uploads((ROOT / '.github/workflows' / name).read_text(), job, artifact)
+                self.check_simulator_uploads((ROOT / '.github/workflows' / name).read_text(), job, artifact, staged)
+
+    def test_one_report_job_shows_every_platform_screenshot(self):
+        for name, simulator_jobs, title in (
+            ('integration.yml', ['flutter-simulator', 'flutter-example-simulator-run'], 'Flutter simulator report'),
+            ('compose-integration.yml', ['compose-simulator'], 'Compose simulator report'),
+        ):
+            with self.subTest(workflow=name):
+                self.check_simulator_report((ROOT / '.github/workflows' / name).read_text(), simulator_jobs, title)
+
+    def test_report_action_publishes_to_a_dedicated_branch_and_writes_the_summary(self):
+        action = (ROOT / '.github/actions/simulator-report/action.yml').read_text()
+        self.assertIn('branch=simulator-reports', action)
+        self.assertIn('--publish-dir "$work/$REPORT_PATH"', action)
+        self.assertIn('REPORT_PATH: ${{ github.run_id }}/${{ github.run_attempt }}/${{ github.job }}', action)
+        self.assertIn('https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/${commit}/${REPORT_PATH}', action)
+        self.assertIn('--image-base "$BASE"', action)
+        self.assertIn('if: inputs.pr != \'\'', action)
+        self.assertIn('gh pr comment "$PR"', action)
+        self.assertNotIn('gh-pages', action)
 
     def test_broadened_or_unconditional_simulator_uploads_are_rejected(self):
-        for name, job, artifact in SIMULATOR_JOBS:
+        for name, job, artifact, staged in SIMULATOR_JOBS:
             original = (ROOT / '.github/workflows' / name).read_text()
             for old, new in (
                 ('        if: success()\n', '        if: always()\n'),
                 ('        if: failure() || cancelled()\n', '        if: always()\n'),
                 ('        if: failure() || cancelled()\n', '        if: failure()\n'),
-                ('/ios-simulator-smoke/**/screenshot*.png\n', '/ios-simulator-smoke\n'),
-                ('      - name: Upload simulator screenshots\n', '      - name: Upload simulator pictures\n'),
-                ('-screenshots-${{ github.run_attempt }}', '-${{ github.run_attempt }}'),
+                ('/ios-simulator-smoke/*/screenshot.png\n', '/ios-simulator-smoke\n'),
+                (f'      - name: {STAGE}\n', '      - name: Upload simulator pictures\n'),
+                ('          retention-days: 1\n', '          retention-days: 7\n'),
             ):
                 with self.subTest(job=job, new=new):
                     self.assertIn(old, original)
                     with self.assertRaises((AssertionError, KeyError, IndexError)):
-                        self.check_simulator_uploads(original.replace(old, new), job, artifact)
+                        self.check_simulator_uploads(original.replace(old, new), job, artifact, staged)
 
     def required_step(self, steps, name):
         self.assertIn(name, steps)
@@ -117,7 +163,8 @@ class ArchitectureWorkflowTests(unittest.TestCase):
         jobs = workflow_jobs(workflow)
         self.assertIn(f'{feature}-simulator', jobs)
         lines = jobs[f'{feature}-simulator']
-        self.assertFalse(any(line.startswith('    if:') for line in lines))
+        self.assertIn('    needs: gate', lines)
+        self.assertIn("    if: needs.gate.outputs.run == 'true' && needs.gate.outputs.trusted == 'true'", lines)
         self.assertFalse(any(line.startswith('    continue-on-error:') for line in lines))
         steps = workflow_steps(lines)
         bundle = self.required_step(steps, 'Build native production xcross CLI')
@@ -179,7 +226,7 @@ class ArchitectureWorkflowTests(unittest.TestCase):
         self.assertIn('if-no-files-found: error', '\n'.join(jobs['flutter-build']))
         lines = jobs['flutter-example-simulator-run']
         text = '\n'.join(lines)
-        self.assertIn('    needs: flutter-build', lines)
+        self.assertIn('    needs: [gate, flutter-build]', lines)
         self.assertIn('    runs-on: macos-15', lines)
         self.assertFalse(any(line.startswith('    continue-on-error:') for line in lines))
         self.assertIn('host: [ubuntu-24.04, ubuntu-24.04-arm, windows-2022, windows-11-arm]', text)
@@ -190,8 +237,8 @@ class ArchitectureWorkflowTests(unittest.TestCase):
         self.assertTrue(any(line.startswith('python3 .github/scripts/simulator_smoke.py "${apps[0]}"') for line in smoke))
         self.assertIn('--observe-seconds 30 --grace-seconds 10', [line.removesuffix('\\').rstrip() for line in smoke])
         self.assertIn('--ready-marker XCROSS_FLUTTER_EXAMPLE_READY', smoke)
-        self.assertEqual(steps['Upload simulator evidence'].get('if'), 'failure() || cancelled()')
-        self.assertEqual(steps['Upload simulator screenshots'].get('if'), 'success()')
+        self.assertEqual(steps[EVIDENCE].get('if'), 'failure() || cancelled()')
+        self.assertEqual(steps[STAGE].get('if'), 'success()')
 
     def check_native_example_simulator_run(self, workflow):
         steps = workflow_steps(workflow_jobs(workflow)['flutter-simulator'])
@@ -221,8 +268,8 @@ class ArchitectureWorkflowTests(unittest.TestCase):
         self.assertLess(names.index('Update example submodule'), names.index(build_name))
         self.assertLess(names.index('Build native production xcross CLI'), names.index(build_name))
         self.assertLess(names.index(build_name), names.index(smoke_name))
-        self.assertLess(names.index(smoke_name), names.index('Upload simulator screenshots'))
-        self.assertLess(names.index('Upload simulator screenshots'), names.index('Upload simulator evidence'))
+        self.assertLess(names.index(smoke_name), names.index(STAGE))
+        self.assertLess(names.index(STAGE), names.index(EVIDENCE))
 
     def check_flutter_example_smokes_require_marker(self, workflow):
         smokes = []
@@ -286,7 +333,7 @@ class ArchitectureWorkflowTests(unittest.TestCase):
             (name, name + '        if: false\n'),
             (name, name + '        continue-on-error: true\n'),
             ('          python3 .github/scripts/simulator_smoke.py "${apps[0]}" \\\n            --output "$RUNNER_TEMP/ios-simulator-smoke/flutter-example"', '          echo mocked "${apps[0]}" \\\n            --output "$RUNNER_TEMP/ios-simulator-smoke/flutter-example"'),
-            ('    needs: flutter-build\n    if: >-', '    needs: flutter-build\n    continue-on-error: true\n    if: >-'),
+            ('    needs: [gate, flutter-build]\n    if: >-', '    needs: [gate, flutter-build]\n    continue-on-error: true\n    if: >-'),
             ('"$RUNNER_TEMP/xcross-bundle/bin/xcross" --verbose flutter build --target-platform simulator --debug', 'echo skipped'),
         ):
             with self.subTest(new=new):

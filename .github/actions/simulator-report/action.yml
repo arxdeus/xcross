@@ -1,0 +1,88 @@
+name: Simulator report
+description: >-
+  Publish staged simulator screenshots to the simulator-reports branch and
+  write one run summary that shows every platform's screenshot inline.
+
+inputs:
+  staged:
+    description: Directory holding the downloaded simulator-report-* artifacts.
+    required: true
+  title:
+    description: Summary heading.
+    required: true
+  pr:
+    description: Pull request to also post the report on (for /check runs).
+    required: false
+    default: ''
+
+runs:
+  using: composite
+  steps:
+    - name: Publish screenshots
+      id: publish
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        STAGED: ${{ inputs.staged }}
+        TITLE: ${{ inputs.title }}
+        REPORT_PATH: ${{ github.run_id }}/${{ github.run_attempt }}/${{ github.job }}
+      run: |
+        set -euo pipefail
+        branch=simulator-reports
+        work="$RUNNER_TEMP/simulator-reports-branch"
+        rm -rf "$work"
+        git init -q "$work"
+        git -C "$work" remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+        if git -C "$work" fetch -q --depth 1 origin "$branch"; then
+          git -C "$work" checkout -q -B "$branch" FETCH_HEAD
+        else
+          git -C "$work" checkout -q --orphan "$branch"
+        fi
+        python3 .github/scripts/simulator_report.py "$STAGED" --title "$TITLE" \
+          --publish-dir "$work/$REPORT_PATH"
+        if [ -z "$(git -C "$work" status --porcelain)" ]; then
+          echo "published=false" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+        git -C "$work" add -A
+        git -C "$work" -c user.name=github-actions -c user.email=actions@github.com \
+          commit -q -m "simulator screenshots for run ${REPORT_PATH}"
+        for attempt in 1 2 3; do
+          if git -C "$work" push -q origin "HEAD:$branch"; then
+            commit=$(git -C "$work" rev-parse HEAD)
+            echo "published=true" >> "$GITHUB_OUTPUT"
+            echo "base=https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/${commit}/${REPORT_PATH}" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git -C "$work" fetch -q --depth 1 origin "$branch"
+          git -C "$work" rebase -q FETCH_HEAD
+        done
+        echo "::warning::Could not publish simulator screenshots"
+        echo "published=false" >> "$GITHUB_OUTPUT"
+
+    - name: Write run summary
+      shell: bash
+      env:
+        STAGED: ${{ inputs.staged }}
+        TITLE: ${{ inputs.title }}
+        PUBLISHED: ${{ steps.publish.outputs.published }}
+        BASE: ${{ steps.publish.outputs.base }}
+      run: |
+        set -euo pipefail
+        if [ "$PUBLISHED" = true ]; then
+          python3 .github/scripts/simulator_report.py "$STAGED" --title "$TITLE" --image-base "$BASE"
+        else
+          python3 .github/scripts/simulator_report.py "$STAGED" --title "$TITLE"
+        fi > "$RUNNER_TEMP/simulator-report.md"
+
+    - name: Post report on the pull request
+      if: inputs.pr != ''
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        PR: ${{ inputs.pr }}
+        RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      run: |
+        set -euo pipefail
+        { cat "$RUNNER_TEMP/simulator-report.md"; echo; echo "[Full run]($RUN_URL)"; } > "$RUNNER_TEMP/simulator-comment.md"
+        gh pr comment "$PR" --repo "$GITHUB_REPOSITORY" --body-file "$RUNNER_TEMP/simulator-comment.md"
