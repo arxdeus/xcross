@@ -1,0 +1,37 @@
+name: Resolve integration gate
+description: >-
+  Decide whether an Integration or Compose run proceeds, which commit it
+  checks out, and whether that commit may receive the private Apple SDK.
+
+outputs:
+  run:
+    description: '"true" when the run should proceed.'
+    value: ${{ steps.gate.outputs.run }}
+  sha:
+    description: Commit to check out.
+    value: ${{ steps.gate.outputs.sha }}
+  trusted:
+    description: '"true" when the commit comes from this repository.'
+    value: ${{ steps.gate.outputs.trusted }}
+  pr:
+    description: Pull request number for /check runs, empty otherwise.
+    value: ${{ steps.gate.outputs.pr }}
+
+runs:
+  using: composite
+  steps:
+    - name: Resolve gate
+      id: gate
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        EVENT_NAME: ${{ github.event_name }}
+        EVENT_SHA: ${{ github.sha }}
+        REPOSITORY: ${{ github.repository }}
+        PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        PR_HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+        COMMENT_BODY: ${{ github.event.comment.body }}
+        COMMENT_ASSOCIATION: ${{ github.event.comment.author_association }}
+        ISSUE_NUMBER: ${{ github.event.issue.number }}
+        ISSUE_IS_PR: ${{ github.event.issue.pull_request != null }}
+      run: python3 "$GITHUB_ACTION_PATH/gate.py"

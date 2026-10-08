@@ -1,31 +1,216 @@
 name: Compose Integration Tests
 
 on:
-  pull_request:
   push:
     branches:
       - main
+  pull_request:
+    types: [opened, reopened]
+  issue_comment:
+    types: [created]
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 env:
-  SWIFT_VERSION: 6.3.3
+  SWIFT_VERSION: 6.4.0
   SWIFT_WINDOWS_SHA256: >-
-    235626548F249CD516D3D4D90EEE980DCCAD46F3822DAC1F8E3119B0FEDE94B7
+    76169A85BCBA82854A0CD8F9655FFB74B3758D60C35A245457510095F2823C03
   LLVM_VERSION: 22.1.8
   LLVM_WINDOWS_SHA256: >-
     16E5709785FEF73C854646241C4A92C5CD574318D1B33C63330DD7721903E55C
 
 concurrency:
-  # Keyed by commit so a new push queues alongside in-flight runs
-  # instead of cancelling them.
-  group: compose-integration-${{ github.event_name }}-${{ github.sha }}
+  # Keyed by event and commit so a new push queues alongside in-flight runs
+  # instead of cancelling them; /check comments are keyed by comment.
+  group: compose-integration-${{ github.event_name }}-${{ github.event.comment.id || github.sha }}
   cancel-in-progress: false
 
 jobs:
+  gate:
+    name: Gate
+    if: >-
+      ${{ github.event_name != 'issue_comment' ||
+      (github.event.issue.pull_request &&
+      startsWith(github.event.comment.body, '/check')) }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      run: ${{ steps.gate.outputs.run }}
+      sha: ${{ steps.gate.outputs.sha }}
+      trusted: ${{ steps.gate.outputs.trusted }}
+      pr: ${{ steps.gate.outputs.pr }}
+    steps:
+      - name: Checkout gate action
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          sparse-checkout: .github/actions/integration-gate
+          persist-credentials: false
+
+      - name: Resolve gate
+        id: gate
+        uses: ./.github/actions/integration-gate
+
+  compose-simulator:
+    name: Compose ARM64 iOS Simulator
+    needs: gate
+    if: needs.gate.outputs.run == 'true' && needs.gate.outputs.trusted == 'true'
+    runs-on: macos-15
+    timeout-minutes: 90
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: ${{ needs.gate.outputs.sha }}
+          persist-credentials: false
+
+      - name: Update example submodule
+        shell: bash
+        run: git submodule update --init --checkout examples
+
+      - name: Select compatible native Xcode
+        uses: ./.github/actions/configure-xcode
+
+      - name: Install native Dart
+        uses: dart-lang/setup-dart@65eb853c7ba17dde3be364c3d2858773e7144260
+        with:
+          sdk: stable
+          architecture: arm64
+
+      - name: Select native JDK 21 and LLVM
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(/usr/bin/uname -m)" = arm64
+          jdk="$(/usr/libexec/java_home -v 21 -a arm64)"
+          "$jdk/bin/java" -XshowSettings:properties -version 2>&1 | \
+            tee "$RUNNER_TEMP/ios-simulator-smoke/java-properties.log"
+          grep -Eq 'os.arch = (aarch64|arm64)' \
+            "$RUNNER_TEMP/ios-simulator-smoke/java-properties.log"
+          grep -Eq 'java.specification.version = 21$' \
+            "$RUNNER_TEMP/ios-simulator-smoke/java-properties.log"
+          echo "JAVA_HOME=$jdk" >> "$GITHUB_ENV"
+          brew install llvm lld
+          {
+            echo "$jdk/bin"
+            echo "$(brew --prefix llvm)/bin"
+            echo "$(brew --prefix lld)/bin"
+            echo "$DEVELOPER_DIR/Toolchains/XcodeDefault.xctoolchain/usr/bin"
+          } >> "$GITHUB_PATH"
+
+      - name: Build native production xcross CLI
+        shell: bash
+        run: |
+          set -euo pipefail
+          dart pub get
+          (cd packages/xcross && dart run tool/build_xcross.dart)
+          shopt -s nullglob
+          bundles=(packages/xcross/build/cli/*/bundle)
+          test "${#bundles[@]}" -eq 1
+          cp -R "${bundles[0]}" "$RUNNER_TEMP/xcross-bundle"
+          /usr/bin/xcrun lipo "$RUNNER_TEMP/xcross-bundle/bin/xcross" -verify_arch arm64
+          echo "$RUNNER_TEMP/xcross-bundle/bin" >> "$GITHUB_PATH"
+          swift --version
+
+      - name: Install selected native Xcode SDK through xcross
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcross sdk install "$XCODE_APP" 2>&1 | \
+            tee "$RUNNER_TEMP/ios-simulator-smoke/sdk-install.log"
+
+      - name: Prepare scratch Compose simulator fixture
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/prepare_simulator_fixture.py compose \
+            "$RUNNER_TEMP/compose-simulator" --source examples/compose_app
+
+      - name: Set up Compose toolchain
+        shell: bash
+        working-directory: ${{ runner.temp }}/compose-simulator
+        run: |
+          set -euo pipefail
+          xcross --verbose compose setup 2>&1 | \
+            tee "$RUNNER_TEMP/ios-simulator-smoke/compose-setup.log"
+
+      - name: Build ARM64 simulator app through production xcross
+        shell: bash
+        working-directory: ${{ runner.temp }}/compose-simulator
+        run: |
+          set -euo pipefail
+          xcross --verbose compose build --target-platform simulator 2>&1 | \
+            tee "$RUNNER_TEMP/ios-simulator-smoke/build.log"
+
+      - name: Boot install launch and observe Compose app headlessly
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          apps=("$RUNNER_TEMP/compose-simulator/build/xcross-ios-simulator/"*.app)
+          test "${#apps[@]}" -eq 1
+          python3 .github/scripts/simulator_smoke.py "${apps[0]}" \
+            --output "$RUNNER_TEMP/ios-simulator-smoke/compose" \
+            --ready-marker XCROSS_COMPOSE_READY
+
+      - name: Stage simulator screenshots for the report
+        if: success()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: simulator-report-compose
+          path: |
+            ${{ runner.temp }}/ios-simulator-smoke/*/screenshot.png
+            ${{ runner.temp }}/ios-simulator-smoke/*/result.json
+          if-no-files-found: warn
+          retention-days: 1
+
+      - name: Upload simulator evidence
+        if: failure() || cancelled()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: compose-arm64-ios-simulator-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/ios-simulator-smoke
+          if-no-files-found: warn
+          retention-days: 7
+
+  simulator-report:
+    name: Simulator report
+    needs: [gate, compose-simulator]
+    if: ${{ !cancelled() && needs.gate.outputs.trusted == 'true' }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      actions: read
+      pull-requests: write
+    steps:
+      - name: Checkout report script
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          sparse-checkout: |
+            .github/scripts
+            .github/actions/simulator-report
+          persist-credentials: false
+
+      - name: Download staged simulator screenshots
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          pattern: simulator-report-*
+          path: ${{ runner.temp }}/simulator-report
+
+      - name: Publish screenshots and write the run report
+        uses: ./.github/actions/simulator-report
+        with:
+          staged: ${{ runner.temp }}/simulator-report
+          title: Compose simulator report
+          pr: ${{ needs.gate.outputs.pr }}
+
   compose-build:
     name: Compose build (${{ matrix.os }})
+    needs: gate
+    if: needs.gate.outputs.run == 'true'
     permissions:
       contents: read
     strategy:
@@ -36,21 +221,19 @@ jobs:
     timeout-minutes: 90
 
     steps:
-      # Fork PR code must never receive the private Apple SDK cache, so those
+      # Fork PR code must never receive the private Apple SDK or its URL, so those
       # runs stop after the toolchain checks instead of being skipped outright.
       - name: Resolve Darwin SDK availability
         id: darwin
         shell: bash
         env:
-          IS_FORK_PR: >-
-            ${{ github.event_name == 'pull_request' &&
-            github.event.pull_request.head.repo.full_name != github.repository }}
+          IS_FORK_PR: ${{ needs.gate.outputs.trusted != 'true' }}
         run: |
           set -euo pipefail
           if [[ "$IS_FORK_PR" == "true" ]]; then
             echo "available=false" >> "$GITHUB_OUTPUT"
             notice='Fork pull request: building the xcross CLI and toolchain'
-            notice="$notice only. The private Apple SDK cache and the Compose"
+            notice="$notice only. The private Apple SDK download and the Compose"
             notice="$notice build steps run once a maintainer pushes the"
             notice="$notice branch to this repository."
             echo "::notice::$notice"
@@ -61,6 +244,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803  # v6
         with:
+          ref: ${{ needs.gate.outputs.sha }}
           persist-credentials: false
 
       - name: Update example submodule
@@ -103,6 +287,51 @@ jobs:
             echo "GRADLE_USER_HOME=$RUNNER_TEMP/gradle"
             echo "XCROSS_CACHE_DIR=$RUNNER_TEMP/xcross-cache"
           } >> "$GITHUB_ENV"
+
+      - name: Install pinned Swift on Linux
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "$RUNNER_ARCH" in
+            ARM64) arch=aarch64; platform=ubuntu2404-aarch64; suffix=-aarch64 ;;
+            X64) arch=x86_64; platform=ubuntu2404; suffix= ;;
+            *) echo "Unsupported runner architecture: $RUNNER_ARCH"; exit 1 ;;
+          esac
+          tag="(swift-${SWIFT_VERSION%.0}-RELEASE)"
+          current="$(swift --version 2>/dev/null || true)"
+          if ! grep -Fq "$tag" <<< "$current" ||
+              ! grep -Eq "Target: $arch-.*linux" <<< "$current"; then
+            sudo apt-get update
+            sudo apt-get install -y \
+              binutils git gnupg2 libc6-dev libcurl4-openssl-dev libedit2 \
+              libgcc-13-dev libncurses-dev libpython3-dev libsqlite3-0 \
+              libstdc++-13-dev libxml2-dev libz3-dev pkg-config tzdata \
+              zip unzip zlib1g-dev
+            release="swift-$SWIFT_VERSION-release"
+            version="swift-$SWIFT_VERSION-RELEASE"
+            archive="$version-ubuntu24.04$suffix.tar.gz"
+            base="https://download.swift.org/$release/$platform/$version"
+            download="$RUNNER_TEMP/swift-download"
+            mkdir -p "$download/gnupg" "$RUNNER_TEMP/swift"
+            chmod 700 "$download/gnupg"
+            curl --fail --location --retry 3 "$base/$archive" -o "$download/$archive"
+            curl --fail --location --retry 3 "$base/$archive.sig" -o "$download/$archive.sig"
+            curl --fail --location --compressed --retry 3 https://www.swift.org/keys/all-keys.asc \
+              -o "$download/all-keys.asc"
+            gzip -dcf "$download/all-keys.asc" > "$download/all-keys.txt"
+            gpg --batch --homedir "$download/gnupg" --import "$download/all-keys.txt"
+            gpg --batch --homedir "$download/gnupg" \
+              --verify "$download/$archive.sig" "$download/$archive"
+            tar -xzf "$download/$archive" -C "$RUNNER_TEMP/swift" --strip-components=1
+            echo "$RUNNER_TEMP/swift/usr/bin" >> "$GITHUB_PATH"
+            export PATH="$RUNNER_TEMP/swift/usr/bin:$PATH"
+          fi
+          swift --version | tee "$RUNNER_TEMP/swift-version.txt"
+          grep -Fq "$tag" "$RUNNER_TEMP/swift-version.txt"
+          grep -Eq "Target: $arch-.*linux" "$RUNNER_TEMP/swift-version.txt"
+          printf 'print("ok")\n' > "$RUNNER_TEMP/swift-probe.swift"
+          swiftc -typecheck "$RUNNER_TEMP/swift-probe.swift"
 
       - name: Install Linux requirements
         if: runner.os == 'Linux'
@@ -251,6 +480,10 @@ jobs:
           if ($LASTEXITCODE -ne 0) {
             throw "swift --version failed with $LASTEXITCODE"
           }
+          $swiftVersion = (& swift --version 2>&1 | Out-String)
+          if (-not $swiftVersion.Contains("(swift-$($env:SWIFT_VERSION -replace '\.0$')-RELEASE)")) {
+            throw "Swift is not the pinned $env:SWIFT_VERSION release"
+          }
           & swift sdk list
           if ($LASTEXITCODE -ne 0) {
             throw "swift sdk list failed with $LASTEXITCODE"
@@ -274,7 +507,7 @@ jobs:
           "$env:RUNNER_TEMP\xcross-bundle\bin" |
             Out-File $env:GITHUB_PATH -Encoding utf8 -Append
 
-      - name: Restore cached Darwin SDK
+      - name: Download Darwin SDK
         if: steps.darwin.outputs.available == 'true'
         uses: ./.github/actions/setup-darwin-sdk
 

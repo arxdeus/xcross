@@ -1,19 +1,7 @@
 name: Setup Darwin SDK
 description: >-
-  Restore xcross-darwin.artifactbundle from the host-specific cache, or
-  download it from the private artifactbundle URL.
-
-inputs:
-  artifactbundle-url:
-    description: >-
-      Private URL to a .tar.gz containing xcross-darwin.artifactbundle at its
-      root. Optional when the host-specific cache is warm.
-    required: false
-    default: ""
-  cache-revision:
-    description: Non-secret revision used to invalidate the private SDK cache.
-    required: false
-    default: v3
+  Restore xcross-darwin.artifactbundle from the per-host Actions cache seeded
+  by the Warm Darwin SDK cache workflow.
 
 runs:
   using: composite
@@ -21,8 +9,6 @@ runs:
     - name: Resolve xcross Swift SDK path
       id: sdk-path
       shell: python
-      env:
-        CACHE_REVISION: ${{ inputs.cache-revision }}
       run: |
         import os
         from pathlib import Path
@@ -41,9 +27,8 @@ runs:
         cache_key = "-".join(
             (
                 "xcross-darwin",
-                os.environ["CACHE_REVISION"],
-                os.environ["RUNNER_OS"],
-                os.environ["RUNNER_ARCH"],
+                os.environ["RUNNER_OS"].lower(),
+                os.environ["RUNNER_ARCH"].lower(),
             )
         )
         with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as out:
@@ -52,57 +37,19 @@ runs:
 
     - name: Restore Darwin SDK cache
       id: darwin-cache
-      uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+      uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
       with:
         path: ${{ steps.sdk-path.outputs.bundle }}
         key: ${{ steps.sdk-path.outputs.cache-key }}
 
-    - name: Download Darwin SDK (cache miss)
+    - name: Require warmed Darwin SDK cache
       if: steps.darwin-cache.outputs.cache-hit != 'true'
-      shell: python
+      shell: bash
       env:
-        DARWIN_ARTIFACTBUNDLE_URL: ${{ inputs.artifactbundle-url }}
+        CACHE_KEY: ${{ steps.sdk-path.outputs.cache-key }}
       run: |
-        import os
-        import shutil
-        import subprocess
-        import urllib.request
-        from pathlib import Path
-
-        url = os.environ.get("DARWIN_ARTIFACTBUNDLE_URL", "")
-        if not url:
-            print(
-                "::error::Darwin SDK cache miss. Run the Warm Darwin SDK "
-                "cache workflow for this runner, or pass its private URL."
-            )
-            raise SystemExit(1)
-
-        parent = Path(os.environ["XCROSS_SWIFT_SDKS_PATH"])
-        bundle = Path(os.environ["XCROSS_DARWIN_BUNDLE"])
-        archive = (
-            Path(os.environ["RUNNER_TEMP"])
-            / "xcross-darwin.artifactbundle.tar.gz"
-        )
-        parent.mkdir(parents=True, exist_ok=True)
-        if bundle.exists():
-            shutil.rmtree(bundle)
-        print("Downloading private Darwin SDK archive...")
-        with (
-            urllib.request.urlopen(url) as response,
-            archive.open("wb") as output,
-        ):
-            shutil.copyfileobj(response, output)
-        subprocess.run(
-            ["tar", "-xzf", str(archive), "-C", str(parent)],
-            check=True,
-        )
-        archive.unlink()
-        if not (bundle / "info.json").is_file():
-            print(
-                "::error::Archive must contain "
-                "xcross-darwin.artifactbundle at its root."
-            )
-            raise SystemExit(1)
+        echo "::error::Darwin SDK cache $CACHE_KEY is missing. Run the \"Warm Darwin SDK cache\" workflow with xcode_xip_url set to an Xcode .xip download URL."
+        exit 1
 
     - name: Refresh clang builtin headers
       shell: python
