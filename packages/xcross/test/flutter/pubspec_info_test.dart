@@ -74,6 +74,34 @@ packages:
     ]);
   });
 
+  test('parses shaders in string and map form', () {
+    File(p.join(tmp.path, 'pubspec.yaml')).writeAsStringSync('''
+name: demo
+flutter:
+  shaders:
+    - shaders/glow.frag
+    - path: shaders/dark.frag
+      flavors: [dark]
+      platforms: [ios, android]
+    - path: shaders/min.frag
+      transformers:
+        - package: shader_minifier
+''');
+
+    final shaders = testIPhoneRuntime().pubspecs.loadSync(tmp.path).shaders;
+
+    expect(shaders.map((s) => s.path), [
+      'shaders/glow.frag',
+      'shaders/dark.frag',
+      'shaders/min.frag',
+    ]);
+    expect(shaders[0].appliesTo(flavor: null, platform: 'ios'), isTrue);
+    expect(shaders[1].appliesTo(flavor: 'dark', platform: 'ios'), isTrue);
+    expect(shaders[1].appliesTo(flavor: null, platform: 'ios'), isFalse);
+    expect(shaders[1].appliesTo(flavor: 'dark', platform: 'web'), isFalse);
+    expect(shaders[2].hasTransformers, isTrue);
+  });
+
   test('defaults to no assets/fonts when flutter: section is absent', () {
     File(p.join(tmp.path, 'pubspec.yaml')).writeAsStringSync('name: demo\n');
 

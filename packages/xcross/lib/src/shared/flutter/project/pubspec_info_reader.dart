@@ -3,6 +3,7 @@ import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/shared/flutter/errors.dart';
 import 'package:xcross/src/shared/flutter/models/internal/pubspec_font.dart';
+import 'package:xcross/src/shared/flutter/models/internal/pubspec_shader.dart';
 import 'package:xcross/src/shared/flutter/models/pubspec_info.dart';
 import 'package:yaml/yaml.dart';
 
@@ -25,6 +26,7 @@ final class PubspecInfoReader {
       usesMaterialDesign: flutter?['uses-material-design'] == true,
       assets: _parseAssets(flutter?['assets']),
       fonts: _parseFonts(flutter?['fonts']),
+      shaders: _parseShaders(flutter?['shaders']),
       dependencies: _parseDependencies(projectRoot, doc['dependencies']),
     );
   }
@@ -83,6 +85,29 @@ final class PubspecInfoReader {
           entry.key as String,
     ];
   }
+
+  static List<PubspecShader> _parseShaders(Object? node) {
+    if (node is! YamlList) return const [];
+    return [
+      for (final entry in node)
+        if (entry is String)
+          PubspecShader(path: entry)
+        else if (entry is YamlMap)
+          if (_valueOf<String>(entry['path']) case final path?)
+            PubspecShader(
+              path: path,
+              flavors: _strings(entry['flavors']),
+              platforms: _strings(entry['platforms']),
+              hasTransformers: entry['transformers'] != null,
+            ),
+    ];
+  }
+
+  static Set<String> _strings(Object? node) => {
+    if (node is YamlList)
+      for (final value in node)
+        if (value is String) value,
+  };
 
   static List<PubspecFontFamily> _parseFonts(Object? node) {
     if (node is! YamlList) return const [];

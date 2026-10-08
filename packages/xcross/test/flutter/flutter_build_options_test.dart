@@ -20,6 +20,20 @@ void main() {
     }
   });
 
+  test('shakes icons only for precompiled builds that allow it, like flutter '
+      'build', () {
+    expect(const FlutterBuildOptions().shakesIcons, isFalse);
+    expect(const FlutterBuildOptions(buildMode: 'release').shakesIcons, isTrue);
+    expect(const FlutterBuildOptions(buildMode: 'profile').shakesIcons, isTrue);
+    expect(
+      const FlutterBuildOptions(
+        buildMode: 'release',
+        treeShakeIcons: false,
+      ).shakesIcons,
+      isFalse,
+    );
+  });
+
   group('FlutterBuildOptions.resolve', () {
     late Directory tmp;
 

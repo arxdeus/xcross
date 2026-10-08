@@ -19,6 +19,7 @@ FlutterBuildArgs _$parseFlutterBuildArgsResult(ArgResults result) =>
       ..release = result['release'] as bool
       ..buildName = result['build-name'] as String?
       ..buildNumber = result['build-number'] as String?
+      ..treeShakeIcons = result['tree-shake-icons'] as bool
       ..ipa = result['ipa'] as bool;
 
 ArgParser _$populateFlutterBuildArgsParser(ArgParser parser) => parser
@@ -68,6 +69,12 @@ ArgParser _$populateFlutterBuildArgsParser(ArgParser parser) => parser
   )
   ..addOption('build-name', help: 'Version name (CFBundleShortVersionString).')
   ..addOption('build-number', help: 'Version code (CFBundleVersion).')
+  ..addFlag(
+    'tree-shake-icons',
+    help:
+        'Tree shake icon fonts so that only glyphs used by the application remain. Applies to profile and release builds.',
+    defaultsTo: true,
+  )
   ..addFlag(
     'ipa',
     abbr: 'i',

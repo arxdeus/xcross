@@ -340,13 +340,7 @@ void main() {
           'engine',
           canonical,
         );
-        Directory(sdkHost).createSync(recursive: true);
-        for (final name in [
-          'vm_isolate_snapshot.bin',
-          'isolate_snapshot.bin',
-        ]) {
-          File(p.join(sdkHost, name)).writeAsStringSync('snapshot');
-        }
+        _writeHostArtifacts(sdkHost, tools.host.paths.executableName);
         expect(
           engine.vmSnapshotData,
           p.join(sdkHost, 'vm_isolate_snapshot.bin'),
@@ -354,6 +348,22 @@ void main() {
         expect(
           engine.isolateSnapshotData,
           p.join(sdkHost, 'isolate_snapshot.bin'),
+        );
+        expect(
+          engine.impellerc,
+          p.join(sdkHost, tools.host.paths.executableName('impellerc')),
+        );
+        expect(engine.shaderLib, p.join(sdkHost, 'shader_lib'));
+        expect(
+          p.dirname(engine.fontSubset),
+          p.join(
+            cacheRoot,
+            'engine-hash',
+            'artifacts',
+            'engine',
+            'font-subset',
+            artifact,
+          ),
         );
       },
     );
@@ -430,10 +440,7 @@ void main() {
       Directory(
         p.join(sdk, 'common', 'flutter_patched_sdk'),
       ).createSync(recursive: true);
-      Directory(p.join(sdk, 'linux-arm64')).createSync(recursive: true);
-      for (final name in ['vm_isolate_snapshot.bin', 'isolate_snapshot.bin']) {
-        File(p.join(sdk, 'linux-arm64', name)).writeAsStringSync('snapshot');
-      }
+      _writeHostArtifacts(p.join(sdk, 'linux-arm64'), (name) => name);
     }
 
     setUp(() {
@@ -533,10 +540,7 @@ void main() {
       Directory(
         userEngine('common/flutter_patched_sdk'),
       ).createSync(recursive: true);
-      Directory(userEngine('linux-arm64')).createSync(recursive: true);
-      for (final name in ['vm_isolate_snapshot.bin', 'isolate_snapshot.bin']) {
-        File(p.join(userEngine('linux-arm64'), name)).writeAsStringSync('x');
-      }
+      _writeHostArtifacts(userEngine('linux-arm64'), (name) => name);
       _writeEngineFramework(
         p.join(userEngine('ios'), 'Flutter.xcframework', 'ios-arm64'),
         folded: false,
@@ -599,10 +603,7 @@ void main() {
       Directory(
         userEngine('common/flutter_patched_sdk'),
       ).createSync(recursive: true);
-      Directory(userEngine('linux-arm64')).createSync(recursive: true);
-      for (final name in ['vm_isolate_snapshot.bin', 'isolate_snapshot.bin']) {
-        File(p.join(userEngine('linux-arm64'), name)).writeAsStringSync('x');
-      }
+      _writeHostArtifacts(userEngine('linux-arm64'), (name) => name);
       final output = RecordingTestLogOutput();
       final engine = IosEngineCache(
         targetPolicy: policy,
@@ -688,6 +689,20 @@ void main() {
       ),
     );
   });
+}
+
+void _writeHostArtifacts(
+  String directory,
+  String Function(String) executableName,
+) {
+  Directory(p.join(directory, 'shader_lib')).createSync(recursive: true);
+  for (final name in [
+    'vm_isolate_snapshot.bin',
+    'isolate_snapshot.bin',
+    executableName('impellerc'),
+  ]) {
+    File(p.join(directory, name)).writeAsStringSync(name);
+  }
 }
 
 void _writeEngineFramework(

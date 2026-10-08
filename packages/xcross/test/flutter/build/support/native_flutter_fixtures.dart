@@ -68,6 +68,16 @@ IosEngineCache workspaceSdk(
         'linux-arm64',
         'isolate_snapshot.bin',
       ),
+      p.join('bin', 'cache', 'artifacts', 'engine', 'linux-arm64', 'impellerc'),
+      p.join(
+        'bin',
+        'cache',
+        'artifacts',
+        'engine',
+        'linux-arm64',
+        'shader_lib',
+        'source',
+      ),
       p.join(
         'bin',
         'cache',

@@ -7,6 +7,8 @@ import 'package:meta/meta.dart';
 import 'package:package_config/package_config.dart';
 import 'package:path/path.dart' as p;
 import 'package:standard_message_codec/standard_message_codec.dart';
+import 'package:xcross/src/shared/flutter/build/icon_tree_shaker.dart';
+import 'package:xcross/src/shared/flutter/build/impeller_shader_compiler.dart';
 import 'package:xcross/src/shared/flutter/errors.dart';
 import 'package:xcross/src/shared/flutter/models/pubspec_info.dart';
 import 'package:xcross/src/shared/flutter/project/pubspec_info_reader.dart';
@@ -19,6 +21,7 @@ final class FlutterAssetsCompiler {
     required this.paths,
     required this.projectRoot,
     required this.flutterRoot,
+    this.flavor,
   }) : packageConfigs = PackageConfigResolver(
          fileSystem: fileSystem,
          paths: paths,
@@ -28,12 +31,46 @@ final class FlutterAssetsCompiler {
   final p.Context paths;
   final String projectRoot;
   final String flutterRoot;
-  Future<void> bundle({
+
+  /// `--flavor`, which selects flavored `shaders:` entries.
+  final String? flavor;
+
+  /// Fragment programs Flutter bundles for every app, as asset key to the
+  /// framework source, mirroring flutter_tools' `_getFrameworkShaders`.
+  @visibleForTesting
+  Map<String, String> frameworkShaders() {
+    final library = paths.join(
+      flutterRoot,
+      'packages',
+      'flutter',
+      'lib',
+      'src',
+    );
+    final candidates = {
+      'shaders/ink_sparkle.frag': [
+        paths.join(library, 'material', 'shaders', 'ink_sparkle.frag'),
+      ],
+      'shaders/stretch_effect.frag': [
+        paths.join(library, 'widgets', 'shaders', 'stretch_effect.frag'),
+        paths.join(library, 'material', 'shaders', 'stretch_effect.frag'),
+      ],
+    };
+    return {
+      for (final MapEntry(:key, :value) in candidates.entries)
+        if (value.where((path) => fileSystem.file(path).existsSync())
+            case final sources when sources.isNotEmpty)
+          key: sources.first,
+    };
+  }
+
+  Future<void> bundle<T extends PlatformHostInterface>({
     required String assetsDir,
     required String appDill,
     required String vmSnapshotData,
     required String isolateSnapshotData,
     required PubspecInfo pubspec,
+    required ImpellerShaderCompiler<T> shaders,
+    IconTreeShaker<T>? icons,
   }) async {
     await _copyDataAssets(
       assetsDir,
@@ -43,7 +80,92 @@ final class FlutterAssetsCompiler {
     );
     final manifest = await copyPubspecAssets(assetsDir, pubspec);
     final fonts = await copyFonts(assetsDir, pubspec);
+    await compileShaders(assetsDir, pubspec, shaders, manifest);
+    await icons?.shake(
+      assetsDir: assetsDir,
+      appDill: appDill,
+      fontManifest: fonts,
+    );
     writeManifests(assetsDir, manifest, fonts);
+  }
+
+  /// Compile the framework shaders and every `shaders:` entry of the app and
+  /// its dependencies. Declared shaders join [manifest], as in flutter_tools.
+  @visibleForTesting
+  Future<void> compileShaders<T extends PlatformHostInterface>(
+    String assetsDir,
+    PubspecInfo pubspec,
+    ImpellerShaderCompiler<T> compiler,
+    Map<String, List<String>> manifest,
+  ) async {
+    final sources = <String, String>{};
+    void declare(String key, String source, String owner) {
+      if (!fileSystem.file(source).existsSync()) {
+        throw FlutterBuildError('$owner/pubspec.yaml: shader not found: $key');
+      }
+      sources[key] = source;
+      manifest[key] = [key];
+    }
+
+    for (final shader in _selected(pubspec, 'pubspec.yaml')) {
+      _rejectShaderAsset(pubspec, shader, 'pubspec.yaml');
+      declare(shader, paths.join(projectRoot, shader), '.');
+    }
+    for (final (:name, :root, :info) in await _dependencyPubspecs(pubspec)) {
+      for (final shader in _selected(info, '$name/pubspec.yaml')) {
+        _rejectShaderAsset(info, shader, '$name/pubspec.yaml');
+        declare(
+          p.url.join('packages', name, shader),
+          paths.join(root, shader),
+          name,
+        );
+      }
+    }
+    for (final MapEntry(:key, :value) in frameworkShaders().entries) {
+      sources.putIfAbsent(key, () => value);
+    }
+    for (final MapEntry(:key, :value) in sources.entries) {
+      await compiler.compile(
+        source: value,
+        output: paths.joinAll([assetsDir, ...p.url.split(key)]),
+      );
+    }
+  }
+
+  Iterable<String> _selected(PubspecInfo pubspec, String owner) sync* {
+    for (final shader in pubspec.shaders) {
+      if (!shader.appliesTo(flavor: flavor, platform: 'ios')) continue;
+      if (shader.hasTransformers) {
+        throw FlutterBuildError(
+          '$owner: shader "${shader.path}" declares transformers, which xcross '
+          'does not run yet.',
+        );
+      }
+      yield shader.path;
+    }
+  }
+
+  static void _rejectShaderAsset(
+    PubspecInfo pubspec,
+    String shader,
+    String owner,
+  ) {
+    for (final asset in pubspec.assets) {
+      if (asset == shader) {
+        throw FlutterBuildError(
+          '$owner: shader "$shader" is also defined as an asset. Shaders '
+          'should only be defined in the "shaders" section of the '
+          'pubspec.yaml, not in the "assets" section.',
+        );
+      }
+      if (asset.endsWith('/') && shader.startsWith(asset)) {
+        throw FlutterBuildError(
+          '$owner: shader "$shader" is included in the asset directory '
+          '"$asset". Shaders should only be defined in the "shaders" section '
+          'of the pubspec.yaml, not in the "assets" section.',
+        );
+      }
+    }
   }
 
   Future<void> _copyDataAssets(
@@ -168,33 +290,42 @@ final class FlutterAssetsCompiler {
     PubspecInfo pubspec,
     List<Map<String, Object?>> fonts,
   ) async {
+    for (final (:name, :root, :info) in await _dependencyPubspecs(pubspec)) {
+      await _copyPackageFonts(assetsDir, name, root, info, fonts);
+    }
+  }
+
+  /// Local dependencies with a `pubspec.yaml`, in [pubspec]'s order.
+  Future<List<({String name, String root, PubspecInfo info})>>
+  _dependencyPubspecs(PubspecInfo pubspec) async {
     final packageConfigPath = await packageConfigs.require(projectRoot);
     final packageConfig = await loadPackageConfig(
       fileSystem.file(packageConfigPath),
     );
-    for (final packageName in pubspec.dependencies) {
-      final package = packageConfig[packageName];
-      final isLocalPackage = package != null && package.root.scheme == 'file';
-      if (!isLocalPackage) continue;
-      final packageRoot = paths.fromUri(package.root);
-      final packagePubspec = fileSystem.file(
-        paths.join(packageRoot, 'pubspec.yaml'),
-      );
-      if (!packagePubspec.existsSync()) continue;
-      await _copyPackageFonts(assetsDir, packageName, packageRoot, fonts);
-    }
+    final reader = PubspecInfoReader(fileSystem, paths);
+    return [
+      for (final packageName in pubspec.dependencies)
+        if (packageConfig[packageName] case final package?
+            when package.root.scheme == 'file')
+          if (paths.fromUri(package.root) case final packageRoot
+              when fileSystem
+                  .file(paths.join(packageRoot, 'pubspec.yaml'))
+                  .existsSync())
+            (
+              name: packageName,
+              root: packageRoot,
+              info: reader.loadSync(packageRoot),
+            ),
+    ];
   }
 
   Future<void> _copyPackageFonts(
     String assetsDir,
     String packageName,
     String packageRoot,
+    PubspecInfo packageInfo,
     List<Map<String, Object?>> fonts,
   ) async {
-    final packageInfo = PubspecInfoReader(
-      fileSystem,
-      paths,
-    ).loadSync(packageRoot);
     for (final family in packageInfo.fonts) {
       final descriptors = <Map<String, Object>>[];
       for (final font in family.fonts) {

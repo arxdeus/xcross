@@ -14,11 +14,19 @@ final class FlutterBuildOptions {
     this.buildNumber,
     this.flavor,
     this.buildMode = 'debug',
+    this.treeShakeIcons = true,
   });
 
   /// `-t/--target` entrypoint.
   final String target;
   final String buildMode;
+
+  /// `--[no-]tree-shake-icons`. Like `flutter build`, it only applies to
+  /// precompiled (profile/release) builds; debug keeps whole icon fonts so
+  /// hot reload can use any glyph.
+  final bool treeShakeIcons;
+
+  bool get shakesIcons => treeShakeIcons && buildMode != 'debug';
 
   void validate() {
     if (buildMode != 'debug') {

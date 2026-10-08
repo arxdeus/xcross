@@ -105,6 +105,7 @@ final class FlutterArtifactCompiler<T extends PlatformHostInterface>
         fileSystem: runtime.host.fileSystem,
         projectRoot: projectRoot,
         flutterRoot: flutterRoot,
+        flavor: options.flavor,
       ),
       kernel: FlutterKernelCompiler(
         runtime: runtime,
@@ -123,6 +124,7 @@ final class FlutterArtifactCompiler<T extends PlatformHostInterface>
       entrypoint: options.target,
       dartDefines: options.dartDefines,
       flavor: options.flavor,
+      treeShakeIcons: options.shakesIcons,
     ).build();
     return debugBundle;
   }

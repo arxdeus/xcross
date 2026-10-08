@@ -255,33 +255,89 @@ final class IosEngineCache<T extends PlatformHostInterface> {
   String get isolateSnapshotData =>
       host.paths.context.join(_hostEngineDir, 'isolate_snapshot.bin');
 
+  /// Host `impellerc`, from the same host archive as the snapshot data.
+  String get impellerc => host.paths.context.join(
+    _hostEngineDir,
+    host.paths.executableName('impellerc'),
+  );
+
+  /// `shader_lib` include directory shipped next to [impellerc].
+  String get shaderLib => host.paths.context.join(_hostEngineDir, 'shader_lib');
+
+  /// Host `font-subset`, from the host `font-subset.zip`.
+  String get fontSubset => host.paths.context.join(
+    _fontSubsetDir,
+    host.paths.executableName('font-subset'),
+  );
+
+  /// `const_finder.dart.snapshot`, shipped with [fontSubset].
+  String get constFinder =>
+      host.paths.context.join(_fontSubsetDir, 'const_finder.dart.snapshot');
+
+  /// The Flutter SDK's `dart`, which runs [constFinder] as flutter_tools does.
+  String get dart => host.paths.context.join(
+    flutterRoot,
+    'bin',
+    'cache',
+    'dart-sdk',
+    'bin',
+    host.paths.executableName('dart'),
+  );
+
   /// Directory containing snapshot data for the host Dart engine.
   String get _hostEngineDir {
     final flutterSdkDirectory = host.paths.context.join(
       _flutterSdkEngineRoot,
       hostEngineCacheDirectory,
     );
-    final hasSnapshotData =
+    final hasHostArtifacts =
         !_isStale(sdkCommonEngineRevision) &&
+        [
+          'vm_isolate_snapshot.bin',
+          'isolate_snapshot.bin',
+          host.paths.executableName('impellerc'),
+        ].every(
+          (name) => host.fileSystem
+              .file(host.paths.context.join(flutterSdkDirectory, name))
+              .existsSync(),
+        ) &&
         host.fileSystem
-            .file(
-              host.paths.context.join(
-                flutterSdkDirectory,
-                'vm_isolate_snapshot.bin',
-              ),
-            )
-            .existsSync() &&
-        host.fileSystem
-            .file(
-              host.paths.context.join(
-                flutterSdkDirectory,
-                'isolate_snapshot.bin',
-              ),
+            .directory(
+              host.paths.context.join(flutterSdkDirectory, 'shader_lib'),
             )
             .existsSync();
-    if (hasSnapshotData) return flutterSdkDirectory;
+    if (hasHostArtifacts) return flutterSdkDirectory;
 
     return host.paths.context.join(_userEngineRoot, hostArtifactPlatform);
+  }
+
+  /// Directory holding `font-subset` and `const_finder.dart.snapshot`.
+  ///
+  /// flutter_tools keeps them in the host engine directory and records the
+  /// engine in `font-subset.stamp`. xcross's own copy lives in a separate
+  /// directory so it never mixes with the host archive.
+  String get _fontSubsetDir {
+    final flutterSdkDirectory = host.paths.context.join(
+      _flutterSdkEngineRoot,
+      hostEngineCacheDirectory,
+    );
+    final hasFontSubset =
+        _matchesEngine(_readStamp('font-subset')) &&
+        [
+          host.paths.executableName('font-subset'),
+          'const_finder.dart.snapshot',
+        ].every(
+          (name) => host.fileSystem
+              .file(host.paths.context.join(flutterSdkDirectory, name))
+              .existsSync(),
+        );
+    if (hasFontSubset) return flutterSdkDirectory;
+
+    return host.paths.context.join(
+      _userEngineRoot,
+      'font-subset',
+      hostArtifactPlatform,
+    );
   }
 
   /// Path to the Dart frontend_server snapshot. Prefers the AOT variant
@@ -357,13 +413,33 @@ final class IosEngineCache<T extends PlatformHostInterface> {
     flutterSlice(flutterXcframework);
     final hasHostArtifacts =
         host.fileSystem.file(vmSnapshotData).existsSync() &&
-        host.fileSystem.file(isolateSnapshotData).existsSync();
+        host.fileSystem.file(isolateSnapshotData).existsSync() &&
+        host.fileSystem.file(impellerc).existsSync() &&
+        host.fileSystem.directory(shaderLib).existsSync();
     if (!hasHostArtifacts) {
       await _downloadHostArtifacts();
     }
     if (!host.fileSystem.directory(patchedSdkRoot).existsSync()) {
       await _downloadPatchedSdk();
     }
+  }
+
+  /// Make sure `font-subset` and `const_finder` are present, downloading the
+  /// host `font-subset.zip` if needed. Only icon tree shaking needs them.
+  Future<void> ensureFontSubsetAvailable() async {
+    final present =
+        host.fileSystem.file(fontSubset).existsSync() &&
+        host.fileSystem.file(constFinder).existsSync();
+    if (present) return;
+    final url =
+        '$flutterArtifactBaseUrl/$engineHash/$hostArtifactPlatform/font-subset.zip';
+    log.logTrace('downloading Flutter font-subset from $url');
+    await _fetchAndExtract(
+      url,
+      _fontSubsetDir,
+      'font-subset-',
+      label: 'Flutter font-subset',
+    );
   }
 
   /// Explain why the SDK's own artifacts were passed over, and flag a Dart

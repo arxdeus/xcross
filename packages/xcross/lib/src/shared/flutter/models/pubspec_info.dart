@@ -1,5 +1,6 @@
 import 'package:meta/meta.dart';
 import 'package:xcross/src/shared/flutter/models/internal/pubspec_font.dart';
+import 'package:xcross/src/shared/flutter/models/internal/pubspec_shader.dart';
 
 @internal
 final class PubspecInfo {
@@ -8,6 +9,7 @@ final class PubspecInfo {
     required this.usesMaterialDesign,
     this.assets = const [],
     this.fonts = const [],
+    this.shaders = const [],
     this.dependencies = const [],
   });
 
@@ -24,6 +26,9 @@ final class PubspecInfo {
 
   /// `flutter: fonts:` entries.
   final List<PubspecFontFamily> fonts;
+
+  /// `flutter: shaders:` entries.
+  final List<PubspecShader> shaders;
 
   /// Package names under `dependencies:` (excluding `dev_dependencies`).
   final List<String> dependencies;

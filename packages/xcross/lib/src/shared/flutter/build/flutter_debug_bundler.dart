@@ -1,6 +1,8 @@
 import 'package:cli_kit/shared/platform/platform_host.dart';
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
+import 'package:xcross/src/shared/flutter/build/icon_tree_shaker.dart';
+import 'package:xcross/src/shared/flutter/build/impeller_shader_compiler.dart';
 import 'package:xcross/src/shared/flutter/build/internal/toolchain.dart';
 import 'package:xcross/src/shared/flutter/build/ios_deployment_target.dart';
 import 'package:xcross/src/shared/flutter/build/ios_engine_cache.dart';
@@ -35,6 +37,7 @@ final class FlutterDebugBundler<T extends PlatformHostInterface> {
     this.entrypoint = 'lib/main.dart',
     this.dartDefines = const [],
     this.flavor,
+    this.treeShakeIcons = false,
   });
   final FlutterBuildRuntime<T> runtime;
   final FlutterKernelCompiler<T> kernel;
@@ -58,7 +61,8 @@ final class FlutterDebugBundler<T extends PlatformHostInterface> {
   /// `FLUTTER_APP_FLAVOR=` define (explicit define wins).
   final String? flavor;
 
-  /// Build `App.framework` inside [outputDir]. Returns the framework path.
+  /// Whether icon fonts are subset to the glyphs the app uses.
+  final bool treeShakeIcons;
   Future<String> build() async {
     final engineCache = runtime.engineCache(flutterRoot);
     await runtime.runner.log.logStep(
@@ -81,6 +85,7 @@ final class FlutterDebugBundler<T extends PlatformHostInterface> {
 
     final appDill = await kernel.compile(engineCache);
     final pubspec = runtime.pubspecs.loadSync(projectRoot);
+    if (treeShakeIcons) await engineCache.ensureFontSubsetAvailable();
 
     await runtime.runner.log.logStep(
       'Bundling assets',
@@ -90,6 +95,19 @@ final class FlutterDebugBundler<T extends PlatformHostInterface> {
         vmSnapshotData: engineCache.vmSnapshotData,
         isolateSnapshotData: engineCache.isolateSnapshotData,
         pubspec: pubspec,
+        shaders: ImpellerShaderCompiler(
+          runner: runtime.runner,
+          impellerc: engineCache.impellerc,
+          shaderLib: engineCache.shaderLib,
+        ),
+        icons: treeShakeIcons
+            ? IconTreeShaker(
+                runner: runtime.runner,
+                dart: engineCache.dart,
+                constFinder: engineCache.constFinder,
+                fontSubset: engineCache.fontSubset,
+              )
+            : null,
       ),
     );
 

@@ -65,6 +65,14 @@ final class FlutterBuildArgs extends CommonFlutterArgs {
   late String? buildNumber;
 
   @CliOption(
+    defaultsTo: true,
+    help:
+        'Tree shake icon fonts so that only glyphs used by the application '
+        'remain. Applies to profile and release builds.',
+  )
+  late bool treeShakeIcons;
+
+  @CliOption(
     abbr: 'i',
     negatable: false,
     help: 'Output a .ipa file instead of a .app.',
@@ -123,6 +131,7 @@ final class FlutterBuildCommand<T extends PlatformHostInterface>
       buildName: options.buildName,
       buildNumber: options.buildNumber,
       flavor: options.flavor,
+      treeShakeIcons: options.treeShakeIcons,
     );
 
     final result = await FlutterPackOperation.pack(

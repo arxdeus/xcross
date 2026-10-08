@@ -19,6 +19,7 @@ final class FlutterBuildOptionsResolver {
     String? buildNumber,
     String? flavor,
     String buildMode = 'debug',
+    bool treeShakeIcons = true,
   }) async => FlutterBuildOptions(
     target: target,
     dartDefines: await defines.mergeDartDefines(dartDefineFromFile, dartDefine),
@@ -27,5 +28,6 @@ final class FlutterBuildOptionsResolver {
     buildNumber: buildNumber,
     flavor: flavor,
     buildMode: buildMode,
+    treeShakeIcons: treeShakeIcons,
   );
 }
