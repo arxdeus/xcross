@@ -23,7 +23,7 @@ def resolve(env, fetch_pull_request=pull_request):
             "run": True,
             "sha": env["PR_HEAD_SHA"],
             "trusted": env.get("PR_HEAD_REPO") == repository,
-            "pr": "",
+            "pr": env.get("PR_NUMBER", ""),
         }
     if event == "issue_comment":
         command = env.get("COMMENT_BODY", "").strip().splitlines()

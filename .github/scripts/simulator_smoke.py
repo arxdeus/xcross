@@ -1,0 +1,532 @@
+import argparse
+import json
+import os
+from pathlib import Path
+import plistlib
+import re
+import shutil
+import signal
+import subprocess
+import sys
+import time
+import uuid
+
+
+ABORT_MARKERS = re.compile(
+    r"SIGABRT|SIGSEGV|SIGBUS|SIGILL|EXC_BAD_ACCESS|EXC_CRASH|abort\(\) called"
+    r"|Terminating app due to uncaught exception|Fatal error|Library not loaded"
+    r"|Symbol not found"
+)
+
+
+class CommandTimeout(RuntimeError):
+    def __init__(self, message, output=""):
+        super().__init__(message)
+        self.output = output
+
+
+INSTALL_ERROR = re.compile(r"error|fail|denied|invalid", re.IGNORECASE)
+HOME_SCREEN_SERVICE = "system/com.apple.SpringBoard"
+
+
+def app_size(app):
+    return sum(path.stat().st_size for path in app.rglob("*") if path.is_file() and not path.is_symlink())
+
+
+def install_timeout(size):
+    return max(300, 240 + 60 * -(-size // (100 * 1024 * 1024)))
+
+
+def version_tuple(version):
+    parts = tuple(int(part) for part in version.split("."))
+    return parts + (0,) * max(0, 3 - len(parts))
+
+
+def select_device(inventory, sdk_version=None, minimum_version=None):
+    types = {item["identifier"]: item for item in inventory["devicetypes"]}
+    by_name = {item["name"]: item["identifier"] for item in types.values()}
+    runtimes = sorted(
+        (
+            item for item in inventory["runtimes"]
+            if item.get("isAvailable") is True
+            and item["identifier"].startswith("com.apple.CoreSimulator.SimRuntime.iOS-")
+            and (sdk_version is None or (
+                version_tuple(item["version"])[0] == version_tuple(sdk_version)[0]
+                and version_tuple(item["version"]) <= version_tuple(sdk_version)
+            ))
+            and (minimum_version is None
+                 or version_tuple(item["version"]) >= version_tuple(minimum_version))
+        ),
+        key=lambda item: (tuple(int(n) for n in item["version"].split(".")), item["identifier"]),
+        reverse=True,
+    )
+    for runtime in runtimes:
+        compatible = {
+            item["identifier"] for item in runtime.get("supportedDeviceTypes", [])
+        }
+        compatible.update(
+            item.get("deviceTypeIdentifier") or by_name.get(item["name"])
+            for item in inventory.get("devices", {}).get(runtime["identifier"], [])
+            if item.get("isAvailable") is True
+        )
+        iphones = sorted(
+            identifier for identifier in compatible
+            if identifier in types and types[identifier]["name"].startswith("iPhone ")
+        )
+        if iphones:
+            return runtime["identifier"], iphones[0]
+    raise RuntimeError("No available iOS runtime with a compatible iPhone device type")
+
+
+def app_metadata(app):
+    with (app / "Info.plist").open("rb") as source:
+        info = plistlib.load(source)
+    identifier = info["CFBundleIdentifier"]
+    executable = info["CFBundleExecutable"]
+    if not re.fullmatch(r"[A-Za-z0-9.-]+", identifier):
+        raise RuntimeError("Invalid app bundle identifier")
+    if not executable or Path(executable).name != executable:
+        raise RuntimeError("Invalid app executable name")
+    if not (app / executable).is_file():
+        raise RuntimeError("App executable is missing")
+    if info.get("CFBundleSupportedPlatforms") != ["iPhoneSimulator"]:
+        raise RuntimeError("Expected an iPhoneSimulator app, not a device app")
+    return identifier, executable
+
+
+class Smoke:
+    def __init__(self, app, output, boot_timeout=180, observe_seconds=20, ready_marker=None,
+                 grace_seconds=5, crash_report_wait=60):
+        self.app = app.resolve()
+        self.output = output.resolve()
+        self.output.mkdir(parents=True, exist_ok=True)
+        if any((self.output / name).exists() for name in (
+                "result.json", "app-stdout.log", "app-stderr.log", "simulator.log")):
+            raise RuntimeError("Smoke output directory must not contain evidence from a previous run")
+        self.boot_timeout = boot_timeout
+        self.observe_seconds = observe_seconds
+        self.grace_seconds = grace_seconds
+        self.crash_report_wait = crash_report_wait
+        self.process_died = False
+        self.abort_markers = []
+        self.exit_status = None
+        self.device = None
+        self.pid = None
+        self.executable = None
+        self.identifier = None
+        self.started = time.time()
+        self.crashes = []
+        self.created_name = None
+        self.runtime = None
+        self.device_type = None
+        self.ready_marker = ready_marker
+        self.ready_marker_found = False
+        self.launch_retries = []
+        self.install_retries = []
+        self.diagnostic_timeouts = []
+
+    def command(self, args, name, timeout=60, check=True):
+        with (self.output / "commands.log").open("a") as log:
+            log.write(json.dumps(args) + "\n")
+        try:
+            result = subprocess.run(
+                args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                text=True, timeout=timeout, check=False,
+            )
+        except subprocess.TimeoutExpired as error:
+            data = error.stdout or b""
+            if isinstance(data, bytes):
+                data = data.decode(errors="replace")
+            (self.output / name).write_text(data + f"\nTimed out after {timeout}s\n")
+            raise CommandTimeout(f"Command timed out after {timeout}s: {args}", data) from error
+        with (self.output / name).open("a") as log:
+            log.write(result.stdout)
+        if check and result.returncode:
+            raise RuntimeError(f"Command failed ({result.returncode}): {args}\n{result.stdout}")
+        return result
+
+    def simctl(self, *args, name, timeout=60, check=True):
+        return self.command(
+            ["/usr/bin/xcrun", "simctl", *args], name, timeout, check,
+        )
+
+    def validate_binary(self, binary):
+        self.command(
+            ["/usr/bin/xcrun", "lipo", str(binary), "-verify_arch", "arm64"],
+            "binary-validation.log",
+        )
+        result = self.command(
+            ["/usr/bin/xcrun", "vtool", "-arch", "arm64", "-show-build", str(binary)],
+            "binary-validation.log",
+        )
+        if not re.search(r"platform\s+(?:IOSSIMULATOR|7)\b", result.stdout):
+            raise RuntimeError(f"Not an ARM64 iOS Simulator Mach-O: {binary}")
+        result = self.command(
+            ["/usr/bin/codesign", "--verify", "--no-strict", "--ignore-resources", "-v", str(binary)],
+            "signature-validation.log", check=False,
+        )
+        if result.returncode:
+            raise RuntimeError(f"Invalid code signature: {binary}\n{result.stdout.strip()}")
+
+    def observe(self):
+        deadline = time.monotonic() + self.observe_seconds
+        expected = f"/{self.app.name}/{self.executable}"
+        while True:
+            result = self.command(
+                ["/bin/ps", "-p", str(self.pid), "-o", "stat=,command="],
+                "process-observation.log", check=False,
+            )
+            fields = result.stdout.strip().split(maxsplit=1)
+            if (result.returncode or len(fields) != 2
+                    or fields[0].startswith("Z") or expected not in fields[1]):
+                self.process_died = True
+                raise RuntimeError(f"Launched app exited or crashed during observation (PID {self.pid})")
+            if time.monotonic() >= deadline:
+                return
+            time.sleep(min(1, max(0, deadline - time.monotonic())))
+
+    def recheck_after_grace(self):
+        time.sleep(self.grace_seconds)
+        observed = self.observe_seconds
+        self.observe_seconds = 0
+        try:
+            self.observe()
+        except RuntimeError as error:
+            raise RuntimeError(f"Launched app exited or crashed after observation (PID {self.pid})") from error
+        finally:
+            self.observe_seconds = observed
+        self.check_exit_status()
+
+    def check_exit_status(self):
+        try:
+            result = self.simctl(
+                "spawn", self.device, "launchctl", "list", name="launchctl.log", timeout=30,
+            )
+        except CommandTimeout as error:
+            self.diagnostic_timeouts.append(f"launchctl.log: {error}")
+            return
+        label = f"UIKitApplication:{self.identifier}["
+        jobs = [
+            fields for fields in (line.split(None, 2) for line in result.stdout.splitlines())
+            if len(fields) == 3 and fields[2].startswith(label)
+        ]
+        if not jobs:
+            raise RuntimeError("Launched app has no launchd job after observation")
+        running = [fields for fields in jobs if fields[0] == str(self.pid)]
+        if not running:
+            self.exit_status = jobs[0][1]
+            raise RuntimeError(f"Launched app is no longer the running launchd job (status {jobs[0][1]})")
+        self.exit_status = running[0][1]
+        if self.exit_status not in ("0", "-"):
+            raise RuntimeError(f"Launched app reported abnormal exit status {self.exit_status}")
+
+    def launch(self):
+        return self.simctl(
+            "launch", "--terminate-running-process",
+            f"--stdout={self.output / 'app-stdout.log'}",
+            f"--stderr={self.output / 'app-stderr.log'}",
+            self.device, self.identifier, name="launch.log", timeout=self.boot_timeout,
+        )
+
+    def launch_with_retry(self, attempts=3):
+        for attempt in range(1, attempts + 1):
+            try:
+                return self.launch()
+            except CommandTimeout as failure:
+                self.capture_crashes()
+                if self.crashes or attempt == attempts:
+                    raise
+                self.launch_retries.append(str(failure))
+                for name in ("app-stdout.log", "app-stderr.log", "launch.log"):
+                    path = self.output / name
+                    if path.exists():
+                        path.rename(self.output / f"launch-attempt-{attempt}-{name}")
+                self.fresh_boot("relaunch.log")
+                self.install_with_retry()
+
+    def install_with_retry(self):
+        timeout = install_timeout(app_size(self.app))
+        try:
+            return self.simctl("install", self.device, str(self.app), name="install.log", timeout=timeout)
+        except CommandTimeout as failure:
+            if INSTALL_ERROR.search(failure.output):
+                raise
+            self.install_retries.append(str(failure))
+            (self.output / "install.log").rename(self.output / "install-attempt-1.log")
+            self.fresh_boot("reinstall.log")
+            return self.simctl("install", self.device, str(self.app), name="install.log", timeout=timeout)
+
+    def boot(self, name):
+        self.simctl("boot", self.device, name=name)
+        self.simctl("bootstatus", self.device, "-b", name=name, timeout=self.boot_timeout)
+        self.wait_for_home_screen(name)
+
+    def fresh_boot(self, name):
+        self.simctl("shutdown", self.device, name=name, check=False, timeout=60)
+        self.simctl("erase", self.device, name=name, timeout=120)
+        self.boot(name)
+
+    def wait_for_home_screen(self, name):
+        deadline = time.monotonic() + self.boot_timeout
+        while True:
+            try:
+                result = self.simctl(
+                    "spawn", self.device, "launchctl", "print", HOME_SCREEN_SERVICE,
+                    name=name, timeout=30, check=False,
+                )
+                if not result.returncode and re.search(r"^\s*state = running$", result.stdout, re.MULTILINE):
+                    return
+            except CommandTimeout:
+                pass
+            if time.monotonic() >= deadline:
+                raise RuntimeError(f"Simulator home screen not running after {self.boot_timeout}s")
+            time.sleep(1)
+
+    def scan_abort_markers(self):
+        retried = sorted(
+            path.name for path in self.output.glob("launch-attempt-*-app-std*.log")
+        )
+        for name in ("app-stdout.log", "app-stderr.log", "simulator.log", *retried):
+            path = self.output / name
+            if not path.is_file():
+                continue
+            for line in path.read_text(errors="replace").splitlines():
+                if ABORT_MARKERS.search(line):
+                    self.abort_markers.append(f"{name}: {line.strip()[:500]}")
+
+    def capture_crashes(self):
+        if not self.executable or not self.device:
+            return
+        roots = [
+            Path.home() / "Library/Logs/DiagnosticReports",
+            Path.home() / "Library/Developer/CoreSimulator/Devices" / self.device
+            / "data/Library/Logs/CrashReporter",
+        ]
+        target = self.output / "crashes"
+        for index, root in enumerate(roots):
+            if not root.is_dir():
+                continue
+            for path in root.rglob("*"):
+                if (path.is_file() and path.name.startswith(self.executable + "-")
+                        and path.suffix in (".ips", ".crash")
+                        and path.stat().st_mtime >= self.started
+                        and (index == 1 or self.attributed_crash(path))):
+                    if str(path) in self.crashes:
+                        continue
+                    target.mkdir(exist_ok=True)
+                    shutil.copy2(path, target / f"{index}-{path.name}")
+                    self.crashes.append(str(path))
+
+    def await_crash_reports(self):
+        deadline = time.monotonic() + self.crash_report_wait
+        while True:
+            self.capture_crashes()
+            if self.crashes or time.monotonic() >= deadline:
+                return
+            time.sleep(min(2, max(0, deadline - time.monotonic())))
+
+    def attributed_crash(self, path):
+        if not self.pid:
+            return False
+        text = path.read_text(errors="replace")
+        if path.suffix == ".crash":
+            pid = re.search(r"^Process:\s+.*\[([0-9]+)\]\s*$", text, re.MULTILINE)
+            bundle = re.search(r"^Identifier:\s+(\S+)\s*$", text, re.MULTILINE)
+            process_path = re.search(r"^Path:\s+(.+)$", text, re.MULTILINE)
+            return bool(pid and int(pid.group(1)) == self.pid and (
+                (bundle and bundle.group(1) == self.identifier)
+                or (process_path and self.device.lower() in process_path.group(1).lower())
+            ))
+        documents = []
+        decoder = json.JSONDecoder()
+        while text.strip():
+            try:
+                document, end = decoder.raw_decode(text.lstrip())
+            except ValueError:
+                return False
+            documents.append(document)
+            text = text.lstrip()[end:]
+        for document in documents:
+            if not isinstance(document, dict) or document.get("pid") != self.pid:
+                continue
+            bundle_info = document.get("bundleInfo") or {}
+            bundle = bundle_info.get("CFBundleIdentifier") if isinstance(bundle_info, dict) else None
+            bundles = {item.get("bundleID") for item in documents if isinstance(item, dict)}
+            if (bundle == self.identifier or self.identifier in bundles
+                    or self.device.lower() in str(document.get("procPath", "")).lower()):
+                return True
+        return False
+
+    def diagnostics(self):
+        failures = []
+        if self.device:
+            commands = [
+                (["io", self.device, "screenshot", str(self.output / "screenshot.png")], "screenshot.log"),
+                (["list", "devices", "--json"], "devices-final.json"),
+            ]
+            predicate = f"process == {json.dumps(self.executable)}"
+            if self.pid:
+                predicate += f" OR processID == {self.pid}"
+            commands.append(([
+                "spawn", self.device, "log", "show", "--style", "compact",
+                "--last", "5m", "--predicate", predicate,
+            ], "simulator.log"))
+            for args, name in commands:
+                try:
+                    result = self.simctl(*args, name=name, check=False, timeout=30)
+                    if result.returncode:
+                        failures.append(name)
+                    elif name == "screenshot.log" and not (self.output / "screenshot.png").is_file():
+                        failures.append("screenshot.png was not created")
+                except CommandTimeout as error:
+                    self.diagnostic_timeouts.append(f"{name}: {error}")
+                except Exception as error:
+                    failures.append(f"{name}: {error}")
+        try:
+            if self.process_died:
+                self.await_crash_reports()
+            else:
+                self.capture_crashes()
+        except Exception as error:
+            failures.append(f"crash collection: {error}")
+        return failures
+
+    def recover_created_device(self):
+        if self.device or not self.created_name:
+            return
+        result = self.simctl("list", "devices", "--json", name="create-recovery.json", timeout=30)
+        devices = json.loads(result.stdout).get("devices", {}).get(self.runtime, [])
+        matches = [item for item in devices if item.get("name") == self.created_name]
+        if len(matches) > 1:
+            raise RuntimeError("Multiple simulators matched the unique job-created name")
+        if matches:
+            self.device = str(uuid.UUID(matches[0]["udid"]))
+
+    def cleanup(self):
+        if not self.device:
+            return
+        try:
+            self.simctl("shutdown", self.device, name="cleanup.log", check=False, timeout=30)
+        finally:
+            self.simctl("delete", self.device, name="cleanup.log", timeout=30)
+        result = self.simctl("list", "devices", "--json", name="cleanup-inventory.json", timeout=30)
+        devices = json.loads(result.stdout).get("devices", {})
+        if any(item.get("udid", "").lower() == self.device.lower()
+               for group in devices.values() for item in group):
+            raise RuntimeError("Job-created simulator still exists after cleanup")
+
+    def run(self):
+        error = None
+        try:
+            machine = self.command(["/usr/bin/uname", "-m"], "architecture.log").stdout.strip()
+            if machine != "arm64":
+                raise RuntimeError(f"Expected native macOS ARM64, got {machine}")
+            identifier, self.executable = app_metadata(self.app)
+            self.identifier = identifier
+            self.validate_binary(self.app / self.executable)
+            for framework in sorted((self.app / "Frameworks").glob("*.framework")):
+                self.validate_binary(framework / framework.stem)
+            for library in sorted((self.app / "Frameworks").glob("*.dylib")):
+                self.validate_binary(library)
+            result = self.simctl("list", "--json", name="inventory.json")
+            sdk_version = self.command(
+                ["/usr/bin/xcrun", "--sdk", "iphonesimulator", "--show-sdk-version"],
+                "sdk-version.log",
+            ).stdout.strip()
+            with (self.app / "Info.plist").open("rb") as source:
+                minimum_version = plistlib.load(source).get("MinimumOSVersion")
+            runtime, device_type = select_device(json.loads(result.stdout), sdk_version, minimum_version)
+            self.runtime, self.device_type = runtime, device_type
+            self.created_name = f"xcross-smoke-{os.environ.get('GITHUB_RUN_ID', 'local')}-{uuid.uuid4().hex}"
+            result = self.simctl("create", self.created_name, device_type, runtime, name="create.log")
+            self.device = str(uuid.UUID(result.stdout.strip()))
+            (self.output / "device.json").write_text(json.dumps({
+                "udid": self.device, "runtime": runtime, "device_type": device_type,
+                "name": self.created_name, "app": str(self.app), "bundle_id": identifier,
+            }, indent=2))
+            self.simctl("boot", self.device, name="boot.log")
+            self.simctl("bootstatus", self.device, "-b", name="bootstatus.log", timeout=self.boot_timeout)
+            self.wait_for_home_screen("bootstatus.log")
+            self.install_with_retry()
+            result = self.launch_with_retry()
+            match = re.search(rf"^{re.escape(identifier)}: ([1-9][0-9]*)$", result.stdout, re.MULTILINE)
+            if not match:
+                raise RuntimeError("simctl launch did not return an app PID")
+            self.pid = int(match.group(1))
+            self.observe()
+            self.recheck_after_grace()
+        except Exception as failure:
+            error = failure
+        finally:
+            try:
+                self.recover_created_device()
+            except Exception as failure:
+                error = error or failure
+            diagnostics = []
+            try:
+                diagnostics = self.diagnostics()
+                self.scan_abort_markers()
+                if self.ready_marker:
+                    self.ready_marker_found = any(
+                        path.is_file() and self.ready_marker in path.read_text(errors="replace")
+                        for path in (self.output / name for name in (
+                            "app-stdout.log", "app-stderr.log", "simulator.log",
+                        ))
+                    )
+                    if not self.ready_marker_found:
+                        error = error or RuntimeError(f"App-ready marker not observed: {self.ready_marker}")
+            except Exception as failure:
+                error = error or failure
+            try:
+                self.cleanup()
+            except Exception as failure:
+                error = error or failure
+            if not error and (diagnostics or self.crashes):
+                error = RuntimeError(f"Smoke diagnostics failed or found crashes: {diagnostics + self.crashes}")
+            if not error and self.abort_markers:
+                error = RuntimeError(f"App logged an abort or crash marker: {self.abort_markers[:5]}")
+            (self.output / "result.json").write_text(json.dumps({
+                "passed": error is None, "error": str(error) if error else None,
+                "pid": self.pid, "device": self.device,
+                "observe_seconds": self.observe_seconds, "grace_seconds": self.grace_seconds,
+                "exit_status": self.exit_status, "abort_markers": self.abort_markers,
+                "ready_marker": self.ready_marker, "ready_marker_found": self.ready_marker_found,
+                "diagnostic_failures": diagnostics, "crashes": self.crashes,
+                "launch_retries": self.launch_retries,
+                "install_retries": self.install_retries,
+                "diagnostic_timeouts": self.diagnostic_timeouts,
+            }, indent=2))
+        if error:
+            raise error
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("app", type=Path)
+    parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--boot-timeout", type=int, default=180)
+    parser.add_argument("--observe-seconds", type=int, default=20)
+    parser.add_argument("--ready-marker")
+    parser.add_argument("--grace-seconds", type=int, default=5)
+    args = parser.parse_args()
+    if args.boot_timeout < 1 or args.observe_seconds < 20 or args.grace_seconds < 1:
+        parser.error("Boot timeout and grace must be positive and observation must last at least 20 seconds")
+
+    def terminate(signum, _frame):
+        signal.signal(signum, signal.SIG_IGN)
+        raise RuntimeError("Terminated")
+
+    signal.signal(signal.SIGTERM, terminate)
+    signal.signal(signal.SIGINT, terminate)
+    Smoke(
+        args.app, args.output, args.boot_timeout, args.observe_seconds, args.ready_marker,
+        args.grace_seconds,
+    ).run()
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except Exception as error:
+        print(f"Simulator smoke failed: {error}", file=sys.stderr)
+        sys.exit(1)

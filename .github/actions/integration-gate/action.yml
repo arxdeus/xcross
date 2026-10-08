@@ -14,7 +14,7 @@ outputs:
     description: '"true" when the commit comes from this repository.'
     value: ${{ steps.gate.outputs.trusted }}
   pr:
-    description: Pull request number for /check runs, empty otherwise.
+    description: Pull request number for pull_request and /check runs, empty otherwise.
     value: ${{ steps.gate.outputs.pr }}
 
 runs:
@@ -30,8 +30,21 @@ runs:
         REPOSITORY: ${{ github.repository }}
         PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         PR_HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+        PR_NUMBER: ${{ github.event.pull_request.number }}
         COMMENT_BODY: ${{ github.event.comment.body }}
         COMMENT_ASSOCIATION: ${{ github.event.comment.author_association }}
         ISSUE_NUMBER: ${{ github.event.issue.number }}
         ISSUE_IS_PR: ${{ github.event.issue.pull_request != null }}
       run: python3 "$GITHUB_ACTION_PATH/gate.py"
+
+    # The /check comment is only a trigger; drop it once the run is accepted
+    # so the conversation keeps the report instead of a trail of commands.
+    - name: Delete the /check comment
+      if: github.event_name == 'issue_comment' && steps.gate.outputs.run == 'true'
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        COMMENT_ID: ${{ github.event.comment.id }}
+      run: |
+        gh api -X DELETE "repos/${GITHUB_REPOSITORY}/issues/comments/${COMMENT_ID}" ||
+          echo "::warning::Could not delete the /check comment ${COMMENT_ID}"

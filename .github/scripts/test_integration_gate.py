@@ -33,9 +33,9 @@ class GateTests(unittest.TestCase):
             with self.subTest(head_repo=head_repo):
                 decision = gate.resolve({
                     "EVENT_NAME": "pull_request", "REPOSITORY": REPO,
-                    "PR_HEAD_SHA": "prsha", "PR_HEAD_REPO": head_repo,
+                    "PR_HEAD_SHA": "prsha", "PR_HEAD_REPO": head_repo, "PR_NUMBER": "12",
                 })
-                self.assertEqual(decision, {"run": True, "sha": "prsha", "trusted": trusted, "pr": ""})
+                self.assertEqual(decision, {"run": True, "sha": "prsha", "trusted": trusted, "pr": "12"})
 
     def test_maintainer_check_runs_the_pull_request_head(self):
         for association in ("OWNER", "MEMBER", "COLLABORATOR"):
