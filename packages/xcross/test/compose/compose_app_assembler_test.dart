@@ -1,27 +1,165 @@
 import 'dart:io';
 
+import 'package:cli_kit/shared/process/process.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:propertylistserialization/propertylistserialization.dart';
 import 'package:test/test.dart';
-import 'package:xcross/src/compose/compose.dart';
-import 'package:xcross/src/errors.dart';
+import 'package:xcross/src/shared/compose/build/compose_app_assembler.dart';
+import 'package:xcross/src/shared/compose/project/kmp_project.dart';
+import 'package:xcross/src/shared/errors/errors.dart';
+
+import 'support/compose_platforms.dart';
 
 void main() {
+  late ComposeTestSession session;
+  setUp(() {
+    session = createComposeTestSession();
+  });
+  tearDown(() => session.dispose());
+  test(
+    'simulator bundle isolates resources plist output and ad-hoc signing',
+    () async {
+      final fixture = ComposeFixture.create()..createInputs();
+      addTearDown(fixture.dispose);
+      final deviceApp = fixture.createPreviousApp();
+      fixture.createResources(
+        'kotlin-multiplatform-resources/aggregated-resources/iosArm64',
+        {'composeResources/sample/device.txt': 'device'},
+      );
+      fixture.createResources(
+        'kotlin-multiplatform-resources/aggregated-resources/iosSimulatorArm64',
+        {'composeResources/sample/sim.txt': 'simulator'},
+      );
+      final signed = <String>[];
+      final app =
+          await ComposeAppAssembler.withSeams(
+            session.fixtureSimulatorTarget,
+            ProcessRunner(
+              log: session.fixtureLog,
+              session.fixtureSimulatorTarget.host,
+              stdinStream: const Stream<List<int>>.empty(),
+              stdoutSink: session.stdoutSink,
+              stderrSink: session.stderrSink,
+            ),
+            log: session.fixtureLog,
+            finishBundle: (path) async {
+              expect(File(p.join(path, 'Runner')).existsSync(), isTrue);
+              expect(
+                File(
+                  p.join(
+                    path,
+                    'compose-resources',
+                    'composeResources',
+                    'sample',
+                    'sim.txt',
+                  ),
+                ).existsSync(),
+                isTrue,
+              );
+              signed.add(path);
+            },
+          ).assemble(
+            project: fixture.project,
+            runnerPath: fixture.runnerPath,
+            frameworkPath: fixture.frameworkPath,
+          );
+      expect(
+        app,
+        p.join(fixture.root, 'build', 'xcross-ios-simulator', 'Example.app'),
+      );
+      expect(signed, hasLength(1));
+      expect(
+        File(p.join(deviceApp, 'Runner')).readAsStringSync(),
+        'old-runner',
+      );
+      expect(
+        File(
+          p.join(
+            app,
+            'compose-resources',
+            'composeResources',
+            'sample',
+            'device.txt',
+          ),
+        ).existsSync(),
+        isFalse,
+      );
+      final plist =
+          PropertyListSerialization.propertyListWithString(
+                File(p.join(app, 'Info.plist')).readAsStringSync(),
+              )
+              as Map;
+      expect(plist['CFBundleSupportedPlatforms'], ['iPhoneSimulator']);
+      expect(plist['DTPlatformName'], 'iphonesimulator');
+      expect(plist['DTSDKName'], startsWith('iphonesimulator'));
+      expect(
+        File(p.join(app, 'embedded.mobileprovision')).existsSync(),
+        isFalse,
+      );
+    },
+  );
+
+  test(
+    'failed simulator signing preserves previous simulator bundle',
+    () async {
+      final fixture = ComposeFixture.create()..createInputs();
+      addTearDown(fixture.dispose);
+      final previous =
+          File(
+              p.join(
+                fixture.root,
+                'build',
+                'xcross-ios-simulator',
+                'Example.app',
+                'Runner',
+              ),
+            )
+            ..createSync(recursive: true)
+            ..writeAsStringSync('old');
+      await expectLater(
+        ComposeAppAssembler.withSeams(
+          session.fixtureSimulatorTarget,
+          ProcessRunner(
+            log: session.fixtureLog,
+            session.fixtureSimulatorTarget.host,
+            stdinStream: const Stream<List<int>>.empty(),
+            stdoutSink: session.stdoutSink,
+            stderrSink: session.stderrSink,
+          ),
+          log: session.fixtureLog,
+          finishBundle: (_) async => throw StateError('signing failed'),
+        ).assemble(
+          project: fixture.project,
+          runnerPath: fixture.runnerPath,
+          frameworkPath: fixture.frameworkPath,
+        ),
+        throwsStateError,
+      );
+      expect(previous.readAsStringSync(), 'old');
+    },
+  );
+
   test(
     'assembles clean app bundle with runner plist framework and executable bits',
     () async {
-      final fixture = _Fixture.create()..createInputs();
+      final fixture = ComposeFixture.create()..createInputs();
       final stale = Directory(
         p.join(fixture.root, 'build', 'xcross-ios', 'Example.app'),
       )..createSync(recursive: true);
       File(p.join(stale.path, 'stale.txt')).writeAsStringSync('stale');
       addTearDown(fixture.dispose);
 
-      final appPath = await ComposeAppAssembler.assemble(
-        project: fixture.project,
-        runnerPath: fixture.runnerPath,
-        frameworkPath: fixture.frameworkPath,
-      );
+      final appPath =
+          await ComposeAppAssembler(
+            session.fixtureIPhoneTarget,
+            session.fixtureRunner,
+            log: session.fixtureLog,
+          ).assemble(
+            project: fixture.project,
+            runnerPath: fixture.runnerPath,
+            frameworkPath: fixture.frameworkPath,
+          );
 
       expect(
         appPath,
@@ -76,14 +214,19 @@ void main() {
   );
 
   test('static framework is linked in, not embedded in the bundle', () async {
-    final fixture = _Fixture.create()..createInputs();
+    final fixture = ComposeFixture.create()..createInputs();
     addTearDown(fixture.dispose);
 
-    final appPath = await ComposeAppAssembler.withSeams().assemble(
-      project: fixture.staticProject,
-      runnerPath: fixture.runnerPath,
-      frameworkPath: fixture.frameworkPath,
-    );
+    final appPath =
+        await ComposeAppAssembler.withSeams(
+          session.fixtureIPhoneTarget,
+          session.fixtureRunner,
+          log: session.fixtureLog,
+        ).assemble(
+          project: fixture.staticProject,
+          runnerPath: fixture.runnerPath,
+          frameworkPath: fixture.frameworkPath,
+        );
 
     expect(File(p.join(appPath, 'Runner')).existsSync(), isTrue);
     expect(File(p.join(appPath, 'Info.plist')).existsSync(), isTrue);
@@ -93,11 +236,15 @@ void main() {
   });
 
   test('rejects missing runner and framework inputs', () async {
-    final fixture = _Fixture.create()..createInputs();
+    final fixture = ComposeFixture.create()..createInputs();
     addTearDown(fixture.dispose);
 
     await expectLater(
-      ComposeAppAssembler.assemble(
+      ComposeAppAssembler(
+        session.fixtureIPhoneTarget,
+        session.fixtureRunner,
+        log: session.fixtureLog,
+      ).assemble(
         project: fixture.project,
         runnerPath: p.join(fixture.root, 'missing-runner'),
         frameworkPath: fixture.frameworkPath,
@@ -105,7 +252,11 @@ void main() {
       throwsA(isA<XcrossError>()),
     );
     await expectLater(
-      ComposeAppAssembler.assemble(
+      ComposeAppAssembler(
+        session.fixtureIPhoneTarget,
+        session.fixtureRunner,
+        log: session.fixtureLog,
+      ).assemble(
         project: fixture.project,
         runnerPath: fixture.runnerPath,
         frameworkPath: p.join(fixture.root, 'Missing.framework'),
@@ -117,12 +268,15 @@ void main() {
   test(
     'preserves prior app and cleans staging debris when framework copy fails',
     () async {
-      final fixture = _Fixture.create()..createInputs();
+      final fixture = ComposeFixture.create()..createInputs();
       final previousApp = fixture.createPreviousApp();
       addTearDown(fixture.dispose);
 
       await expectLater(
         ComposeAppAssembler.withSeams(
+          session.fixtureIPhoneTarget,
+          session.fixtureRunner,
+          log: session.fixtureLog,
           copyDirectory: (source, destination) {
             throw const FileSystemException('copy failed');
           },
@@ -152,15 +306,20 @@ void main() {
   );
 
   test('successful assembly replaces stale output through staging', () async {
-    final fixture = _Fixture.create()..createInputs();
+    final fixture = ComposeFixture.create()..createInputs();
     final previousApp = fixture.createPreviousApp();
     addTearDown(fixture.dispose);
 
-    final appPath = await ComposeAppAssembler.withSeams().assemble(
-      project: fixture.project,
-      runnerPath: fixture.runnerPath,
-      frameworkPath: fixture.frameworkPath,
-    );
+    final appPath =
+        await ComposeAppAssembler.withSeams(
+          session.fixtureIPhoneTarget,
+          session.fixtureRunner,
+          log: session.fixtureLog,
+        ).assemble(
+          project: fixture.project,
+          runnerPath: fixture.runnerPath,
+          frameworkPath: fixture.frameworkPath,
+        );
 
     expect(appPath, previousApp);
     expect(File(p.join(appPath, 'Runner')).readAsStringSync(), 'runner');
@@ -180,13 +339,16 @@ void main() {
   test(
     'install rename failure restores previous app and removes backup container',
     () async {
-      final fixture = _Fixture.create()..createInputs();
+      final fixture = ComposeFixture.create()..createInputs();
       final previousApp = fixture.createPreviousApp();
       var failedInstall = false;
       addTearDown(fixture.dispose);
 
       await expectLater(
         ComposeAppAssembler.withSeams(
+          session.fixtureIPhoneTarget,
+          session.fixtureRunner,
+          log: session.fixtureLog,
           renameDirectory: (source, newPath) {
             if (!failedInstall &&
                 newPath == previousApp &&
@@ -223,13 +385,16 @@ void main() {
   test(
     'restore failure preserves backup container and reports its path',
     () async {
-      final fixture = _Fixture.create()..createInputs();
+      final fixture = ComposeFixture.create()..createInputs();
       final previousApp = fixture.createPreviousApp();
       var installFailed = false;
       addTearDown(fixture.dispose);
 
       await expectLater(
         ComposeAppAssembler.withSeams(
+          session.fixtureIPhoneTarget,
+          session.fixtureRunner,
+          log: session.fixtureLog,
           renameDirectory: (source, newPath) {
             if (newPath == previousApp && source.path != previousApp) {
               if (!installFailed) {
@@ -273,7 +438,7 @@ void main() {
   );
 
   test("copies the built target's Compose resources into the bundle", () async {
-    final fixture = _Fixture.create();
+    final fixture = ComposeFixture.create();
     // The framework path names the target, and only that target's resources are
     // staged — the simulator's set would be dead weight in a device bundle.
     final deviceFramework = fixture.frameworkPathFor('iosArm64');
@@ -290,11 +455,16 @@ void main() {
     );
     addTearDown(fixture.dispose);
 
-    final appPath = await ComposeAppAssembler.withSeams().assemble(
-      project: fixture.project,
-      runnerPath: fixture.runnerPath,
-      frameworkPath: deviceFramework,
-    );
+    final appPath =
+        await ComposeAppAssembler.withSeams(
+          session.fixtureIPhoneTarget,
+          session.fixtureRunner,
+          log: session.fixtureLog,
+        ).assemble(
+          project: fixture.project,
+          runnerPath: fixture.runnerPath,
+          frameworkPath: deviceFramework,
+        );
 
     // Compose reads resources from the main bundle; without this directory the
     // first composition that loads a font throws MissingResourceException.
@@ -316,7 +486,7 @@ void main() {
   test(
     "prefers aggregated resources over the module's processed ones",
     () async {
-      final fixture = _Fixture.create();
+      final fixture = ComposeFixture.create();
       final deviceFramework = fixture.frameworkPathFor('iosArm64');
       fixture.createInputsAt(deviceFramework);
       fixture.createResources(
@@ -335,11 +505,16 @@ void main() {
       );
       addTearDown(fixture.dispose);
 
-      final appPath = await ComposeAppAssembler.withSeams().assemble(
-        project: fixture.project,
-        runnerPath: fixture.runnerPath,
-        frameworkPath: deviceFramework,
-      );
+      final appPath =
+          await ComposeAppAssembler.withSeams(
+            session.fixtureIPhoneTarget,
+            session.fixtureRunner,
+            log: session.fixtureLog,
+          ).assemble(
+            project: fixture.project,
+            runnerPath: fixture.runnerPath,
+            frameworkPath: deviceFramework,
+          );
 
       expect(
         File(
@@ -372,14 +547,19 @@ void main() {
   test(
     'adds no compose-resources directory to a project without them',
     () async {
-      final fixture = _Fixture.create()..createInputs();
+      final fixture = ComposeFixture.create()..createInputs();
       addTearDown(fixture.dispose);
 
-      final appPath = await ComposeAppAssembler.withSeams().assemble(
-        project: fixture.project,
-        runnerPath: fixture.runnerPath,
-        frameworkPath: fixture.frameworkPath,
-      );
+      final appPath =
+          await ComposeAppAssembler.withSeams(
+            session.fixtureIPhoneTarget,
+            session.fixtureRunner,
+            log: session.fixtureLog,
+          ).assemble(
+            project: fixture.project,
+            runnerPath: fixture.runnerPath,
+            frameworkPath: fixture.frameworkPath,
+          );
 
       expect(
         Directory(p.join(appPath, 'compose-resources')).existsSync(),
@@ -394,7 +574,7 @@ void main() {
   // the build log pointing back here. `Log` writes to the process's own stderr,
   // so the warning is observed by running the assembler in a child process.
   test('warns when resources exist but their layout is unrecognised', () async {
-    final fixture = _Fixture.create();
+    final fixture = ComposeFixture.create();
     final framework = fixture.frameworkPathFor('iosArm64');
     fixture.createInputsAt(framework);
     fixture.createResources('some-unknown-layout/composeResources', {
@@ -404,10 +584,21 @@ void main() {
 
     final script = File(p.join(fixture.root, 'assemble.dart'))
       ..writeAsStringSync('''
-import 'package:xcross/src/compose/compose.dart';
+import 'dart:io';
+import 'package:cli_kit/host/linux/linux_host.dart';
+import 'package:cli_kit/shared/logging/logging.dart';
+import 'package:cli_kit/shared/process/process.dart';
+import 'package:darwin_sdk_kit/target/iphone/iphone_target.dart';
+import 'package:xcross/src/host/linux/compose/linux_compose_host.dart';
+import 'package:xcross/src/shared/compose/build/compose_app_assembler.dart';
+import 'package:xcross/src/shared/compose/project/kmp_project.dart';
+import 'package:xcross/src/target/iphone/compose/iphone_compose_target.dart';
 
 Future<void> main() async {
-  await ComposeAppAssembler.withSeams().assemble(
+  final host = LinuxHost(architecture: 'x64');
+  final target = IPhoneComposeTarget(IPhoneTarget(host), LinuxComposeHost(host));
+  final log = Log(output: StreamLogOutput(stdout: stdout, stderr: stderr, supportsAnsi: false, terminalColumns: () => 80));
+  await ComposeAppAssembler(target, ProcessRunner(host, log: log, stdinStream: const Stream<List<int>>.empty(), stdoutSink: stdout, stderrSink: stderr), log: log).assemble(
     project: KmpProject(
       root: r'${fixture.root}',
       modulePath: r'${p.join(fixture.root, 'shared')}',
@@ -422,11 +613,12 @@ Future<void> main() async {
   );
 }
 ''');
-    final result = await Process.run(Platform.executable, [
+    final result = await Process.run(Platform.resolvedExecutable, [
       '--packages=${_packageConfig()}',
       script.path,
     ]);
 
+    expect(result.exitCode, 0, reason: result.stderr.toString());
     expect(result.stderr, contains('MissingResourceException'));
     expect(
       Directory(
@@ -454,13 +646,14 @@ String _packageConfig() {
   }
 }
 
-final class _Fixture {
-  _Fixture._(this.temp)
+@internal
+final class ComposeFixture {
+  ComposeFixture._(this.temp)
     : root = temp.path,
       runnerPath = p.join(temp.path, 'runner', 'Runner'),
       frameworkPath = p.join(temp.path, 'Shared.framework');
 
-  factory _Fixture.create() => _Fixture._(
+  factory ComposeFixture.create() => ComposeFixture._(
     Directory.systemTemp.createTempSync('xcross_app_assembler_test_'),
   );
 

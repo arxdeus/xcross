@@ -2,12 +2,20 @@ import 'dart:collection';
 import 'dart:io';
 
 import 'package:args/command_runner.dart';
-import 'package:cli_kit/cli_kit.dart';
+import 'package:cli_kit/host/linux/linux_host.dart';
+import 'package:cli_kit/host/windows/windows_host.dart';
+import 'package:cli_kit/shared/tui/tui.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
-import 'package:xcross/src/cli/basic/config_command.dart';
-import 'package:xcross/src/cli/runner.dart';
-import 'package:xcross/src/config/config.dart';
+import 'package:xcross/src/composition/cli/runner.dart';
+import 'package:xcross/src/host/shared/config/posix_config_host.dart';
+import 'package:xcross/src/shared/cli/basic/config_command.dart';
+import 'package:xcross/src/shared/cli/basic/config_tui_controller.dart';
+import 'package:xcross/src/shared/config/config.dart';
+import 'package:xcross/src/shared/config/config_store.dart';
+
+import 'runtime_fixture.dart';
 
 void main() {
   late Directory temporary;
@@ -16,25 +24,34 @@ void main() {
   setUp(() {
     temporary = Directory.systemTemp.createTempSync('xcross-config-command-');
     store = XcrossConfigStore(
+      LinuxHost(),
+      policy: const PosixConfigHost(),
       directory: temporary.path,
       environment: const {},
-      windows: false,
     );
   });
   tearDown(() => temporary.deleteSync(recursive: true));
 
   test('runner registers top-level config command', () {
-    expect(XcrossCli.buildRunner().commands['config'], isA<ConfigCommand>());
+    expect(
+      XcrossCli.buildRunner(
+        testApplication(),
+        configTerminal: TestTerminal(),
+      ).commands['config'],
+      isA<ConfigCommand>(),
+    );
   });
 
   test('runner omits configured top-level commands', () async {
     final runner = XcrossCli.buildRunner(
+      testApplication(),
+      configTerminal: TestTerminal(),
       excludedCommands: const ['setup', 'config'],
     );
 
     expect(runner.commands, isNot(contains('setup')));
     expect(runner.commands, isNot(contains('config')));
-    expect(runner.commands, contains('doctor'));
+    expect(runner.commands, contains('auth'));
     await expectLater(
       runner.run(['setup']),
       throwsA(
@@ -50,7 +67,10 @@ void main() {
   test(
     'controller switches tabs in both directions and clamps selection',
     () async {
-      final controller = ConfigTuiController(XcrossConfig());
+      final controller = ConfigTuiController(
+        XcrossConfig(),
+        paths: store.host.paths,
+      );
       await handle(controller, TuiKey.backTab);
       expect(controller.tab, ConfigTab.commands);
       await handle(controller, TuiKey.tab);
@@ -66,7 +86,10 @@ void main() {
   );
 
   test('controller edits fixed rows and adds and edits map entries', () async {
-    final controller = ConfigTuiController(XcrossConfig());
+    final controller = ConfigTuiController(
+      XcrossConfig(),
+      paths: store.host.paths,
+    );
     await handle(controller, TuiKey.enter, answers: ['/opt/darwin']);
     expect(controller.config.roots.darwinSdk, '/opt/darwin');
 
@@ -82,10 +105,10 @@ void main() {
       TuiKey.enter,
       answers: ['Clang.EXE', '/bin/clang'],
     );
-    expect(controller.config.tools, {'clang': '/bin/clang'});
+    expect(controller.config.tools, {'Clang.EXE': '/bin/clang'});
     controller.selection = 0;
     await handle(controller, TuiKey.enter, answers: ['/usr/bin/clang']);
-    expect(controller.config.tools['clang'], '/usr/bin/clang');
+    expect(controller.config.tools['Clang.EXE'], '/usr/bin/clang');
 
     controller.tab = ConfigTab.environment;
     controller.selection = 0;
@@ -98,9 +121,49 @@ void main() {
     expect(controller.config.excludedCommands, {'setup'});
   });
 
+  test('controller preserves distinct POSIX tool names', () async {
+    final controller = ConfigTuiController(
+      XcrossConfig(tools: const {'clang': '/bin/clang'}),
+      paths: LinuxHost().paths,
+    )..tab = ConfigTab.tools;
+    controller.selection = 1;
+    await handle(
+      controller,
+      TuiKey.enter,
+      answers: [' CLANG.EXE ', '/bin/other'],
+    );
+    expect(controller.config.tools, {
+      'clang': '/bin/clang',
+      'CLANG.EXE': '/bin/other',
+    });
+  });
+
+  test(
+    'controller uses selected Windows tool normalization on POSIX',
+    () async {
+      final controller = ConfigTuiController(
+        XcrossConfig(),
+        paths: WindowsHost().paths,
+      )..tab = ConfigTab.tools;
+      for (final suffix in ['.EXE', '.CMD', '.BAT', '.COM']) {
+        controller.selection = controller.config.tools.length;
+        await handle(
+          controller,
+          TuiKey.enter,
+          answers: [' ClAnG$suffix ', r'C:\tools\clang.exe'],
+        );
+        expect(controller.config.tools, {'clang': r'C:\tools\clang.exe'});
+      }
+      controller.selection = 0;
+      await handle(controller, TuiKey.enter, answers: ['']);
+      expect(controller.config.tools, isEmpty);
+    },
+  );
+
   test('delete requires confirmation and ignores Add row', () async {
     final controller = ConfigTuiController(
       XcrossConfig(tools: const {'clang': '/bin/clang'}),
+      paths: store.host.paths,
     )..tab = ConfigTab.tools;
     await handle(controller, TuiKey.delete, confirmations: [false]);
     expect(controller.config.tools, contains('clang'));
@@ -112,7 +175,10 @@ void main() {
   });
 
   test('save resets dirty state and discard restores saved state', () async {
-    final controller = ConfigTuiController(XcrossConfig());
+    final controller = ConfigTuiController(
+      XcrossConfig(),
+      paths: store.host.paths,
+    );
     XcrossConfig? saved;
     await handle(controller, TuiKey.enter, answers: ['/first']);
     expect(controller.dirty, isTrue);
@@ -137,7 +203,7 @@ void main() {
   });
 
   test('quit confirms only when dirty and validate reports status', () async {
-    final clean = ConfigTuiController(XcrossConfig());
+    final clean = ConfigTuiController(XcrossConfig(), paths: store.host.paths);
     expect(await handle(clean, TuiKey.quit), isTrue);
     await handle(clean, TuiKey.validate);
     expect(clean.status, 'Configuration is valid.');
@@ -148,7 +214,10 @@ void main() {
   });
 
   test('controller reports expected config and file failures', () async {
-    final controller = ConfigTuiController(XcrossConfig());
+    final controller = ConfigTuiController(
+      XcrossConfig(),
+      paths: store.host.paths,
+    );
     await handle(
       controller,
       TuiKey.validate,
@@ -165,7 +234,10 @@ void main() {
   });
 
   test('controller does not hide unexpected programming errors', () async {
-    final controller = ConfigTuiController(XcrossConfig());
+    final controller = ConfigTuiController(
+      XcrossConfig(),
+      paths: store.host.paths,
+    );
     await expectLater(
       handle(
         controller,
@@ -185,6 +257,7 @@ void main() {
                 'PATH': ['/one', '/two'],
               },
             ),
+            paths: store.host.paths,
           )
           ..tab = ConfigTab.tools
           ..selection = 1;
@@ -207,7 +280,10 @@ void main() {
   });
 
   test('plain rendering emits one frame and incremental updates', () {
-    final controller = ConfigTuiController(XcrossConfig());
+    final controller = ConfigTuiController(
+      XcrossConfig(),
+      paths: store.host.paths,
+    );
     final frame = controller.render(ansi: false);
     final update = controller.renderPlainUpdate();
 
@@ -228,6 +304,7 @@ void main() {
           ConfigCommand(
             store: store,
             terminal: terminal,
+            writeLine: (_) {},
             terminalEnvironment: const {},
           ),
         );
@@ -246,14 +323,14 @@ void main() {
   );
 
   test('show separates its header from exact YAML output', () async {
-    final executable = File(
-      p.join(temporary.path, ProcessRunner.hostExecutableName('tool')),
-    )..writeAsStringSync('#!/bin/sh\n');
+    final executable = File(p.join(temporary.path, 'tool'))
+      ..writeAsStringSync('#!/bin/sh\n');
     if (!Platform.isWindows) Process.runSync('chmod', ['755', executable.path]);
     final showStore = XcrossConfigStore(
+      LinuxHost(),
+      policy: const PosixConfigHost(),
       directory: temporary.path,
       environment: const {},
-      windows: Platform.isWindows,
     );
     final config = XcrossConfig(
       roots: XcrossConfigRoots(darwinSdk: temporary.path),
@@ -262,7 +339,13 @@ void main() {
     await showStore.save(config);
     final output = StringBuffer();
     final runner = CommandRunner<void>('xcross', 'test')
-      ..addCommand(ConfigCommand(store: showStore, writeLine: output.writeln));
+      ..addCommand(
+        ConfigCommand(
+          store: showStore,
+          terminal: FakeTerminal(interactive: false),
+          writeLine: output.writeln,
+        ),
+      );
 
     await runner.run(['config', 'show']);
     expect(
@@ -277,7 +360,11 @@ void main() {
   test('interactive command requires a TTY', () async {
     final runner = CommandRunner<void>('xcross', 'test')
       ..addCommand(
-        ConfigCommand(store: store, terminal: FakeTerminal(interactive: false)),
+        ConfigCommand(
+          store: store,
+          terminal: FakeTerminal(interactive: false),
+          writeLine: (_) {},
+        ),
       );
     await expectLater(
       runner.run(['config']),
@@ -292,7 +379,13 @@ void main() {
       XcrossConfig(tools: {'missing': p.join(temporary.path, 'missing')}),
     );
     final runner = CommandRunner<void>('xcross', 'test')
-      ..addCommand(ConfigCommand(store: store, writeLine: (_) {}));
+      ..addCommand(
+        ConfigCommand(
+          store: store,
+          terminal: FakeTerminal(interactive: false),
+          writeLine: (_) {},
+        ),
+      );
     await expectLater(
       runner.run(['config', 'validate']),
       throwsA(isA<XcrossConfigException>()),
@@ -300,6 +393,7 @@ void main() {
   });
 }
 
+@internal
 Future<bool> handle(
   ConfigTuiController controller,
   TuiKey key, {
@@ -320,6 +414,7 @@ Future<bool> handle(
   );
 }
 
+@internal
 final class FakeTerminal implements TuiTerminal {
   FakeTerminal({
     this.interactive = true,

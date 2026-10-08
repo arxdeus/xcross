@@ -1,0 +1,6 @@
+# test_reflective_loader discovers cases by their `test_` method prefix.
+include: ../analysis_options.yaml
+
+analyzer:
+  errors:
+    non_constant_identifier_names: ignore

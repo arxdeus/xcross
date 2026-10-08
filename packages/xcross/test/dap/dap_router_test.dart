@@ -1,28 +1,158 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:cli_kit/host/macos/macos_host.dart';
+import 'package:cli_kit/host/windows/windows_host.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:cli_kit/shared/process/process.dart';
 import 'package:dds/dap.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
-import 'package:xcross/src/dap/dap_router.dart';
-import 'package:xcross/src/dap/internal/dap_router.dart';
+import 'package:xcross/src/shared/dap/dap_router.dart';
+import 'package:xcross/src/shared/dap/internal/dap_router.dart';
+
+import '../device/test_log_output.dart';
 
 void main() {
-  tearDown(DapRouter.resetConfiguration);
+  final runner = ProcessRunner(
+    stdinStream: const Stream.empty(),
+    stdoutSink: testSink(),
+    stderrSink: testSink(),
+    MacOSHost(),
+    log: testLog(),
+  );
 
   test('configured Flutter environment wins with legacy fallbacks enabled', () {
-    DapRouter.configureFlutterResolution(
+    final router = DapRouter(
+      const Stream<List<int>>.empty(),
+      StreamController<List<int>>().sink,
+      (_) {},
+      runner: runner,
+      errors: testSink(),
       environmentRoot: '/configured/environment/flutter',
-      declarative: false,
     );
 
     expect(
-      DapRouter.resolveFlutterExecutable(),
-      p.join(
-        '/configured/environment/flutter',
-        'bin',
-        Platform.isWindows ? 'flutter.bat' : 'flutter',
-      ),
+      router.resolveFlutterExecutable(),
+      p.join('/configured/environment/flutter', 'bin', 'flutter'),
+    );
+  });
+
+  test(
+    'host paths and immutable resolution stay isolated between sessions',
+    () {
+      final output = StreamController<List<int>>.broadcast();
+      addTearDown(output.close);
+      final windows = ProcessRunner(
+        stdinStream: const Stream.empty(),
+        stdoutSink: testSink(),
+        stderrSink: testSink(),
+        WindowsHost(),
+        log: testLog(),
+      );
+      final first = DapRouter(
+        const Stream<List<int>>.empty(),
+        output.sink,
+        (_) {},
+        runner: windows,
+        errors: testSink(),
+        flutterRoot: r'C:\flutter',
+      );
+      final second = DapRouter(
+        const Stream<List<int>>.empty(),
+        output.sink,
+        (_) {},
+        runner: runner,
+        errors: testSink(),
+        flutterRoot: '/other/flutter',
+      );
+      expect(first.resolveFlutterExecutable(), r'C:\flutter\bin\flutter.bat');
+      expect(second.resolveFlutterExecutable(), '/other/flutter/bin/flutter');
+      expect(first.resolveFlutterExecutable(), r'C:\flutter\bin\flutter.bat');
+    },
+  );
+
+  for (final windows in [false, true]) {
+    test(
+      'test adapter forces configured ${windows ? "Windows" : "POSIX"} Flutter proxy',
+      () async {
+        final processes = TestAdapterProcesses();
+        final host = windows
+            ? WindowsHost(processes: processes)
+            : MacOSHost(processes: processes);
+        final runner = ProcessRunner(
+          stdinStream: const Stream.empty(),
+          stdoutSink: testSink(),
+          stderrSink: testSink(),
+          host,
+          log: testLog(),
+        );
+        final input = StreamController<List<int>>();
+        final output = StreamController<List<int>>();
+        output.stream.listen((_) {});
+        addTearDown(output.close);
+        addTearDown(processes.child.close);
+        final root = windows ? r'C:\selected\flutter' : '/selected/flutter';
+        var xcrossStarted = false;
+        final running = DapSession.run(
+          input: input.stream,
+          output: output.sink,
+          startXcross: (_) => xcrossStarted = true,
+          runner: runner,
+          errors: testSink(),
+          flutterRoot: root,
+          testAdapter: true,
+          flutterAdapterArguments: const ['--verbose'],
+        );
+        input.add(
+          DapFrame.encode({
+            'seq': 1,
+            'type': 'request',
+            'command': 'launch',
+            'arguments': {
+              'env': {'XCROSS': 'true'},
+            },
+          }),
+        );
+        await processes.started.future;
+        expect(xcrossStarted, isFalse);
+        expect(
+          processes.executable,
+          windows
+              ? r'C:\selected\flutter\bin\flutter.bat'
+              : '/selected/flutter/bin/flutter',
+        );
+        expect(processes.arguments, ['debug-adapter', '--test', '--verbose']);
+        await input.close();
+        await running;
+        await processes.child.stdin.done;
+        expect(
+          DapFrameParser().push(processes.child.input).single.json['command'],
+          'launch',
+        );
+      },
+    );
+  }
+
+  test('Flutter adapter arguments are an immutable session snapshot', () {
+    final arguments = ['--verbose'];
+    final output = StreamController<List<int>>();
+    output.stream.listen((_) {});
+    addTearDown(output.close);
+    final router = DapRouter(
+      const Stream.empty(),
+      output.sink,
+      (_) {},
+      runner: runner,
+      errors: testSink(),
+      flutterAdapterArguments: arguments,
+    );
+    arguments.add('--test');
+    expect(router.flutterAdapterArguments, ['--verbose']);
+    expect(
+      () => router.flutterAdapterArguments.add('mutate'),
+      throwsUnsupportedError,
     );
   });
 
@@ -48,6 +178,7 @@ void main() {
     'DapResponseFilter drops answered responses and one initialized event',
     () async {
       final out = StreamController<List<int>>();
+      addTearDown(out.close);
       final received = <Map<String, Object?>>[];
       out.stream.listen((chunk) {
         final parser = DapFrameParser();
@@ -103,9 +234,13 @@ void main() {
   test('DapSession.run with XCROSS env starts the xcross adapter', () async {
     final inbound = StreamController<List<int>>();
     final outbound = StreamController<List<int>>();
+    outbound.stream.listen((_) {});
+    addTearDown(outbound.close);
     ByteStreamServerChannel? started;
 
     final session = DapSession.run(
+      runner: runner,
+      errors: testSink(),
       startXcross: (channel) {
         started = channel;
         // Don't run a real adapter — just close once launch is replayed.
@@ -138,4 +273,68 @@ void main() {
 
     expect(started, isNotNull);
   });
+}
+
+@internal
+final class TestAdapterProcesses implements HostProcessInterface {
+  final child = TestAdapterChild();
+  final started = Completer<void>();
+  String? executable;
+  List<String>? arguments;
+  @override
+  Future<Process> start(
+    String executable,
+    List<String> arguments, {
+    String? workingDirectory,
+    Map<String, String>? environment,
+    bool includeParentEnvironment = true,
+    bool runInShell = false,
+    ProcessStartMode mode = ProcessStartMode.normal,
+  }) async {
+    this.executable = executable;
+    this.arguments = List.of(arguments);
+    started.complete();
+    return child;
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) =>
+      throw StateError('unexpected process operation');
+}
+
+@internal
+final class TestAdapterChild implements Process {
+  TestAdapterChild() {
+    sink = IOSink(inbound.sink);
+    inbound.stream.listen(
+      input.addAll,
+      onDone: () {
+        exit.complete(0);
+        unawaited(output.close());
+        unawaited(errors.close());
+      },
+    );
+  }
+  final input = <int>[];
+  final inbound = StreamController<List<int>>();
+  final output = StreamController<List<int>>();
+  final errors = StreamController<List<int>>();
+  final exit = Completer<int>();
+  late final IOSink sink;
+  @override
+  IOSink get stdin => sink;
+  @override
+  Stream<List<int>> get stdout => output.stream;
+  @override
+  Stream<List<int>> get stderr => errors.stream;
+  @override
+  Future<int> get exitCode => exit.future;
+  Future<void> close() async {
+    await sink.close();
+    await inbound.close();
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) =>
+      throw StateError('unexpected child operation');
 }

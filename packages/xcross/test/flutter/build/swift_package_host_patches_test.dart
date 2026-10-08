@@ -1,5 +1,5 @@
 import 'package:test/test.dart';
-import 'package:xcross/src/flutter/build/swift_package_host_patches.dart';
+import 'package:xcross/src/shared/flutter/build/swift_package_host_patches.dart';
 
 void main() {
   group('exposeMacOSPackageGraphEntries', () {

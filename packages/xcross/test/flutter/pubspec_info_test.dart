@@ -4,9 +4,9 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 import 'package:standard_message_codec/standard_message_codec.dart';
 import 'package:test/test.dart';
-import 'package:xcross/src/flutter/build/flutter_debug_bundler.dart';
-import 'package:xcross/src/flutter/build/ios_deployment_target.dart';
-import 'package:xcross/src/flutter/models/pubspec_info.dart';
+import 'package:xcross/src/shared/flutter/flutter_assets_compiler.dart';
+
+import 'flutter_test_runtime.dart';
 
 void main() {
   late Directory tmp;
@@ -30,7 +30,7 @@ flutter:
           weight: 700
 ''');
 
-    final info = PubspecInfo.loadSync(tmp.path);
+    final info = testIPhoneRuntime().pubspecs.loadSync(tmp.path);
 
     expect(info.usesMaterialDesign, isTrue);
     expect(info.assets, ['assets/data.json', 'assets/images/']);
@@ -68,16 +68,44 @@ packages:
     dependency: direct dev
 ''');
 
-    expect(PubspecInfo.loadSync(tmp.path).dependencies, [
+    expect(testIPhoneRuntime().pubspecs.loadSync(tmp.path).dependencies, [
       'direct_package',
       'transitive_package',
     ]);
   });
 
+  test('parses shaders in string and map form', () {
+    File(p.join(tmp.path, 'pubspec.yaml')).writeAsStringSync('''
+name: demo
+flutter:
+  shaders:
+    - shaders/glow.frag
+    - path: shaders/dark.frag
+      flavors: [dark]
+      platforms: [ios, android]
+    - path: shaders/min.frag
+      transformers:
+        - package: shader_minifier
+''');
+
+    final shaders = testIPhoneRuntime().pubspecs.loadSync(tmp.path).shaders;
+
+    expect(shaders.map((s) => s.path), [
+      'shaders/glow.frag',
+      'shaders/dark.frag',
+      'shaders/min.frag',
+    ]);
+    expect(shaders[0].appliesTo(flavor: null, platform: 'ios'), isTrue);
+    expect(shaders[1].appliesTo(flavor: 'dark', platform: 'ios'), isTrue);
+    expect(shaders[1].appliesTo(flavor: null, platform: 'ios'), isFalse);
+    expect(shaders[1].appliesTo(flavor: 'dark', platform: 'web'), isFalse);
+    expect(shaders[2].hasTransformers, isTrue);
+  });
+
   test('defaults to no assets/fonts when flutter: section is absent', () {
     File(p.join(tmp.path, 'pubspec.yaml')).writeAsStringSync('name: demo\n');
 
-    final info = PubspecInfo.loadSync(tmp.path);
+    final info = testIPhoneRuntime().pubspecs.loadSync(tmp.path);
 
     expect(info.usesMaterialDesign, isFalse);
     expect(info.assets, isEmpty);
@@ -126,16 +154,17 @@ packages:
       }),
     );
     final assetsDir = Directory(p.join(tmp.path, 'output'))..createSync();
-    final bundler = FlutterDebugBundler(
+    final runtime = testIPhoneRuntime();
+    final bundler = FlutterAssetsCompiler(
+      paths: runtime.host.paths.context,
+      fileSystem: runtime.host.fileSystem,
       projectRoot: tmp.path,
       flutterRoot: p.join(tmp.path, 'flutter'),
-      outputDir: p.join(tmp.path, 'build'),
-      deploymentTarget: const IosDeploymentTarget('15.0'),
     );
 
     final fonts = await bundler.copyFonts(
       assetsDir.path,
-      PubspecInfo.loadSync(tmp.path),
+      testIPhoneRuntime().pubspecs.loadSync(tmp.path),
     );
 
     expect(

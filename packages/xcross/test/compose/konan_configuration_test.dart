@@ -1,19 +1,157 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:cli_kit/shared/process/process.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
-import 'package:xcross/src/compose/compose.dart';
+import 'package:xcross/src/shared/compose/build/konan_configuration.dart';
+import 'package:xcross/src/shared/compose/compose_host.dart';
+import 'package:xcross/src/shared/compose/project/kmp_project.dart';
+import 'package:xcross/src/shared/compose/toolchain/compose_toolchain.dart';
+import 'package:xcross/src/target/shared/compose/compose_target.dart';
+
+import 'support/compose_platforms.dart';
 
 void main() {
+  late ComposeTestSession session;
+  setUp(() {
+    session = createComposeTestSession();
+  });
+  tearDown(() => session.dispose());
+  test(
+    'simulator Konan configuration isolates sysroot linker and caches',
+    () async {
+      final fixture = ComposeFixture.create(
+        session,
+        fixtureSimulatorTargetFor(session.hosts.macosArm64),
+      )..createKotlinHome();
+      addTearDown(fixture.dispose);
+      final prepared = await KonanConfiguration.withSeams(
+        fixture.toolchain.runner,
+        patchCompilerJar: (_) async {},
+        makeExecutable: (_) {},
+        parentEnvironment: const {'PATH': '/safe/path'},
+      ).prepare(project: fixture.project, toolchain: fixture.toolchain);
+      expect(
+        prepared.kotlinHome,
+        contains('/build/xcross-ios-simulator/toolchain/'),
+      );
+      expect(
+        prepared.konanPropertyOverrides,
+        contains('targetSysRoot.ios_simulator_arm64=${_slash(fixture.sdk)}'),
+      );
+      expect(
+        prepared.konanPropertyOverrides,
+        contains('linker.macos_arm64-ios_simulator_arm64='),
+      );
+      expect(
+        prepared.konanPropertyOverrides,
+        contains('cacheableTargets.macos_arm64=ios_simulator_arm64'),
+      );
+      expect(
+        prepared.konanPropertyOverrides,
+        isNot(contains('cacheableTargets.macos_arm64=ios_arm64')),
+      );
+    },
+  );
+
+  for (final classifier in ['macos-aarch64', 'linux-x86_64']) {
+    test('selects native Apple tools only on $classifier', () async {
+      final host = classifier == 'macos-aarch64'
+          ? session.hosts.macosArm64
+          : session.hosts.linuxX64;
+      final fixture = ComposeFixture.create(
+        session,
+        fixtureIPhoneTargetFor(host),
+      )..createKotlinHome();
+      addTearDown(fixture.dispose);
+      final nativeBin = Directory(p.join(fixture.root, 'native-tools'))
+        ..createSync();
+      for (final name in ['strip', 'libtool']) {
+        File(p.join(nativeBin.path, name)).writeAsStringSync('native');
+      }
+      final configuration = KonanConfiguration.withSeams(
+        fixture.toolchain.runner,
+        patchCompilerJar: (_) async {},
+        makeExecutable: (_) {},
+        parentEnvironment: {'PATH': nativeBin.path},
+      );
+      final prepared = await configuration.prepare(
+        project: fixture.project,
+        toolchain: fixture.toolchain,
+      );
+      expect(
+        prepared.environment['XCROSS_APPLE_TOOL_STRIP'],
+        identical(host, session.hosts.macosArm64)
+            ? p.join(nativeBin.path, 'strip')
+            : p.join(p.dirname(fixture.ld64), 'llvm-strip'),
+      );
+      expect(
+        prepared.environment['XCROSS_APPLE_TOOL_LIBTOOL'],
+        identical(host, session.hosts.macosArm64)
+            ? p.join(nativeBin.path, 'libtool')
+            : p.join(p.dirname(fixture.ld64), 'llvm-libtool-darwin'),
+      );
+      final llvmStrip = File(p.join(p.dirname(fixture.ld64), 'llvm-strip'))
+        ..writeAsStringSync('llvm');
+      final cached = await configuration.prepare(
+        project: fixture.project,
+        toolchain: fixture.toolchain,
+      );
+      expect(cached.environment['XCROSS_APPLE_TOOL_STRIP'], llvmStrip.path);
+    });
+  }
+
+  test('uses macOS ARM64 LLVM and Apple target configuration', () async {
+    final fixture = ComposeFixture.create(
+      session,
+      fixtureIPhoneTargetFor(session.hosts.macosArm64),
+    )..createKotlinHome();
+    addTearDown(fixture.dispose);
+    final properties =
+        File(p.join(fixture.kotlinHome, 'konan', 'konan.properties'))
+          ..writeAsStringSync(
+            r'llvmHome.macos_arm64 = $llvm.macos_arm64.user'
+            '\n'
+            'llvm.macos_arm64.user=llvm-21-aarch64-macos-essentials-97\n',
+          );
+    final prepared = await KonanConfiguration.withSeams(
+      fixture.toolchain.runner,
+      patchCompilerJar: (_) async {},
+      makeExecutable: (_) {},
+      parentEnvironment: const {'PATH': '/native/bin'},
+    ).prepare(project: fixture.project, toolchain: fixture.toolchain);
+    final overrides = prepared.konanPropertyOverrides;
+    expect(overrides, contains('targetToolchain.macos_arm64-ios_arm64='));
+    expect(overrides, contains('linker.macos_arm64-ios_arm64='));
+    expect(overrides, contains('additionalToolsDir.macos_arm64='));
+    expect(overrides, contains('cacheableTargets.macos_arm64=ios_arm64'));
+    expect(overrides, isNot(contains('linux_x64')));
+    expect(overrides, isNot(contains('llvmHome.')));
+    expect(
+      File(
+        p.join(prepared.kotlinHome, 'konan', 'konan.properties'),
+      ).readAsStringSync(),
+      properties.readAsStringSync(),
+    );
+    expect(prepared.javaExecutable, p.join(fixture.javaHome, 'bin', 'java'));
+    expect(prepared.environment['PATH'], endsWith(':/native/bin'));
+  });
+
   test(
     'prepares isolated konan configuration with resolved Apple tool paths',
     () async {
-      final fixture = _Fixture.create(ComposeHost.linuxX64)..createKotlinHome();
+      final fixture = ComposeFixture.create(
+        session,
+        fixtureIPhoneTargetFor(session.hosts.linuxX64),
+      )..createKotlinHome();
       final patched = <String>[];
       addTearDown(fixture.dispose);
 
       final prepared = await KonanConfiguration.withSeams(
+        fixture.toolchain.runner,
         patchCompilerJar: (jar) async => patched.add(jar.path),
         makeExecutable: (_) {},
         parentEnvironment: const {
@@ -211,12 +349,17 @@ void main() {
       // Xcode ships. Confirm KonanConfiguration copies it from the local
       // Darwin SDK artifact bundle's own Xcode toolchain rather than
       // leaving the staged directory empty.
-      final fixture = _Fixture.create(ComposeHost.linuxX64)
-        ..createKotlinHome()
-        ..createCompilerRt();
+      final fixture =
+          ComposeFixture.create(
+              session,
+              fixtureIPhoneTargetFor(session.hosts.linuxX64),
+            )
+            ..createKotlinHome()
+            ..createCompilerRt();
       addTearDown(fixture.dispose);
 
       final prepared = await KonanConfiguration.withSeams(
+        fixture.toolchain.runner,
         patchCompilerJar: (jar) async {},
         makeExecutable: (_) {},
       ).prepare(project: fixture.project, toolchain: fixture.toolchain);
@@ -259,10 +402,14 @@ void main() {
       // find an XcodeDefault.xctoolchain/usr/lib/clang/<version>/lib/darwin
       // under it. Confirm KonanConfiguration degrades to the pre-fix
       // behavior (an existing but empty clang dir) rather than throwing.
-      final fixture = _Fixture.create(ComposeHost.linuxX64)..createKotlinHome();
+      final fixture = ComposeFixture.create(
+        session,
+        fixtureIPhoneTargetFor(session.hosts.linuxX64),
+      )..createKotlinHome();
       addTearDown(fixture.dispose);
 
       final prepared = await KonanConfiguration.withSeams(
+        fixture.toolchain.runner,
         patchCompilerJar: (jar) async {},
         makeExecutable: (_) {},
       ).prepare(project: fixture.project, toolchain: fixture.toolchain);
@@ -288,9 +435,13 @@ void main() {
     // this must pick "21" over "19" regardless of listing order. A real
     // Xcode toolchain only ever ships one, so this only matters if that
     // ever changes, but a deterministic pick beats a flaky one either way.
-    final fixture = _Fixture.create(ComposeHost.linuxX64)
-      ..createKotlinHome()
-      ..createCompilerRt();
+    final fixture =
+        ComposeFixture.create(
+            session,
+            fixtureIPhoneTargetFor(session.hosts.linuxX64),
+          )
+          ..createKotlinHome()
+          ..createCompilerRt();
     final olderDir = p.join(
       fixture.sdkBundle,
       'Developer',
@@ -310,6 +461,7 @@ void main() {
     addTearDown(fixture.dispose);
 
     final prepared = await KonanConfiguration.withSeams(
+      fixture.toolchain.runner,
       patchCompilerJar: (jar) async {},
       makeExecutable: (_) {},
     ).prepare(project: fixture.project, toolchain: fixture.toolchain);
@@ -339,11 +491,15 @@ void main() {
   test(
     'reuses completed fingerprint root without deleting or rebuilding it',
     () async {
-      final fixture = _Fixture.create(ComposeHost.linuxX64)..createKotlinHome();
+      final fixture = ComposeFixture.create(
+        session,
+        fixtureIPhoneTargetFor(session.hosts.linuxX64),
+      )..createKotlinHome();
       final patched = <String>[];
       addTearDown(fixture.dispose);
 
       final configuration = KonanConfiguration.withSeams(
+        fixture.toolchain.runner,
         patchCompilerJar: (jar) async => patched.add(jar.path),
         makeExecutable: (_) {},
       );
@@ -373,13 +529,17 @@ void main() {
   test(
     'overlapping prepares converge on one completed fingerprint root',
     () async {
-      final fixture = _Fixture.create(ComposeHost.linuxX64)..createKotlinHome();
+      final fixture = ComposeFixture.create(
+        session,
+        fixtureIPhoneTargetFor(session.hosts.linuxX64),
+      )..createKotlinHome();
       final entered = Completer<void>();
       final release = Completer<void>();
       var patchCalls = 0;
       addTearDown(fixture.dispose);
 
       final configuration = KonanConfiguration.withSeams(
+        fixture.toolchain.runner,
         patchCompilerJar: (jar) async {
           patchCalls += 1;
           if (!entered.isCompleted) entered.complete();
@@ -426,7 +586,10 @@ void main() {
     () async {
       // swift.org's Linux toolchain ships ld64.lld and llvm-strip, but not
       // llvm-libtool-darwin, which every static framework and cache needs.
-      final fixture = _Fixture.create(ComposeHost.linuxX64)..createKotlinHome();
+      final fixture = ComposeFixture.create(
+        session,
+        fixtureIPhoneTargetFor(session.hosts.linuxX64),
+      )..createKotlinHome();
       addTearDown(fixture.dispose);
       File(
         p.join(p.dirname(fixture.ld64), 'llvm-strip'),
@@ -438,6 +601,7 @@ void main() {
       }
 
       final prepared = await KonanConfiguration.withSeams(
+        fixture.toolchain.runner,
         patchCompilerJar: (_) async {},
         makeExecutable: (_) {},
         parentEnvironment: {'PATH': '/nowhere:${llvm.path}'},
@@ -461,10 +625,14 @@ void main() {
   );
 
   test('declares ios_arm64 cacheable for the non-Apple host', () async {
-    final fixture = _Fixture.create(ComposeHost.linuxX64)..createKotlinHome();
+    final fixture = ComposeFixture.create(
+      session,
+      fixtureIPhoneTargetFor(session.hosts.linuxX64),
+    )..createKotlinHome();
     addTearDown(fixture.dispose);
 
     final prepared = await KonanConfiguration.withSeams(
+      fixture.toolchain.runner,
       patchCompilerJar: (_) async {},
       makeExecutable: (_) {},
       parentEnvironment: const {'PATH': '/safe/path'},
@@ -477,11 +645,15 @@ void main() {
   });
 
   test('creates safe executable Linux Apple tool aliases', () async {
-    final fixture = _Fixture.create(ComposeHost.linuxX64)..createKotlinHome();
+    final fixture = ComposeFixture.create(
+      session,
+      fixtureIPhoneTargetFor(session.hosts.linuxX64),
+    )..createKotlinHome();
     final executable = <String>{};
     addTearDown(fixture.dispose);
 
     final prepared = await KonanConfiguration.withSeams(
+      fixture.toolchain.runner,
       patchCompilerJar: (_) async {},
       makeExecutable: executable.add,
     ).prepare(project: fixture.project, toolchain: fixture.toolchain);
@@ -544,12 +716,16 @@ void main() {
   });
 
   test('creates Windows native Apple tool aliases without cmd shims', () async {
-    final fixture = _Fixture.create(ComposeHost.windowsX64)..createKotlinHome();
+    final fixture = ComposeFixture.create(
+      session,
+      fixtureIPhoneTargetFor(session.hosts.windowsX64),
+    )..createKotlinHome();
     final forwarder = File(p.join(fixture.root, 'xcross forwarder.exe'))
       ..writeAsStringSync('forwarder');
     addTearDown(fixture.dispose);
 
     final prepared = await KonanConfiguration.withSeams(
+      fixture.toolchain.runner,
       patchCompilerJar: (_) async {},
       makeExecutable: (_) {},
       runningExecutable: forwarder.path,
@@ -623,28 +799,38 @@ void main() {
 String _slash(String value) =>
     p.normalize(value).replaceAll(String.fromCharCode(92), '/');
 
-final class _Fixture {
-  _Fixture._(this.temp, this.host)
+@internal
+final class ComposeFixture {
+  ComposeFixture._(this.session, this.temp, this.target)
     : root = temp.path,
       modulePath = p.join(temp.path, 'shared'),
       kotlinHome = p.join(temp.path, 'global-kotlin'),
       konanCache = p.join(temp.path, 'konan-cache'),
       javaHome = p.join(temp.path, 'jdk'),
       sdkBundle = p.join(temp.path, 'Apple SDKs'),
-      sdk = p.join(temp.path, 'Apple SDKs', 'iPhoneOS.sdk'),
+      sdk = p.join(
+        temp.path,
+        'Apple SDKs',
+        '${target.buildPlatform.platformName}.sdk',
+      ),
       ld64 = p.join(temp.path, 'llvm', 'bin', 'ld64.lld'),
       clang = p.join(temp.path, 'swift', 'bin', 'clang'),
       swiftc = p.join(temp.path, 'swift', 'bin', 'swiftc');
 
-  factory _Fixture.create(ComposeHost host) {
+  factory ComposeFixture.create(
+    ComposeTestSession session,
+    ComposeTarget<PlatformHostInterface> target,
+  ) {
     final temp = Directory.systemTemp.createTempSync(
       'xcross_konan_config_test_',
     );
-    return _Fixture._(temp, host);
+    return ComposeFixture._(session, temp, target);
   }
+  final ComposeTestSession session;
 
   final Directory temp;
-  final ComposeHost host;
+  final ComposeTarget<PlatformHostInterface> target;
+  ComposeHost<PlatformHostInterface> get host => target.toolchainHost;
   final String root;
   final String modulePath;
   final String kotlinHome;
@@ -667,21 +853,24 @@ final class _Fixture {
   );
 
   ComposeToolchain get toolchain => ComposeToolchain(
-    host: host,
+    log: session.fixtureLog,
+    target: target,
+    runner: ProcessRunner(
+      log: session.fixtureLog,
+      host.host,
+      stdinStream: const Stream<List<int>>.empty(),
+      stdoutSink: session.stdoutSink,
+      stderrSink: session.stderrSink,
+    ),
     kotlinHome: kotlinHome,
     konanCache: konanCache,
-    konancExecutable: p.join(
-      kotlinHome,
-      'bin',
-      host.isWindows ? 'konanc.bat' : 'konanc',
-    ),
+    konancExecutable: host.konancExecutable(kotlinHome),
     javaHome: javaHome,
-    javaExecutable: p.join(
-      javaHome,
-      'bin',
-      host.isWindows ? 'java.exe' : 'java',
+    javaExecutable: host.javaExecutable(javaHome),
+    gradleExecutable: host.host.paths.executableName(
+      'gradle',
+      extension: '.bat',
     ),
-    gradleExecutable: host.isWindows ? 'gradle.bat' : 'gradle',
     swiftc: swiftc,
     clang: clang,
     ld64Lld: ld64,
@@ -727,11 +916,13 @@ final class _Fixture {
     Directory(p.join(modulePath)).createSync(recursive: true);
     Directory(p.join(kotlinHome, 'bin')).createSync(recursive: true);
     Directory(p.join(kotlinHome, 'konan', 'lib')).createSync(recursive: true);
+    File(host.konancExecutable(kotlinHome)).writeAsStringSync('konanc');
     File(
-      p.join(kotlinHome, 'bin', host.isWindows ? 'konanc.bat' : 'konanc'),
-    ).writeAsStringSync('konanc');
-    File(
-      p.join(kotlinHome, 'bin', host.isWindows ? 'run_konan.bat' : 'run_konan'),
+      p.join(
+        kotlinHome,
+        'bin',
+        host.host.paths.executableName('run_konan', extension: '.bat'),
+      ),
     ).writeAsStringSync('run-konan');
     File(
       p.join(kotlinHome, 'konan', 'konan.properties'),

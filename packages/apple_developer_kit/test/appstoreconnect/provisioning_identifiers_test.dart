@@ -1,4 +1,4 @@
-import 'package:apple_developer_kit/src/appstoreconnect/provisioning_identifiers.dart';
+import 'package:apple_developer_kit/shared/appstoreconnect/provisioning_identifiers.dart';
 import 'package:test/test.dart';
 
 void main() {

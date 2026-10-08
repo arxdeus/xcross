@@ -1,14 +1,24 @@
 import 'dart:io';
 
+import 'package:darwin_sdk_kit/target/iphone/iphone_build_platform.dart';
 import 'package:path/path.dart' as p;
 import 'package:propertylistserialization/propertylistserialization.dart';
 import 'package:test/test.dart';
-import 'package:xcross/src/compose/build/compose_entitlements.dart';
-import 'package:xcross/src/compose/compose.dart';
+import 'package:xcross/src/shared/compose/build/compose_entitlements.dart';
+import 'package:xcross/src/shared/compose/build/compose_info_plist.dart';
+import 'package:xcross/src/shared/compose/project/ios_app_config.dart';
+import 'package:xcross/src/shared/compose/project/kmp_project.dart';
+
+import 'support/compose_platforms.dart';
 
 /// A Compose project that keeps its iOS app next to the shared module
 /// (`app/iosApp` beside `app/shared`) instead of at the root.
 void main() {
+  late ComposeTestSession session;
+  setUp(() {
+    session = createComposeTestSession();
+  });
+  tearDown(() => session.dispose());
   late Directory temp;
   late String root;
 
@@ -54,13 +64,28 @@ CLIENT_ID=12345
     test('prefers <root>/iosApp when it is an app', () {
       write('iosApp/Configuration/Config.xcconfig', 'PRODUCT_NAME=Root\n');
       nestedApp();
-      expect(IosAppConfig.directory(root), p.join(root, 'iosApp'));
+      expect(
+        IosAppConfigLoader(
+          session.fixtureRunner.host.fileSystem,
+        ).directory(root),
+        p.join(root, 'iosApp'),
+      );
     });
 
     test('finds a single app one level down', () {
       nestedApp();
-      expect(IosAppConfig.directory(root), p.join(root, 'app', 'iosApp'));
-      expect(IosAppConfig.load(root)?.productName, 'Nested');
+      expect(
+        IosAppConfigLoader(
+          session.fixtureRunner.host.fileSystem,
+        ).directory(root),
+        p.join(root, 'app', 'iosApp'),
+      );
+      expect(
+        IosAppConfigLoader(
+          session.fixtureRunner.host.fileSystem,
+        ).load(root)?.productName,
+        'Nested',
+      );
     });
 
     test("is not fooled by xcross's own runner build dir at the root", () {
@@ -68,25 +93,42 @@ CLIENT_ID=12345
       Directory(
         p.join(root, 'iosApp', '.build', 'runner'),
       ).createSync(recursive: true);
-      expect(IosAppConfig.directory(root), p.join(root, 'app', 'iosApp'));
+      expect(
+        IosAppConfigLoader(
+          session.fixtureRunner.host.fileSystem,
+        ).directory(root),
+        p.join(root, 'app', 'iosApp'),
+      );
     });
 
     test('recognises an app by its Xcode project alone', () {
       Directory(
         p.join(root, 'mobile', 'iosApp', 'iosApp.xcodeproj'),
       ).createSync(recursive: true);
-      expect(IosAppConfig.directory(root), p.join(root, 'mobile', 'iosApp'));
+      expect(
+        IosAppConfigLoader(
+          session.fixtureRunner.host.fileSystem,
+        ).directory(root),
+        p.join(root, 'mobile', 'iosApp'),
+      );
     });
 
     test('two nested apps are ambiguous and resolve to neither', () {
       nestedApp();
       write('other/iosApp/Info.plist', '<plist><dict/></plist>');
-      expect(IosAppConfig.directory(root), isNull);
+      expect(
+        IosAppConfigLoader(
+          session.fixtureRunner.host.fileSystem,
+        ).directory(root),
+        isNull,
+      );
     });
 
     test('keeps every xcconfig setting, expanded', () {
       nestedApp();
-      final settings = IosAppConfig.load(root)!.buildSettings;
+      final settings = IosAppConfigLoader(
+        session.fixtureRunner.host.fileSystem,
+      ).load(root)!.buildSettings;
       expect(settings['API_BASE_URL'], 'https://api.example.com');
       expect(settings['CLIENT_ID'], '12345');
     });
@@ -104,12 +146,17 @@ CLIENT_ID=12345
         entryKind: KmpEntryKind.runnableApp,
         bundleId: 'sg.example.nested',
         appName: 'Nested',
-        iosConfig: IosAppConfig.load(root),
+        iosConfig: IosAppConfigLoader(
+          session.fixtureRunner.host.fileSystem,
+        ).load(root),
       );
 
       final plist =
           PropertyListSerialization.propertyListWithString(
-                ComposeInfoPlist.build(project: project),
+                ComposeInfoPlist(
+                  session.fixtureRunner.host.fileSystem,
+                  session.fixtureLog,
+                ).build(project: project, target: const IPhoneBuildPlatform()),
               )
               as Map;
 
@@ -126,7 +173,9 @@ CLIENT_ID=12345
   test('entitlements are found in the nested app', () {
     nestedApp();
     expect(
-      ComposeEntitlements.find(root, 'Nested'),
+      ComposeEntitlements(
+        session.fixtureRunner.host.fileSystem,
+      ).find(root, 'Nested'),
       p.join(root, 'app', 'iosApp', 'iosApp', 'Nested.entitlements'),
     );
   });

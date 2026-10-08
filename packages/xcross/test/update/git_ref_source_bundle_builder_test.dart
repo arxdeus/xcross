@@ -1,18 +1,22 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:cli_kit/host/linux/linux_host.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
-import 'package:xcross/src/errors.dart';
-import 'package:xcross/src/update/git_ref_source_bundle_builder.dart';
-import 'package:xcross/src/update/git_update_ref_resolver.dart';
+import 'package:xcross/src/shared/errors/errors.dart';
+import 'package:xcross/src/shared/update/git_ref_source_bundle_builder.dart';
+import 'package:xcross/src/shared/update/git_update_ref_resolver.dart';
+
+import '../host_operations_fixtures.dart';
 
 Future<List<String>> _captureAsync(Future<void> Function() body) async {
   final lines = <String>[];
   await runZoned(
     body,
     zoneSpecification: ZoneSpecification(
-      print: (_, __, ___, line) => lines.add(line),
+      print: (_, _, _, line) => lines.add(line),
     ),
   );
   return lines;
@@ -41,12 +45,12 @@ void main() {
           'xcross',
           'build',
           'cli',
-          'linux-x64',
+          'linux_x64',
           'bundle',
         ),
       );
       var staleWasDeletedBeforeClone = false;
-      final runner = _FakeProcessRunner(
+      final runner = FixtureFakeProcessRunner(
         onRun: (call) async {
           if (call.arguments.first == 'clone') {
             staleWasDeletedBeforeClone = !stale.existsSync();
@@ -75,7 +79,7 @@ void main() {
           fetchRef: 'refs/heads/main',
           commitSha: '1234567890abcdef1234567890abcdef12345678',
         ),
-        onBundle: (_, __) async {},
+        onBundle: (_, _) async {},
       );
 
       expect(staleWasDeletedBeforeClone, isTrue);
@@ -94,12 +98,12 @@ void main() {
           'xcross',
           'build',
           'cli',
-          'linux-x64',
+          'linux_x64',
           'bundle',
         ),
       );
       final dartInvocations = <String>[];
-      final runner = _FakeProcessRunner(
+      final runner = FixtureFakeProcessRunner(
         onRun: (call) async {
           if (call.arguments.first == 'pub' ||
               call.arguments.contains('tool/build_xcross.dart')) {
@@ -125,14 +129,14 @@ void main() {
           fetchRef: 'refs/heads/main',
           commitSha: '1234567890abcdef1234567890abcdef12345678',
         ),
-        onBundle: (_, __) async {},
+        onBundle: (_, _) async {},
       );
 
       expect(dartInvocations, List.filled(2, _fakeDartExecutable));
     });
 
     test('fails on a missing Dart before any source phase runs', () async {
-      final runner = _FakeProcessRunner(onRun: (_) async => _result());
+      final runner = FixtureFakeProcessRunner(onRun: (_) async => _result());
       var createdTempDirectory = false;
       final builder = _createTestBuilder(
         run: runner.run,
@@ -152,7 +156,7 @@ void main() {
             fetchRef: 'refs/heads/main',
             commitSha: '1234567890abcdef1234567890abcdef12345678',
           ),
-          onBundle: (_, __) async {},
+          onBundle: (_, _) async {},
         ),
         throwsA(isA<XcrossError>()),
       );
@@ -172,11 +176,11 @@ void main() {
           'xcross',
           'build',
           'cli',
-          'linux-x64',
+          'linux_x64',
           'bundle',
         ),
       );
-      final runner = _FakeProcessRunner(
+      final runner = FixtureFakeProcessRunner(
         onRun: (call) async {
           if (call.arguments.contains('tool/build_xcross.dart')) {
             _createBundle(bundle);
@@ -199,7 +203,7 @@ void main() {
             fetchRef: 'refs/heads/main',
             commitSha: '1234567890abcdef1234567890abcdef12345678',
           ),
-          onBundle: (_, __) async {},
+          onBundle: (_, _) async {},
         );
       });
 
@@ -228,11 +232,11 @@ void main() {
             'xcross',
             'build',
             'cli',
-            'linux-x64',
+            'linux_x64',
             'bundle',
           ),
         );
-        final runner = _FakeProcessRunner(
+        final runner = FixtureFakeProcessRunner(
           onRun: (call) async {
             if (call.arguments.contains('tool/build_xcross.dart')) {
               _createBundle(bundle);
@@ -280,28 +284,28 @@ void main() {
         expect(
           runner.calls,
           equals([
-            _ProcessCall('git', [
+            FixtureProcessCall('git', [
               'clone',
               'https://github.com/arxdeus/xcross.git',
               repo.path,
             ]),
-            _ProcessCall('git', const [
+            FixtureProcessCall('git', const [
               'fetch',
               '--depth',
               '1',
               'origin',
               '1234567890abcdef1234567890abcdef12345678',
             ], workingDirectory: repo.path),
-            _ProcessCall('git', const [
+            FixtureProcessCall('git', const [
               'checkout',
               '--detach',
               '1234567890abcdef1234567890abcdef12345678',
             ], workingDirectory: repo.path),
-            _ProcessCall(_fakeDartExecutable, const [
+            FixtureProcessCall(_fakeDartExecutable, const [
               'pub',
               'get',
             ], workingDirectory: repo.path),
-            _ProcessCall(_fakeDartExecutable, const [
+            FixtureProcessCall(_fakeDartExecutable, const [
               'run',
               '-DXCROSS_VERSION=main',
               '-DXCROSS_RELEASED=false',
@@ -326,11 +330,11 @@ void main() {
           'xcross',
           'build',
           'cli',
-          'linux-x64',
+          'linux_x64',
           'bundle',
         ),
       );
-      final runner = _FakeProcessRunner(
+      final runner = FixtureFakeProcessRunner(
         onRun: (call) async {
           if (call.arguments.contains('tool/build_xcross.dart')) {
             _createBundle(bundle);
@@ -352,12 +356,12 @@ void main() {
           fetchRef: 'refs/heads/feature/a,b=c',
           commitSha: '1234567890abcdef1234567890abcdef12345678',
         ),
-        onBundle: (_, __) async {},
+        onBundle: (_, _) async {},
       );
 
       expect(
         runner.calls.last,
-        _ProcessCall(_fakeDartExecutable, const [
+        FixtureProcessCall(_fakeDartExecutable, const [
           'run',
           '-DXCROSS_VERSION=feature%2Fa%2Cb%3Dc',
           '-DXCROSS_RELEASED=false',
@@ -377,12 +381,12 @@ void main() {
           'xcross',
           'build',
           'cli',
-          'linux-x64',
+          'linux_x64',
           'bundle',
         ),
       );
       final builder = _createTestBuilder(
-        run: _FakeProcessRunner(
+        run: FixtureFakeProcessRunner(
           onRun: (call) async {
             if (call.arguments.contains('tool/build_xcross.dart')) {
               _createBundle(bundle);
@@ -401,7 +405,7 @@ void main() {
           fetchRef: 'refs/heads/main',
           commitSha: '1234567890abcdef1234567890abcdef12345678',
         ),
-        onBundle: (_, __) async => 'installed',
+        onBundle: (_, _) async => 'installed',
       );
 
       expect(result, 'installed');
@@ -420,11 +424,11 @@ void main() {
             'xcross',
             'build',
             'cli',
-            'macos-arm64',
+            'linux_x64',
             'bundle',
           ),
         );
-        final runner = _FakeProcessRunner(
+        final runner = FixtureFakeProcessRunner(
           onRun: (call) async {
             if (call.arguments.contains('tool/build_xcross.dart')) {
               _createBundle(bundle);
@@ -446,12 +450,12 @@ void main() {
             fetchRef: 'pull/42/head',
             commitSha: 'abcdefabcdefabcdefabcdefabcdefabcdefabcd',
           ),
-          onBundle: (_, __) async {},
+          onBundle: (_, _) async {},
         );
 
         expect(
           runner.calls[1],
-          _ProcessCall('git', const [
+          FixtureProcessCall('git', const [
             'fetch',
             '--depth',
             '1',
@@ -461,7 +465,7 @@ void main() {
         );
         expect(
           runner.calls[2],
-          _ProcessCall('git', const [
+          FixtureProcessCall('git', const [
             'checkout',
             '--detach',
             'abcdefabcdefabcdefabcdefabcdefabcdefabcd',
@@ -476,7 +480,7 @@ void main() {
       final repo = Directory(p.join(staging.path, 'xcross'));
       final deleted = <String>[];
       final builder = _createTestBuilder(
-        run: _FakeProcessRunner(
+        run: FixtureFakeProcessRunner(
           onRun: (call) async {
             if (call.executable == 'git' && call.arguments.first == 'clone') {
               repo.createSync(recursive: true);
@@ -504,7 +508,7 @@ void main() {
             fetchRef: 'refs/heads/main',
             commitSha: '1234567890abcdef1234567890abcdef12345678',
           ),
-          onBundle: (_, __) async {},
+          onBundle: (_, _) async {},
         ),
         throwsA(
           isA<XcrossError>().having(
@@ -522,7 +526,7 @@ void main() {
       final staging = Directory(p.join(scratch.path, 'staging'));
       final repo = Directory(p.join(staging.path, 'xcross'));
       final builder = _createTestBuilder(
-        run: _FakeProcessRunner(
+        run: FixtureFakeProcessRunner(
           onRun: (call) async {
             if (call.executable == 'git' && call.arguments.first == 'clone') {
               repo.createSync(recursive: true);
@@ -546,7 +550,7 @@ void main() {
             fetchRef: 'refs/heads/main',
             commitSha: '1234567890abcdef1234567890abcdef12345678',
           ),
-          onBundle: (_, __) async {},
+          onBundle: (_, _) async {},
         ),
         throwsA(
           isA<XcrossError>().having(
@@ -569,13 +573,13 @@ void main() {
           'xcross',
           'build',
           'cli',
-          'linux-x64',
+          'linux_x64',
           'bundle',
         ),
       );
       final deleted = <String>[];
       final builder = _createTestBuilder(
-        run: _FakeProcessRunner(
+        run: FixtureFakeProcessRunner(
           onRun: (call) async {
             if (call.executable == 'git' && call.arguments.first == 'clone') {
               repo.createSync(recursive: true);
@@ -603,7 +607,7 @@ void main() {
             fetchRef: 'refs/heads/main',
             commitSha: '1234567890abcdef1234567890abcdef12345678',
           ),
-          onBundle: (_, __) async => throw StateError('callback exploded'),
+          onBundle: (_, _) async => throw StateError('callback exploded'),
         ),
         throwsA(
           isA<StateError>().having(
@@ -629,12 +633,12 @@ void main() {
             'xcross',
             'build',
             'cli',
-            'linux-x64',
+            'linux_x64',
             'bundle',
           ),
         );
         final builder = _createTestBuilder(
-          run: _FakeProcessRunner(
+          run: FixtureFakeProcessRunner(
             onRun: (call) async {
               if (call.executable == 'git' && call.arguments.first == 'clone') {
                 repo.createSync(recursive: true);
@@ -659,7 +663,7 @@ void main() {
               fetchRef: 'refs/heads/main',
               commitSha: '1234567890abcdef1234567890abcdef12345678',
             ),
-            onBundle: (_, __) async => throw StateError('callback exploded'),
+            onBundle: (_, _) async => throw StateError('callback exploded'),
           ),
           throwsA(
             isA<StateError>().having(
@@ -674,7 +678,7 @@ void main() {
 
     test('rejects tag refs defensively', () async {
       final builder = _createTestBuilder(
-        run: _FakeProcessRunner(onRun: (_) async => _result()).run,
+        run: FixtureFakeProcessRunner(onRun: (_) async => _result()).run,
       );
 
       await expectLater(
@@ -685,7 +689,7 @@ void main() {
             fetchRef: 'refs/tags/v1.2.3',
             commitSha: '1234567890abcdef1234567890abcdef12345678',
           ),
-          onBundle: (_, __) async {},
+          onBundle: (_, _) async {},
         ),
         throwsA(
           isA<XcrossError>().having(
@@ -702,7 +706,7 @@ void main() {
       final staging = Directory(p.join(scratch.path, 'staging'));
       final repo = Directory(p.join(staging.path, 'xcross'));
       final builder = _createTestBuilder(
-        run: _FakeProcessRunner(
+        run: FixtureFakeProcessRunner(
           onRun: (call) async {
             if (call.executable == 'git' && call.arguments.first == 'clone') {
               repo.createSync(recursive: true);
@@ -723,84 +727,80 @@ void main() {
             fetchRef: 'refs/heads/main',
             commitSha: '1234567890abcdef1234567890abcdef12345678',
           ),
-          onBundle: (_, __) async {},
+          onBundle: (_, _) async {},
         ),
         throwsA(
           isA<XcrossError>().having(
             (e) => e.message,
             'message',
-            contains('expected exactly one built update bundle'),
+            contains('expected built update bundle'),
           ),
         ),
       );
     });
 
-    test('throws when multiple built bundles exist', () async {
-      final scratch = _createScratchDirectory();
-      final staging = Directory(p.join(scratch.path, 'staging'));
-      final repo = Directory(p.join(staging.path, 'xcross'));
-      final builder = _createTestBuilder(
-        run: _FakeProcessRunner(
-          onRun: (call) async {
-            if (call.executable == 'git' && call.arguments.first == 'clone') {
-              repo.createSync(recursive: true);
-            }
-            if (call.executable == _fakeDartExecutable &&
-                call.arguments.contains('tool/build_xcross.dart')) {
-              for (final target in ['linux-x64', 'macos-arm64']) {
-                Directory(
-                  p.join(
-                    repo.path,
-                    'packages',
-                    'xcross',
-                    'build',
-                    'cli',
-                    target,
-                    'bundle',
-                    'bin',
-                  ),
-                ).createSync(recursive: true);
-                Directory(
-                  p.join(
-                    repo.path,
-                    'packages',
-                    'xcross',
-                    'build',
-                    'cli',
-                    target,
-                    'bundle',
-                    'lib',
-                  ),
-                ).createSync(recursive: true);
+    test(
+      'selects the current native bundle despite stale other-ABI output',
+      () async {
+        final scratch = _createScratchDirectory();
+        final staging = Directory(p.join(scratch.path, 'staging'));
+        final repo = Directory(p.join(staging.path, 'xcross'));
+        final builder = _createTestBuilder(
+          run: FixtureFakeProcessRunner(
+            onRun: (call) async {
+              if (call.executable == 'git' && call.arguments.first == 'clone') {
+                repo.createSync(recursive: true);
               }
-            }
-            return _result();
-          },
-        ).run,
-        createTempDirectory: (_) =>
-            Future.value(staging..createSync(recursive: true)),
-        deleteDirectory: _deleteDirectorySync,
-      );
+              if (call.executable == _fakeDartExecutable &&
+                  call.arguments.contains('tool/build_xcross.dart')) {
+                for (final target in ['linux_x64', 'macos_arm64']) {
+                  Directory(
+                    p.join(
+                      repo.path,
+                      'packages',
+                      'xcross',
+                      'build',
+                      'cli',
+                      target,
+                      'bundle',
+                      'bin',
+                    ),
+                  ).createSync(recursive: true);
+                  Directory(
+                    p.join(
+                      repo.path,
+                      'packages',
+                      'xcross',
+                      'build',
+                      'cli',
+                      target,
+                      'bundle',
+                      'lib',
+                    ),
+                  ).createSync(recursive: true);
+                }
+              }
+              return _result();
+            },
+          ).run,
+          createTempDirectory: (_) =>
+              Future.value(staging..createSync(recursive: true)),
+          deleteDirectory: _deleteDirectorySync,
+        );
 
-      await expectLater(
-        () => builder.build<void>(
+        await builder.build<void>(
           ref: const GitUpdateRef(
             kind: GitUpdateRefKind.branch,
             displayName: 'main',
             fetchRef: 'refs/heads/main',
             commitSha: '1234567890abcdef1234567890abcdef12345678',
           ),
-          onBundle: (_, __) async {},
-        ),
-        throwsA(
-          isA<XcrossError>().having(
-            (e) => e.message,
-            'message',
-            contains('expected exactly one built update bundle'),
-          ),
-        ),
-      );
-    });
+          onBundle: (bundle, _) async {
+            expect(bundle.path, endsWith(p.join('linux_x64', 'bundle')));
+          },
+        );
+      },
+    );
   });
 }
 
@@ -812,6 +812,8 @@ GitRefSourceBundleBuilder _createTestBuilder({
   TempDirectoryModifiedAt? tempDirectoryModifiedAt,
   DartExecutableLocator? resolveDartExecutable,
 }) => GitRefSourceBundleBuilder(
+  runner: fixtureRunner(LinuxHost(architecture: 'x64'), log: fixtureLog()),
+  acceptDartLauncher: (path) => path.endsWith('/dart'),
   run: run,
   createTempDirectory: createTempDirectory,
   deleteDirectory: deleteDirectory,
@@ -848,18 +850,19 @@ ProcessResult _result({
   String stderr = '',
 }) => ProcessResult(1, exitCode, stdout, stderr);
 
-final class _FakeProcessRunner {
-  _FakeProcessRunner({required this.onRun});
+@internal
+final class FixtureFakeProcessRunner {
+  FixtureFakeProcessRunner({required this.onRun});
 
-  final Future<ProcessResult> Function(_ProcessCall call) onRun;
-  final calls = <_ProcessCall>[];
+  final Future<ProcessResult> Function(FixtureProcessCall call) onRun;
+  final calls = <FixtureProcessCall>[];
 
   Future<ProcessResult> run(
     String executable,
     List<String> arguments, {
     String? workingDirectory,
   }) {
-    final call = _ProcessCall(
+    final call = FixtureProcessCall(
       executable,
       List<String>.unmodifiable(arguments),
       workingDirectory: workingDirectory,
@@ -869,8 +872,14 @@ final class _FakeProcessRunner {
   }
 }
 
-final class _ProcessCall {
-  const _ProcessCall(this.executable, this.arguments, {this.workingDirectory});
+@internal
+@immutable
+final class FixtureProcessCall {
+  const FixtureProcessCall(
+    this.executable,
+    this.arguments, {
+    this.workingDirectory,
+  });
 
   final String executable;
   final List<String> arguments;
@@ -878,7 +887,7 @@ final class _ProcessCall {
 
   @override
   bool operator ==(Object other) =>
-      other is _ProcessCall &&
+      other is FixtureProcessCall &&
       other.executable == executable &&
       _listEquals(other.arguments, arguments) &&
       other.workingDirectory == workingDirectory;

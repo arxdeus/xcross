@@ -2,12 +2,21 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
+import 'package:darwin_sdk_kit/shared/archive/cpio_reader.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
-import 'package:xcross/src/cli/basic/sdk_install.dart';
+import 'package:xcross/src/host/windows/sdk/materialized_sdk_archive_links.dart';
+import 'package:xcross/src/shared/cli/basic/sdk_install.dart';
+import 'package:xcross/src/shared/sdk/sdk_install_constants.dart';
+
+import 'sdk_test_support.dart';
 
 void main() {
+  final sdkContext = SdkTestContext();
+  final installer = sdkContext.installer();
+  final materializedInstaller = sdkContext.installer(
+    links: MaterializedSdkArchiveLinks(sdkContext.host),
+  );
   late Directory root;
   setUp(() => root = Directory.systemTemp.createTempSync('xcross-sdk-layout-'));
   tearDown(() => root.deleteSync(recursive: true));
@@ -19,7 +28,7 @@ void main() {
     }
     expect(
       SdkInstall.sdkRelativePath(
-        'Developer/Platforms/iPhoneSimulator.platform/Info.plist',
+        'Developer/Platforms/AppleTVSimulator.platform/Info.plist',
       ),
       isNull,
     );
@@ -41,13 +50,12 @@ void main() {
         data: Uint8List.fromList(utf8.encode(contents)),
       );
       await expectLater(
-        SdkInstall.writeSdkEntries(
+        materializedInstaller.writeSdkEntries(
           Stream.fromIterable([
             entry('Xcode.app/Contents/$descriptor', 'first'),
             entry('DeviceSupport/Xcode.app/Contents/$descriptor', 'second'),
           ]),
           root.path,
-          materializeLinks: true,
         ),
         throwsA(isA<Exception>()),
       );
@@ -78,19 +86,19 @@ void main() {
       final generic = p.join(sdks, '$platform.sdk');
       final versioned = p.join(sdks, '${platform}26.0.sdk');
       expect(
-        SdkInstall.materializedSdkAliases(root.path, {
+        installer.materializedSdkAliases(root.path, {
           generic: p.basename(versioned),
         }),
         {generic},
       );
       expect(
-        SdkInstall.materializedSdkAliases(root.path, {
+        installer.materializedSdkAliases(root.path, {
           versioned: p.basename(generic),
         }),
         {generic},
       );
       expect(
-        SdkInstall.materializedSdkAliases(root.path, {
+        installer.materializedSdkAliases(root.path, {
           versioned: 'Other.sdk',
           p.join(sdks, '${platform}25.0.sdk'): p.basename(versioned),
           p.join(sdks, 'header.h'): 'Other.h',
@@ -110,14 +118,13 @@ void main() {
         mode: mode,
         data: Uint8List.fromList(utf8.encode(data)),
       );
-      await SdkInstall.writeSdkEntries(
+      await materializedInstaller.writeSdkEntries(
         Stream.fromIterable([
           entry('$sdks/$real/usr/include/real.h', 'header', 0x81a4),
           entry('$sdks/$real/usr/include/link.h', 'real.h', 0xa1ff),
           entry('$sdks/$alias', real, 0xa1ff),
         ]),
         root.path,
-        materializeLinks: true,
       );
       final base = p.joinAll([root.path, ...sdks.split('/')]);
       expect(Directory(p.join(base, 'iPhoneOS.sdk')).existsSync(), isTrue);
@@ -138,7 +145,7 @@ void main() {
 
   test('does not classify aliases outside the imported bundle', () {
     expect(
-      () => SdkInstall.materializedSdkAliases(root.path, {
+      () => installer.materializedSdkAliases(root.path, {
         p.join(root.path, 'SDKs', 'Example.sdk'): '../../outside/Example26.sdk',
       }),
       throwsA(isA<Exception>()),

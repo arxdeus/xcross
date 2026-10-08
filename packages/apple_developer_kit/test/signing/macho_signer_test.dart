@@ -2,13 +2,18 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:apple_developer_kit/src/errors.dart';
-import 'package:apple_developer_kit/src/signing/macho_signer.dart';
-import 'package:apple_developer_kit/src/signing/signing_asset.dart';
+import 'package:apple_developer_kit/host/shared/apple_host_services.dart';
+import 'package:apple_developer_kit/shared/errors/errors.dart';
+import 'package:apple_developer_kit/shared/signing/signing_asset.dart';
+import 'package:apple_developer_kit/src/shared/signing/macho_signer.dart';
 import 'package:basic_utils/basic_utils.dart';
 import 'package:crypto/crypto.dart';
+import 'package:meta/meta.dart';
 import 'package:propertylistserialization/propertylistserialization.dart';
 import 'package:test/test.dart';
+
+import '../support/host_services.dart';
+import '../support/mapped_apple_fixture.dart';
 
 void main() {
   final signingTime = DateTime.utc(2030, 2, 3, 4, 5, 6);
@@ -21,12 +26,54 @@ void main() {
       'xcross_macho_signer-',
     );
     asset = await _signingAsset(temporaryDirectory);
-    signer = MachOSigner(asset);
+    signer = MachOSigner(asset, hostServices: testHostServices);
   });
 
   tearDownAll(() {
     temporaryDirectory.deleteSync(recursive: true);
   });
+
+  test(
+    'mapped filesystem cleans failed signing temporary and preserves original',
+    () async {
+      final fixture = MappedAppleFixture();
+      addTearDown(fixture.dispose);
+      final path = fixture.path('Runner');
+      final file = fixture.fileSystem.file(path)..writeAsBytesSync(_macho());
+      final original = file.readAsBytesSync();
+      final permissions = RejectingPreservePermissions();
+      final services = AppleHostServices(
+        host: fixture.services.host,
+        abi: fixture.services.abi,
+        machineIdentity: fixture.services.machineIdentity,
+        permissions: permissions,
+      );
+      await expectLater(
+        MachOSigner(asset, hostServices: services).signFile(
+          path,
+          identifier: 'dev.xcross.Runner',
+          teamIdentifier: 'TESTTEAM123',
+          entitlements: const {},
+          signingTime: signingTime,
+        ),
+        throwsA(
+          isA<AppleError>().having(
+            (error) => error.message,
+            'message',
+            contains('Could not atomically replace'),
+          ),
+        ),
+      );
+      expect(file.readAsBytesSync(), original);
+      expect(permissions.mode, file.statSync().mode & 0xfff);
+      expect(permissions.path, startsWith(fixture.backingRoot));
+      expect(
+        Directory(fixture.backingRoot).listSync().map((entry) => entry.path),
+        [file.path],
+      );
+      expect(Directory(fixture.logicalRoot).listSync(), isEmpty);
+    },
+  );
 
   test('adds LC_CODE_SIGNATURE and builds SHA-256 signing slots', () {
     final original = _macho();
@@ -263,7 +310,10 @@ void main() {
         file.writeAsBytesSync(entry.value);
         final before = file.readAsBytesSync();
         await expectLater(
-          MachOSigner.preflight(file.path),
+          MachOSigner(
+            asset,
+            hostServices: testHostServices,
+          ).preflight(file.path),
           throwsA(
             isA<AppleError>().having(
               (error) => error.message,
@@ -289,7 +339,7 @@ void main() {
     final file = File('${temporaryDirectory.path}/bad-signature.macho')
       ..writeAsBytesSync(malformed);
     await expectLater(
-      MachOSigner.preflight(file.path),
+      MachOSigner(asset, hostServices: testHostServices).preflight(file.path),
       throwsA(
         isA<AppleError>().having(
           (error) => error.message,
@@ -331,7 +381,10 @@ void main() {
         signingTime: signingTime,
       );
 
-      await MachOSigner.preflight(file.path);
+      await MachOSigner(
+        asset,
+        hostServices: testHostServices,
+      ).preflight(file.path);
       expect(_u32le(file.readAsBytesSync(), 16), 3);
       if (!Platform.isWindows) expect(file.statSync().mode & 0xfff, oldMode);
     },
@@ -495,7 +548,7 @@ Future<SigningAsset> _signingAsset(Directory directory) {
   ).writeAsStringSync(CryptoUtils.encodeRSAPrivateKeyToPem(privateKey));
   File(certificatePath).writeAsStringSync(certificatePem);
   File(profilePath).writeAsBytesSync(profileCms);
-  return SigningAsset.load(
+  return SigningAssetLoader(hostServices: testHostServices).load(
     privateKeyPemPath: keyPath,
     certificatePemPath: certificatePath,
     provisioningProfilePath: profilePath,
@@ -601,3 +654,17 @@ void _setU32le(Uint8List bytes, int offset, int value) =>
 
 void _setU64le(Uint8List bytes, int offset, int value) =>
     ByteData.sublistView(bytes).setUint64(offset, value, Endian.little);
+
+@internal
+final class RejectingPreservePermissions implements AppleFilePermissions {
+  int? mode;
+  String? path;
+  @override
+  void harden(String path) => throw StateError('Unexpected harden');
+  @override
+  void preserve(String path, int mode) {
+    this.path = path;
+    this.mode = mode;
+    throw StateError('Synthetic permission failure');
+  }
+}

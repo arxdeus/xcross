@@ -1,13 +1,15 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:apple_developer_kit/src/appstoreconnect/asc_client.dart';
-import 'package:apple_developer_kit/src/appstoreconnect/asc_config.dart';
-import 'package:apple_developer_kit/src/errors.dart';
+import 'package:apple_developer_kit/shared/appstoreconnect/asc_client.dart';
+import 'package:apple_developer_kit/shared/appstoreconnect/asc_config.dart';
+import 'package:apple_developer_kit/shared/errors/errors.dart';
 import 'package:basic_utils/basic_utils.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:test/test.dart';
+
+import '../support/host_services.dart';
 
 void main() {
   late Directory tmp;
@@ -23,6 +25,7 @@ void main() {
       CryptoUtils.encodeEcPrivateKeyToPem(keyPair.privateKey as ECPrivateKey),
     );
     credentials = AscCredentials(
+      hostServices: testHostServices,
       issuerId: 'issuer-1234',
       keyId: 'TESTKEY123',
       privateKeyPath: keyFile.path,

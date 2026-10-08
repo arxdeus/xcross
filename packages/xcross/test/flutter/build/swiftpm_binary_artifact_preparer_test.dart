@@ -1,40 +1,338 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:archive/archive.dart';
 import 'package:crypto/crypto.dart';
-import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:propertylistserialization/propertylistserialization.dart';
 import 'package:test/test.dart';
-import 'package:xcross/src/cli/basic/sdk_install.dart';
-import 'package:xcross/src/flutter/build/internal/swiftpm_binary_fixture.dart';
-import 'package:xcross/src/flutter/build/internal/swiftpm_gate_evidence.dart';
-import 'package:xcross/src/flutter/build/ios_plugin_package.dart';
-import 'package:xcross/src/flutter/build/swiftpm_binary_artifact_preparer.dart';
-import 'package:xcross/src/flutter/build/swiftpm_binary_artifact_store.dart';
-import 'package:xcross/src/flutter/build/swiftpm_binary_target.dart';
-import 'package:xcross/src/flutter/errors.dart';
+import 'package:xcross/src/host/shared/flutter/swiftpm/artifact_publication_lock.dart';
+import 'package:xcross/src/host/shared/flutter/swiftpm/posix_artifact_copy_policy.dart';
+import 'package:xcross/src/host/windows/flutter/swiftpm/artifact_copy_policy.dart';
+import 'package:xcross/src/host/windows/flutter/swiftpm/artifact_filesystem.dart';
+import 'package:xcross/src/shared/flutter/build/internal/swiftpm_binary_fixture.dart';
+import 'package:xcross/src/shared/flutter/build/swiftpm_binary_artifact_preparer.dart';
+import 'package:xcross/src/shared/flutter/build/swiftpm_binary_artifact_store.dart';
+import 'package:xcross/src/shared/flutter/build/swiftpm_binary_target.dart';
+import 'package:xcross/src/shared/flutter/errors.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/artifact_copy_policy.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/artifact_destination_publisher.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/artifact_filesystem.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/artifact_offline_publisher.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/artifact_publication_coordinator.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/artifact_transport.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/gate_mode.dart';
+
+import 'swiftpm_test_context.dart';
+
+final _swiftPmRuntime = testSwiftPmRuntime();
+final _windowsRuntime = testWindowsSwiftPmRuntime();
+final _simulatorRuntime = testSimulatorSwiftPmRuntime();
 
 void main() {
   late Directory temp;
   late SwiftPmBinaryArtifactStore store;
+  test('selects simulator binary metadata and excludes device slice', () async {
+    final fixture = createFixture(temp, 'Simulator', defaultLibraries);
+    final entry = await SwiftPmBinaryArtifactPreparer(
+      transport: const HttpSwiftPmArchiveTransport(
+        createClient: HttpClient.new,
+      ),
+      copyPolicy: PosixSwiftPmArtifactCopyPolicy(store.fileSystem),
+      store: store,
+
+      policy: _simulatorRuntime.targetPolicy,
+    ).prepareDownloadedArchive(target: fixture.target, archive: fixture.file);
+    expect(
+      Directory(
+        p.join(entry.artifactPath, 'ios-arm64_x86_64-simulator'),
+      ).existsSync(),
+      isTrue,
+    );
+    expect(
+      Directory(p.join(entry.artifactPath, 'ios-arm64_armv7')).existsSync(),
+      isFalse,
+    );
+    final libraries =
+        readPlist(
+              p.join(entry.artifactPath, 'Info.plist'),
+            )['AvailableLibraries']!
+            as List;
+    expect(libraries, hasLength(1));
+    expect((libraries.single as Map)['SupportedPlatformVariant'], 'simulator');
+  });
+
+  test(
+    'rejects simulator binary request when only device slice exists',
+    () async {
+      final fixture = createFixture(temp, 'DeviceOnly', [
+        defaultLibraries.first,
+      ]);
+      await expectLater(
+        SwiftPmBinaryArtifactPreparer(
+          transport: const HttpSwiftPmArchiveTransport(
+            createClient: HttpClient.new,
+          ),
+          copyPolicy: PosixSwiftPmArtifactCopyPolicy(store.fileSystem),
+          store: store,
+
+          policy: _simulatorRuntime.targetPolicy,
+        ).prepareDownloadedArchive(
+          target: fixture.target,
+          archive: fixture.file,
+        ),
+        throwsBuildErrorContaining('simulator library'),
+      );
+    },
+  );
 
   setUp(() {
     temp = Directory.systemTemp.createTempSync('xcross_swiftpm_preparer-');
-    store = SwiftPmBinaryArtifactStore(p.join(temp.path, 'store'));
+    store = SwiftPmBinaryArtifactStore(
+      p.join(temp.path, 'store'),
+      host: _swiftPmRuntime.host,
+      publicationCoordinator: SwiftPmPublicationCoordinator(
+        locks: FileSwiftPmPublicationLockProvider(
+          _swiftPmRuntime.artifactFileSystem,
+        ),
+        pathKey: _swiftPmRuntime.host.paths.pathKey,
+      ),
+      fileSystem: _swiftPmRuntime.artifactFileSystem,
+    );
   });
 
   tearDown(() => temp.deleteSync(recursive: true));
 
+  test(
+    'offline partial tree never poisons later verified archive preparation',
+    () async {
+      final fixture = createFixture(temp, 'Offline', defaultLibraries);
+      final staging = temp.createTempSync('offline-input-');
+      final partial = Directory(p.join(staging.path, 'Offline.xcframework'))
+        ..createSync();
+      File(p.join(partial.path, 'Info.plist')).writeAsStringSync('malformed');
+      File(p.join(staging.path, '.complete')).writeAsStringSync('');
+      File(p.join(staging.path, 'metadata.json')).writeAsStringSync('{}');
+      final destination = p.join(temp.path, 'offline-output');
+      final publisher = SwiftPmOfflineArtifactPublisher(
+        fileSystem: store.fileSystem,
+        publicationCoordinator: store.publicationCoordinator,
+      );
+      final offline = await publisher.publish(
+        stagingRoot: staging,
+        destination: destination,
+        artifactDirectoryName: 'Offline.xcframework',
+      );
+      expect(
+        File(p.join(offline, 'Info.plist')).readAsStringSync(),
+        'malformed',
+      );
+      expect(File(p.join(destination, '.complete')).existsSync(), isFalse);
+      expect(File(p.join(destination, 'metadata.json')).existsSync(), isFalse);
+      expect(
+        await store.findCompleteTarget(fixture.target.checksum, 'Offline'),
+        isNull,
+      );
+      final entry = await SwiftPmBinaryArtifactPreparer(
+        store: store,
+        policy: _swiftPmRuntime.targetPolicy,
+        transport: const HttpSwiftPmArchiveTransport(
+          createClient: HttpClient.new,
+        ),
+        copyPolicy: PosixSwiftPmArtifactCopyPolicy(store.fileSystem),
+      ).prepareDownloadedArchive(target: fixture.target, archive: fixture.file);
+      expect(entry.artifactPath, isNot(offline));
+      expect(
+        readPlist(
+          p.join(entry.artifactPath, 'Info.plist'),
+        )['AvailableLibraries'],
+        isA<List<Object?>>(),
+      );
+      expect(
+        await store.findCompleteTarget(fixture.target.checksum, 'Offline'),
+        isNotNull,
+      );
+      expect(
+        await publisher.publish(
+          stagingRoot: staging,
+          destination: destination,
+          artifactDirectoryName: 'Offline.xcframework',
+        ),
+        offline,
+      );
+      File(p.join(offline, 'Info.plist')).writeAsStringSync('changed');
+      await expectLater(
+        publisher.publish(
+          stagingRoot: staging,
+          destination: destination,
+          artifactDirectoryName: 'Offline.xcframework',
+        ),
+        throwsA(isA<FileSystemException>()),
+      );
+    },
+  );
+
+  test(
+    'materializes an intact offline tree and refuses a changed one',
+    () async {
+      final staging = temp.createTempSync('offline-input-');
+      final tree = Directory(p.join(staging.path, 'Offline.xcframework'))
+        ..createSync();
+      File(p.join(tree.path, 'Info.plist')).writeAsStringSync('plist');
+      final offline =
+          await SwiftPmOfflineArtifactPublisher(
+            fileSystem: store.fileSystem,
+            publicationCoordinator: store.publicationCoordinator,
+          ).publish(
+            stagingRoot: staging,
+            destination: p.join(temp.path, 'offline-store', 'entry'),
+            artifactDirectoryName: 'Offline.xcframework',
+          );
+      final preparer = SwiftPmBinaryArtifactPreparer(
+        store: store,
+        policy: _swiftPmRuntime.targetPolicy,
+        transport: const HttpSwiftPmArchiveTransport(
+          createClient: HttpClient.new,
+        ),
+        copyPolicy: PosixSwiftPmArtifactCopyPolicy(store.fileSystem),
+      );
+      final destination = p.join(temp.path, 'offline-materialized');
+      expect(
+        await preparer.materializeBinaryArtifact(
+          source: offline,
+          destination: destination,
+        ),
+        SwiftPmBinaryArtifactPublication.published(),
+      );
+      expect(
+        await preparer.validatesMaterializedBinaryArtifact(
+          source: offline,
+          destination: destination,
+        ),
+        isTrue,
+      );
+      File(p.join(offline, 'Info.plist')).writeAsStringSync('changed');
+      await expectLater(
+        preparer.materializeBinaryArtifact(
+          source: offline,
+          destination: p.join(temp.path, 'offline-changed'),
+        ),
+        throwsA(isA<FileSystemException>()),
+      );
+    },
+  );
+
+  test('distinct preparers share session destination serialization', () async {
+    final fixture = createFixture(
+      temp,
+      'ConcurrentInstances',
+      defaultLibraries,
+    );
+    final initial = SwiftPmBinaryArtifactPreparer(
+      store: store,
+      policy: _swiftPmRuntime.targetPolicy,
+      transport: const HttpSwiftPmArchiveTransport(
+        createClient: HttpClient.new,
+      ),
+      copyPolicy: PosixSwiftPmArtifactCopyPolicy(store.fileSystem),
+    );
+    final entry = await initial.prepareDownloadedArchive(
+      target: fixture.target,
+      archive: fixture.file,
+    );
+    final secondStore = SwiftPmBinaryArtifactStore(
+      store.root,
+      host: store.host,
+      fileSystem: store.fileSystem,
+      publicationCoordinator: store.publicationCoordinator,
+    );
+    final second = SwiftPmBinaryArtifactPreparer(
+      store: secondStore,
+      policy: _swiftPmRuntime.targetPolicy,
+      transport: const HttpSwiftPmArchiveTransport(
+        createClient: HttpClient.new,
+      ),
+      copyPolicy: PosixSwiftPmArtifactCopyPolicy(store.fileSystem),
+    );
+    final destination = p.join(temp.path, 'shared-publication');
+    final outcomes = await Future.wait([
+      initial.materializeBinaryArtifact(
+        source: entry.artifactPath,
+        destination: destination,
+      ),
+      second.materializeBinaryArtifact(
+        source: entry.artifactPath,
+        destination: destination,
+      ),
+    ]);
+    expect(outcomes.where((value) => value.nonce != null), hasLength(1));
+    expect(outcomes.where((value) => value.nonce == null), hasLength(1));
+  });
+
+  test(
+    'materializes store entries addressed through host io path spellings',
+    () async {
+      final logical = p.join(temp.path, 'logical-store');
+      final physical = p.join(temp.path, 'physical-store');
+      final fileSystem = AliasedSwiftPmArtifactFileSystem(
+        logicalRoot: logical,
+        physicalRoot: physical,
+      );
+      final aliasedStore = SwiftPmBinaryArtifactStore(
+        logical,
+        host: store.host,
+        fileSystem: fileSystem,
+        publicationCoordinator: store.publicationCoordinator,
+      );
+      final preparer = SwiftPmBinaryArtifactPreparer(
+        store: aliasedStore,
+        policy: _swiftPmRuntime.targetPolicy,
+        transport: const HttpSwiftPmArchiveTransport(
+          createClient: HttpClient.new,
+        ),
+        copyPolicy: PosixSwiftPmArtifactCopyPolicy(fileSystem),
+      );
+      final fixture = createFixture(temp, 'SpelledKit', defaultLibraries);
+      final entry = await preparer.prepareDownloadedArchive(
+        target: fixture.target,
+        archive: fixture.file,
+      );
+      expect(p.isWithin(logical, entry.artifactPath), isTrue);
+      final physicalSource = fileSystem.physical(entry.artifactPath);
+      expect(Directory(physicalSource).existsSync(), isTrue);
+      for (final (index, source) in [
+        entry.artifactPath,
+        physicalSource,
+      ].indexed) {
+        final destination = p.join(temp.path, 'materialized-$index');
+        final publication = await preparer.materializeBinaryArtifact(
+          source: source,
+          destination: destination,
+        );
+        expect(publication.nonce, isNotNull);
+        expect(
+          await preparer.validatesMaterializedBinaryArtifact(
+            source: source,
+            destination: destination,
+          ),
+          isTrue,
+        );
+      }
+    },
+  );
+
   test('generates deterministic SwiftPM XCFramework ZIP fixture', () {
-    final first = SwiftPmBinaryFixture.generate(
+    final generator = SwiftPmBinaryFixtureGenerator(
+      fileSystem: store.host.fileSystem,
+      paths: store.host.paths.context,
+    );
+    final first = generator.generate(
       root: p.join(temp.path, 'first'),
       archiveUrl: Uri.parse('http://127.0.0.1:8123/BinaryFixture.zip'),
     );
-    final second = SwiftPmBinaryFixture.generate(
+    final second = generator.generate(
       root: p.join(temp.path, 'second'),
       archiveUrl: Uri.parse('http://127.0.0.1:8123/BinaryFixture.zip'),
     );
@@ -64,7 +362,12 @@ void main() {
     final fixture = createFixture(temp, 'Fixture', defaultLibraries);
 
     final entry = await SwiftPmBinaryArtifactPreparer(
+      transport: const HttpSwiftPmArchiveTransport(
+        createClient: HttpClient.new,
+      ),
+      copyPolicy: PosixSwiftPmArtifactCopyPolicy(store.fileSystem),
       store: store,
+      policy: _swiftPmRuntime.targetPolicy,
     ).prepareDownloadedArchive(target: fixture.target, archive: fixture.file);
 
     expect(
@@ -96,7 +399,14 @@ void main() {
   test('requires exactly one eligible device slice', () async {
     final noDevice = createFixture(temp, 'None', [defaultLibraries.last]);
     await expectLater(
-      SwiftPmBinaryArtifactPreparer(store: store).prepareDownloadedArchive(
+      SwiftPmBinaryArtifactPreparer(
+        transport: const HttpSwiftPmArchiveTransport(
+          createClient: HttpClient.new,
+        ),
+        copyPolicy: PosixSwiftPmArtifactCopyPolicy(store.fileSystem),
+        store: store,
+        policy: _swiftPmRuntime.targetPolicy,
+      ).prepareDownloadedArchive(
         target: noDevice.target,
         archive: noDevice.file,
       ),
@@ -108,7 +418,14 @@ void main() {
       {...defaultLibraries.first, 'LibraryIdentifier': 'ios-arm64-other'},
     ]);
     await expectLater(
-      SwiftPmBinaryArtifactPreparer(store: store).prepareDownloadedArchive(
+      SwiftPmBinaryArtifactPreparer(
+        transport: const HttpSwiftPmArchiveTransport(
+          createClient: HttpClient.new,
+        ),
+        copyPolicy: PosixSwiftPmArtifactCopyPolicy(store.fileSystem),
+        store: store,
+        policy: _swiftPmRuntime.targetPolicy,
+      ).prepareDownloadedArchive(
         target: duplicate.target,
         archive: duplicate.file,
       ),
@@ -126,7 +443,12 @@ void main() {
 
     await expectLater(
       SwiftPmBinaryArtifactPreparer(
+        transport: const HttpSwiftPmArchiveTransport(
+          createClient: HttpClient.new,
+        ),
+        copyPolicy: PosixSwiftPmArtifactCopyPolicy(store.fileSystem),
         store: store,
+        policy: _swiftPmRuntime.targetPolicy,
       ).prepareDownloadedArchive(target: fixture.target, archive: fixture.file),
       throwsBuildErrorContaining('LibraryPath'),
     );
@@ -138,7 +460,14 @@ void main() {
     addEntries(archive, xcframeworkEntries('B', defaultLibraries));
     final file = writeArchive(temp, 'both.zip', archive);
     final checksum = sha256.convert(file.readAsBytesSync()).toString();
-    final preparer = SwiftPmBinaryArtifactPreparer(store: store);
+    final preparer = SwiftPmBinaryArtifactPreparer(
+      transport: const HttpSwiftPmArchiveTransport(
+        createClient: HttpClient.new,
+      ),
+      copyPolicy: PosixSwiftPmArtifactCopyPolicy(store.fileSystem),
+      store: store,
+      policy: _swiftPmRuntime.targetPolicy,
+    );
 
     final a = await preparer.prepareDownloadedArchive(
       target: target('A', checksum),
@@ -158,11 +487,18 @@ void main() {
     final source = createFixture(temp, 'Download', defaultLibraries);
     var downloads = 0;
     final preparer = SwiftPmBinaryArtifactPreparer(
-      store: store,
-      download: (url, destination, maximumBytes) async {
+      transport: CallbackSwiftPmArchiveTransport((
+        url,
+        destination,
+        maximumBytes,
+      ) async {
         downloads++;
         await source.file.copy(destination.path);
-      },
+      }),
+      copyPolicy: PosixSwiftPmArtifactCopyPolicy(store.fileSystem),
+      store: store,
+
+      policy: _swiftPmRuntime.targetPolicy,
     );
 
     final first = await preparer.prepare(source.target);
@@ -181,9 +517,13 @@ void main() {
     final source = createFixture(temp, 'BadChecksum', defaultLibraries);
     final badTarget = target('BadChecksum', '0' * 64);
     final preparer = SwiftPmBinaryArtifactPreparer(
+      transport: CallbackSwiftPmArchiveTransport(
+        (url, destination, maximumBytes) => source.file.copy(destination.path),
+      ),
+      copyPolicy: PosixSwiftPmArtifactCopyPolicy(store.fileSystem),
       store: store,
-      download: (url, destination, maximumBytes) =>
-          source.file.copy(destination.path),
+
+      policy: _swiftPmRuntime.targetPolicy,
     );
 
     await expectLater(
@@ -209,7 +549,14 @@ void main() {
         );
 
         await expectLater(
-          SwiftPmBinaryArtifactPreparer(store: store).prepareDownloadedArchive(
+          SwiftPmBinaryArtifactPreparer(
+            transport: const HttpSwiftPmArchiveTransport(
+              createClient: HttpClient.new,
+            ),
+            copyPolicy: PosixSwiftPmArtifactCopyPolicy(store.fileSystem),
+            store: store,
+            policy: _swiftPmRuntime.targetPolicy,
+          ).prepareDownloadedArchive(
             target: fixture.target,
             archive: fixture.file,
           ),
@@ -233,7 +580,12 @@ void main() {
 
     await expectLater(
       SwiftPmBinaryArtifactPreparer(
+        transport: const HttpSwiftPmArchiveTransport(
+          createClient: HttpClient.new,
+        ),
+        copyPolicy: PosixSwiftPmArtifactCopyPolicy(store.fileSystem),
         store: store,
+        policy: _swiftPmRuntime.targetPolicy,
       ).prepareDownloadedArchive(target: fixture.target, archive: fixture.file),
       throwsBuildErrorContaining('collision'),
     );
@@ -256,7 +608,14 @@ void main() {
     );
 
     await expectLater(
-      SwiftPmBinaryArtifactPreparer(store: store).prepareDownloadedArchive(
+      SwiftPmBinaryArtifactPreparer(
+        transport: const HttpSwiftPmArchiveTransport(
+          createClient: HttpClient.new,
+        ),
+        copyPolicy: PosixSwiftPmArtifactCopyPolicy(store.fileSystem),
+        store: store,
+        policy: _swiftPmRuntime.targetPolicy,
+      ).prepareDownloadedArchive(
         target: duplicateTarget,
         archive: fixture.file,
       ),
@@ -269,8 +628,13 @@ void main() {
 
     await expectLater(
       SwiftPmBinaryArtifactPreparer(
+        transport: const HttpSwiftPmArchiveTransport(
+          createClient: HttpClient.new,
+        ),
+        copyPolicy: PosixSwiftPmArtifactCopyPolicy(store.fileSystem),
         store: store,
         maxArchiveBytes: fixture.file.lengthSync() - 1,
+        policy: _swiftPmRuntime.targetPolicy,
       ).prepareDownloadedArchive(target: fixture.target, archive: fixture.file),
       throwsBuildErrorContaining('archive byte limit'),
     );
@@ -298,8 +662,13 @@ void main() {
 
       await expectLater(
         SwiftPmBinaryArtifactPreparer(
+          transport: const HttpSwiftPmArchiveTransport(
+            createClient: HttpClient.new,
+          ),
+          copyPolicy: PosixSwiftPmArtifactCopyPolicy(store.fileSystem),
           store: store,
           maxArchiveBytes: 10,
+          policy: _swiftPmRuntime.targetPolicy,
         ).prepare(remote),
         throwsBuildErrorContaining(
           'SwiftPM binary artifact exceeds compressed archive byte limit',
@@ -334,8 +703,13 @@ void main() {
 
       await expectLater(
         SwiftPmBinaryArtifactPreparer(
+          transport: const HttpSwiftPmArchiveTransport(
+            createClient: HttpClient.new,
+          ),
+          copyPolicy: PosixSwiftPmArtifactCopyPolicy(store.fileSystem),
           store: store,
           maxArchiveBytes: 10,
+          policy: _swiftPmRuntime.targetPolicy,
         ).prepare(remote),
         throwsBuildErrorContaining(
           'SwiftPM binary artifact exceeds compressed archive byte limit',
@@ -369,7 +743,14 @@ void main() {
       );
 
       await expectLater(
-        SwiftPmBinaryArtifactPreparer(store: store).prepareDownloadedArchive(
+        SwiftPmBinaryArtifactPreparer(
+          transport: const HttpSwiftPmArchiveTransport(
+            createClient: HttpClient.new,
+          ),
+          copyPolicy: PosixSwiftPmArtifactCopyPolicy(store.fileSystem),
+          store: store,
+          policy: _swiftPmRuntime.targetPolicy,
+        ).prepareDownloadedArchive(
           target: fixture.target,
           archive: fixture.file,
         ),
@@ -385,7 +766,12 @@ void main() {
 
     await expectLater(
       SwiftPmBinaryArtifactPreparer(
+        transport: const HttpSwiftPmArchiveTransport(
+          createClient: HttpClient.new,
+        ),
+        copyPolicy: PosixSwiftPmArtifactCopyPolicy(store.fileSystem),
         store: store,
+        policy: _swiftPmRuntime.targetPolicy,
       ).prepareDownloadedArchive(target: fixture.target, archive: fixture.file),
       throwsBuildErrorContaining('LibraryPath is unsafe'),
     );
@@ -401,7 +787,12 @@ void main() {
 
     await expectLater(
       SwiftPmBinaryArtifactPreparer(
+        transport: const HttpSwiftPmArchiveTransport(
+          createClient: HttpClient.new,
+        ),
+        copyPolicy: PosixSwiftPmArtifactCopyPolicy(store.fileSystem),
         store: store,
+        policy: _swiftPmRuntime.targetPolicy,
       ).prepareDownloadedArchive(target: invalidTarget, archive: file),
       throwsBuildErrorContaining('not a valid ZIP'),
     );
@@ -426,7 +817,12 @@ void main() {
       );
 
       final entry = await SwiftPmBinaryArtifactPreparer(
+        transport: const HttpSwiftPmArchiveTransport(
+          createClient: HttpClient.new,
+        ),
+        copyPolicy: PosixSwiftPmArtifactCopyPolicy(store.fileSystem),
         store: store,
+        policy: _swiftPmRuntime.targetPolicy,
       ).prepareDownloadedArchive(target: updatedTarget, archive: fixture.file);
 
       expect(
@@ -457,7 +853,12 @@ void main() {
 
     await expectLater(
       SwiftPmBinaryArtifactPreparer(
+        transport: const HttpSwiftPmArchiveTransport(
+          createClient: HttpClient.new,
+        ),
+        copyPolicy: PosixSwiftPmArtifactCopyPolicy(store.fileSystem),
         store: store,
+        policy: _swiftPmRuntime.targetPolicy,
       ).prepareDownloadedArchive(target: updatedTarget, archive: fixture.file),
       throwsBuildErrorContaining('could not be decompressed'),
     );
@@ -468,8 +869,13 @@ void main() {
 
     await expectLater(
       SwiftPmBinaryArtifactPreparer(
+        transport: const HttpSwiftPmArchiveTransport(
+          createClient: HttpClient.new,
+        ),
+        copyPolicy: PosixSwiftPmArtifactCopyPolicy(store.fileSystem),
         store: store,
         maxEntries: 2,
+        policy: _swiftPmRuntime.targetPolicy,
       ).prepareDownloadedArchive(target: fixture.target, archive: fixture.file),
       throwsBuildErrorContaining('entry limit'),
     );
@@ -480,8 +886,13 @@ void main() {
 
     await expectLater(
       SwiftPmBinaryArtifactPreparer(
+        transport: const HttpSwiftPmArchiveTransport(
+          createClient: HttpClient.new,
+        ),
+        copyPolicy: PosixSwiftPmArtifactCopyPolicy(store.fileSystem),
         store: store,
         maxExpandedBytes: 10,
+        policy: _swiftPmRuntime.targetPolicy,
       ).prepareDownloadedArchive(target: fixture.target, archive: fixture.file),
       throwsBuildErrorContaining('expanded byte limit'),
     );
@@ -507,7 +918,12 @@ void main() {
 
     await expectLater(
       SwiftPmBinaryArtifactPreparer(
+        transport: const HttpSwiftPmArchiveTransport(
+          createClient: HttpClient.new,
+        ),
+        copyPolicy: PosixSwiftPmArtifactCopyPolicy(store.fileSystem),
         store: store,
+        policy: _swiftPmRuntime.targetPolicy,
       ).prepareDownloadedArchive(target: linkedTarget, archive: fixture.file),
       throwsBuildErrorContaining('unsupported'),
     );
@@ -531,7 +947,14 @@ void main() {
     final checksum = sha256.convert(file.readAsBytesSync()).toString();
 
     await expectLater(
-      SwiftPmBinaryArtifactPreparer(store: store).prepareDownloadedArchive(
+      SwiftPmBinaryArtifactPreparer(
+        transport: const HttpSwiftPmArchiveTransport(
+          createClient: HttpClient.new,
+        ),
+        copyPolicy: PosixSwiftPmArtifactCopyPolicy(store.fileSystem),
+        store: store,
+        policy: _swiftPmRuntime.targetPolicy,
+      ).prepareDownloadedArchive(
         target: target('Malformed', checksum),
         archive: file,
       ),
@@ -566,7 +989,12 @@ void main() {
 
       await expectLater(
         SwiftPmBinaryArtifactPreparer(
+          transport: const HttpSwiftPmArchiveTransport(
+            createClient: HttpClient.new,
+          ),
+          copyPolicy: PosixSwiftPmArtifactCopyPolicy(store.fileSystem),
           store: store,
+          policy: _swiftPmRuntime.targetPolicy,
         ).createBinaryArtifactJunction(alias: alias, target: incomplete),
         throwsA(isA<FileSystemException>()),
       );
@@ -579,12 +1007,24 @@ void main() {
     test('refuses to replace or remove an ordinary directory', () async {
       final fixture = createFixture(temp, 'Unowned', defaultLibraries);
       final entry = await SwiftPmBinaryArtifactPreparer(
+        transport: const HttpSwiftPmArchiveTransport(
+          createClient: HttpClient.new,
+        ),
+        copyPolicy: PosixSwiftPmArtifactCopyPolicy(store.fileSystem),
         store: store,
+        policy: _swiftPmRuntime.targetPolicy,
       ).prepareDownloadedArchive(target: fixture.target, archive: fixture.file);
       final alias = Directory(p.join(temp.path, 'ordinary'))..createSync();
       final sentinel = File(p.join(alias.path, 'keep'))
         ..writeAsStringSync('safe');
-      final preparer = SwiftPmBinaryArtifactPreparer(store: store);
+      final preparer = SwiftPmBinaryArtifactPreparer(
+        transport: const HttpSwiftPmArchiveTransport(
+          createClient: HttpClient.new,
+        ),
+        copyPolicy: PosixSwiftPmArtifactCopyPolicy(store.fileSystem),
+        store: store,
+        policy: _swiftPmRuntime.targetPolicy,
+      );
 
       await expectLater(
         preparer.createBinaryArtifactJunction(
@@ -609,7 +1049,12 @@ void main() {
 
       await expectLater(
         SwiftPmBinaryArtifactPreparer(
+          transport: const HttpSwiftPmArchiveTransport(
+            createClient: HttpClient.new,
+          ),
+          copyPolicy: PosixSwiftPmArtifactCopyPolicy(store.fileSystem),
           store: store,
+          policy: _swiftPmRuntime.targetPolicy,
         ).removeBinaryArtifactAlias(alias.path),
         throwsA(isA<FileSystemException>()),
       );
@@ -626,7 +1071,12 @@ void main() {
 
       await expectLater(
         SwiftPmBinaryArtifactPreparer(
+          transport: const HttpSwiftPmArchiveTransport(
+            createClient: HttpClient.new,
+          ),
+          copyPolicy: PosixSwiftPmArtifactCopyPolicy(store.fileSystem),
           store: store,
+          policy: _swiftPmRuntime.targetPolicy,
         ).removeBinaryArtifactAlias(alias),
         throwsA(isA<FileSystemException>()),
       );
@@ -642,7 +1092,12 @@ void main() {
 
       await expectLater(
         SwiftPmBinaryArtifactPreparer(
+          transport: const HttpSwiftPmArchiveTransport(
+            createClient: HttpClient.new,
+          ),
+          copyPolicy: PosixSwiftPmArtifactCopyPolicy(store.fileSystem),
           store: store,
+          policy: _swiftPmRuntime.targetPolicy,
         ).removeBinaryArtifactAlias(alias.path),
         throwsA(isA<FileSystemException>()),
       );
@@ -659,7 +1114,12 @@ void main() {
 
       await expectLater(
         SwiftPmBinaryArtifactPreparer(
+          transport: const HttpSwiftPmArchiveTransport(
+            createClient: HttpClient.new,
+          ),
+          copyPolicy: PosixSwiftPmArtifactCopyPolicy(store.fileSystem),
           store: store,
+          policy: _swiftPmRuntime.targetPolicy,
         ).removeBinaryArtifactAlias(alias),
         throwsA(isA<FileSystemException>()),
       );
@@ -671,13 +1131,27 @@ void main() {
       'replacing and removing a managed alias preserves its target',
       () async {
         final fixture = createFixture(temp, 'Alias', defaultLibraries);
-        final entry = await SwiftPmBinaryArtifactPreparer(store: store)
-            .prepareDownloadedArchive(
+        final entry =
+            await SwiftPmBinaryArtifactPreparer(
+              transport: const HttpSwiftPmArchiveTransport(
+                createClient: HttpClient.new,
+              ),
+              copyPolicy: PosixSwiftPmArtifactCopyPolicy(store.fileSystem),
+              store: store,
+              policy: _swiftPmRuntime.targetPolicy,
+            ).prepareDownloadedArchive(
               target: fixture.target,
               archive: fixture.file,
             );
         final alias = p.join(temp.path, 'alias');
-        final preparer = SwiftPmBinaryArtifactPreparer(store: store);
+        final preparer = SwiftPmBinaryArtifactPreparer(
+          transport: const HttpSwiftPmArchiveTransport(
+            createClient: HttpClient.new,
+          ),
+          copyPolicy: PosixSwiftPmArtifactCopyPolicy(store.fileSystem),
+          store: store,
+          policy: _swiftPmRuntime.targetPolicy,
+        );
         await preparer.createBinaryArtifactJunction(
           alias: alias,
           target: entry.artifactPath,
@@ -699,16 +1173,18 @@ void main() {
 
   group('Windows alias feasibility gates', () {
     Future<void> expectProductionProbe(SwiftPmGateMode mode) async {
-      final sdk = DarwinSdk.current()!;
+      final sdk = _windowsRuntime.sdkRepository.current()!;
       expect(
-        await probeSwiftPmGate(
+        await _windowsRuntime.gatePlatform.probe(
           mode: mode,
           root: temp.path,
           toolchainIdentity: jsonEncode(
-            await GeneratedPluginsPackage.resolveBuildToolchainIdentity(sdk),
+            await _swiftPmRuntime.toolchain.resolveBuildToolchainIdentity(sdk),
           ),
           sdkIdentity: jsonEncode(
-            await SdkInstall.sdkBuildIdentity(sdk.swiftSdkPath),
+            await _windowsRuntime.sdkIdentity.sdkBuildIdentity(
+              sdk.swiftSdkPath,
+            ),
           ),
         ),
         isTrue,
@@ -734,7 +1210,12 @@ void main() {
     Future<String> source(String name) async {
       final fixture = createFixture(temp, name, defaultLibraries);
       return (await SwiftPmBinaryArtifactPreparer(
+            transport: const HttpSwiftPmArchiveTransport(
+              createClient: HttpClient.new,
+            ),
+            copyPolicy: PosixSwiftPmArtifactCopyPolicy(store.fileSystem),
             store: store,
+            policy: _swiftPmRuntime.targetPolicy,
           ).prepareDownloadedArchive(
             target: fixture.target,
             archive: fixture.file,
@@ -747,15 +1228,20 @@ void main() {
         final artifact = await source('Success$exitCode');
         final destination = p.join(temp.path, 'destination-$exitCode');
         final process = FakeProcess(exitValue: exitCode);
-        final outcome = await SwiftPmBinaryArtifactPreparer(store: store)
-            .materializeBinaryArtifact(
-              source: artifact,
-              destination: destination,
-              startProcess: (_, arguments) async {
-                copyDirectorySync(artifact, arguments[1]);
-                return process;
-              },
-            );
+        final outcome = await SwiftPmBinaryArtifactPreparer(
+          transport: const HttpSwiftPmArchiveTransport(
+            createClient: HttpClient.new,
+          ),
+          copyPolicy: WindowsSwiftPmArtifactCopyPolicy(
+            fileSystem: store.fileSystem,
+            startProcess: (_, arguments) async {
+              copyDirectorySync(artifact, arguments[1]);
+              return process;
+            },
+          ),
+          store: store,
+          policy: _swiftPmRuntime.targetPolicy,
+        ).materializeBinaryArtifact(source: artifact, destination: destination);
         expect(outcome, SwiftPmBinaryArtifactPublication.published());
         expect(process.killed, isFalse);
         expect(Directory(destination).existsSync(), isTrue);
@@ -766,16 +1252,21 @@ void main() {
       final artifact = await source('ConcurrentPublisher');
       final destination = p.join(temp.path, 'concurrent-destination');
 
-      final outcome = await SwiftPmBinaryArtifactPreparer(store: store)
-          .materializeBinaryArtifact(
-            source: artifact,
-            destination: destination,
-            startProcess: (_, arguments) async {
-              copyDirectorySync(artifact, arguments[1]);
-              copyDirectorySync(artifact, destination);
-              return FakeProcess(exitValue: 0);
-            },
-          );
+      final outcome = await SwiftPmBinaryArtifactPreparer(
+        transport: const HttpSwiftPmArchiveTransport(
+          createClient: HttpClient.new,
+        ),
+        copyPolicy: WindowsSwiftPmArtifactCopyPolicy(
+          fileSystem: store.fileSystem,
+          startProcess: (_, arguments) async {
+            copyDirectorySync(artifact, arguments[1]);
+            copyDirectorySync(artifact, destination);
+            return FakeProcess(exitValue: 0);
+          },
+        ),
+        store: store,
+        policy: _swiftPmRuntime.targetPolicy,
+      ).materializeBinaryArtifact(source: artifact, destination: destination);
 
       expect(outcome, SwiftPmBinaryArtifactPublication.reused);
       expect(Directory(destination).existsSync(), isTrue);
@@ -785,16 +1276,22 @@ void main() {
       final artifact = await source('FailedCopy');
       final destination = p.join(temp.path, 'failed-destination');
       await expectLater(
-        SwiftPmBinaryArtifactPreparer(store: store).materializeBinaryArtifact(
-          source: artifact,
-          destination: destination,
-          startProcess: (_, arguments) async {
-            File(p.join(arguments[1], 'partial'))
-              ..createSync(recursive: true)
-              ..writeAsStringSync('partial');
-            return FakeProcess(exitValue: 8);
-          },
-        ),
+        SwiftPmBinaryArtifactPreparer(
+          transport: const HttpSwiftPmArchiveTransport(
+            createClient: HttpClient.new,
+          ),
+          copyPolicy: WindowsSwiftPmArtifactCopyPolicy(
+            fileSystem: store.fileSystem,
+            startProcess: (_, arguments) async {
+              File(p.join(arguments[1], 'partial'))
+                ..createSync(recursive: true)
+                ..writeAsStringSync('partial');
+              return FakeProcess(exitValue: 8);
+            },
+          ),
+          store: store,
+          policy: _swiftPmRuntime.targetPolicy,
+        ).materializeBinaryArtifact(source: artifact, destination: destination),
         throwsA(isA<FileSystemException>()),
       );
       expectMaterializationAbsent(destination);
@@ -808,10 +1305,19 @@ void main() {
         stderrText: 'e' * 5000,
       );
       await expectLater(
-        SwiftPmBinaryArtifactPreparer(store: store).materializeBinaryArtifact(
+        SwiftPmBinaryArtifactPreparer(
+          transport: const HttpSwiftPmArchiveTransport(
+            createClient: HttpClient.new,
+          ),
+          copyPolicy: WindowsSwiftPmArtifactCopyPolicy(
+            fileSystem: store.fileSystem,
+            startProcess: (_, _) async => process,
+          ),
+          store: store,
+          policy: _swiftPmRuntime.targetPolicy,
+        ).materializeBinaryArtifact(
           source: artifact,
           destination: p.join(temp.path, 'diagnostic-destination'),
-          startProcess: (_, _) async => process,
         ),
         throwsA(
           isA<FileSystemException>().having(
@@ -829,17 +1335,26 @@ void main() {
         final artifact = await source('Timeout');
         final destination = p.join(temp.path, 'timeout-destination');
         final process = FakeBinaryCopyProcess();
-        final future = SwiftPmBinaryArtifactPreparer(store: store)
-            .materializeBinaryArtifact(
+        final future =
+            SwiftPmBinaryArtifactPreparer(
+              transport: const HttpSwiftPmArchiveTransport(
+                createClient: HttpClient.new,
+              ),
+              copyPolicy: WindowsSwiftPmArtifactCopyPolicy(
+                fileSystem: store.fileSystem,
+                startProcess: (_, arguments) async {
+                  File(p.join(arguments[1], 'partial'))
+                    ..createSync(recursive: true)
+                    ..writeAsStringSync('partial');
+                  return process;
+                },
+              ),
+              store: store,
+              policy: _swiftPmRuntime.targetPolicy,
+            ).materializeBinaryArtifact(
               source: artifact,
               destination: destination,
               timeout: const Duration(milliseconds: 1),
-              startProcess: (_, arguments) async {
-                File(p.join(arguments[1], 'partial'))
-                  ..createSync(recursive: true)
-                  ..writeAsStringSync('partial');
-                return process;
-              },
             );
 
         await expectLater(future, throwsA(isA<FileSystemException>()));
@@ -848,6 +1363,62 @@ void main() {
         expectMaterializationAbsent(destination);
       },
     );
+
+    for (final throwOnKill in [false, true]) {
+      test(
+        'retains live copy when quarantine marker fails, kill throws $throwOnKill',
+        () async {
+          final artifact = await source('QuarantineFailure$throwOnKill');
+          final destination = p.join(
+            temp.path,
+            'quarantine-failed-$throwOnKill',
+          );
+          final process = FakeBinaryCopyProcess(
+            killResult: false,
+            exitAfterKill: false,
+            throwOnKill: throwOnKill,
+          );
+          String? temporary;
+          final copyPolicy = WindowsSwiftPmArtifactCopyPolicy(
+            fileSystem: FailingQuarantineFileSystem(store.fileSystem),
+            startProcess: (_, arguments) async {
+              temporary = arguments[1];
+              File(p.join(temporary!, 'partial')).writeAsStringSync('live');
+              return process;
+            },
+          );
+          final preparer = SwiftPmBinaryArtifactPreparer(
+            store: store,
+            policy: _swiftPmRuntime.targetPolicy,
+            transport: const HttpSwiftPmArchiveTransport(
+              createClient: HttpClient.new,
+            ),
+            copyPolicy: copyPolicy,
+          );
+          await expectLater(
+            preparer.materializeBinaryArtifact(
+              source: artifact,
+              destination: destination,
+              timeout: const Duration(milliseconds: 1),
+            ),
+            throwsA(
+              isA<SwiftPmLiveCopyException>().having(
+                (error) => error.message,
+                'message',
+                contains('quarantine marker failed'),
+              ),
+            ),
+          );
+          expect(Directory(temporary!).existsSync(), isTrue);
+          expect(
+            File(p.join(temporary!, 'partial')).readAsStringSync(),
+            'live',
+          );
+          expect(Directory(destination).existsSync(), isFalse);
+          process.complete(8);
+        },
+      );
+    }
 
     test('quarantines a live timed-out copy until it exits', () async {
       final artifact = await source('KillRefusal');
@@ -860,17 +1431,26 @@ void main() {
       final stopwatch = Stopwatch()..start();
 
       await expectLater(
-        SwiftPmBinaryArtifactPreparer(store: store).materializeBinaryArtifact(
+        SwiftPmBinaryArtifactPreparer(
+          transport: const HttpSwiftPmArchiveTransport(
+            createClient: HttpClient.new,
+          ),
+          copyPolicy: WindowsSwiftPmArtifactCopyPolicy(
+            fileSystem: store.fileSystem,
+            startProcess: (_, arguments) async {
+              temporary = arguments[1];
+              File(p.join(temporary!, 'partial'))
+                ..createSync(recursive: true)
+                ..writeAsStringSync('partial');
+              return process;
+            },
+          ),
+          store: store,
+          policy: _swiftPmRuntime.targetPolicy,
+        ).materializeBinaryArtifact(
           source: artifact,
           destination: destination,
           timeout: const Duration(milliseconds: 1),
-          startProcess: (_, arguments) async {
-            temporary = arguments[1];
-            File(p.join(temporary!, 'partial'))
-              ..createSync(recursive: true)
-              ..writeAsStringSync('partial');
-            return process;
-          },
         ),
         throwsA(
           isA<FileSystemException>().having(
@@ -898,6 +1478,7 @@ void main() {
   });
 }
 
+@internal
 Future<List<File>> stagingFiles(SwiftPmBinaryArtifactStore store) async {
   final staging = Directory(p.join(store.root, '.staging'));
   if (!staging.existsSync()) return const [];
@@ -907,6 +1488,7 @@ Future<List<File>> stagingFiles(SwiftPmBinaryArtifactStore store) async {
   ];
 }
 
+@internal
 void copyDirectorySync(String source, String destination) {
   for (final entity in Directory(source).listSync(recursive: true)) {
     final relative = p.relative(entity.path, from: source);
@@ -920,6 +1502,7 @@ void copyDirectorySync(String source, String destination) {
   }
 }
 
+@internal
 void expectMaterializationAbsent(String destination) {
   expect(
     FileSystemEntity.typeSync(destination, followLinks: false),
@@ -935,6 +1518,7 @@ void expectMaterializationAbsent(String destination) {
   );
 }
 
+@internal
 void writeAliasMarker(String alias, String target, {String suffix = ''}) {
   File('$alias.xcross-alias.json$suffix').writeAsStringSync(
     jsonEncode({
@@ -944,52 +1528,14 @@ void writeAliasMarker(String alias, String target, {String suffix = ''}) {
   );
 }
 
+@internal
 final windowsGateSkip = !Platform.isWindows
     ? 'Windows-only SwiftPM junction feasibility gate'
     : (Platform.environment['XCROSS_SWIFT_SDKS_PATH'] == null
           ? 'XCROSS_SWIFT_SDKS_PATH is unavailable'
           : false);
 
-Directory createRawXcframework(Directory temp, String name) {
-  final framework = Directory(p.join(temp.path, '$name.xcframework'));
-  File(p.join(framework.path, 'Info.plist'))
-    ..createSync(recursive: true)
-    ..writeAsStringSync(
-      PropertyListSerialization.stringWithPropertyList({
-        'AvailableLibraries': [
-          {
-            'LibraryIdentifier': 'ios-arm64',
-            'LibraryPath': '$name.framework',
-            'SupportedArchitectures': ['arm64'],
-            'SupportedPlatform': 'ios',
-          },
-        ],
-      }),
-    );
-  File(p.join(framework.path, 'ios-arm64', '$name.framework', name))
-    ..createSync(recursive: true)
-    ..writeAsBytesSync(emptyMachO());
-  return framework;
-}
-
-Uint8List emptyMachO() {
-  final bytes = Uint8List(32);
-  ByteData.sublistView(bytes).setUint32(0, 0xfeedfacf, Endian.little);
-  return bytes;
-}
-
-File writeRawXcframeworkZip(Directory temp, Directory fixture, String name) {
-  final archive = Archive();
-  for (final entity in fixture.listSync(recursive: true)) {
-    if (entity is! File) continue;
-    final relative = p.relative(entity.path, from: fixture.parent.path);
-    archive.addFile(
-      ArchiveFile(relative, entity.lengthSync(), entity.readAsBytesSync()),
-    );
-  }
-  return writeArchive(temp, name, archive);
-}
-
+@internal
 const defaultLibraries = <Map<String, Object?>>[
   {
     'LibraryIdentifier': 'ios-arm64_armv7',
@@ -1006,12 +1552,14 @@ const defaultLibraries = <Map<String, Object?>>[
   },
 ];
 
+@internal
 Map<String, Object?> xcframeworkPlist(List<Map<String, Object?>> libraries) => {
   'AvailableLibraries': libraries,
   'CFBundlePackageType': 'XFWK',
   'XCFrameworkFormatVersion': '1.0',
 };
 
+@internal
 List<ArchiveFile> xcframeworkEntries(
   String name,
   List<Map<String, Object?>> libraries, {
@@ -1039,6 +1587,7 @@ List<ArchiveFile> xcframeworkEntries(
   return files;
 }
 
+@internal
 ArchiveFixture createFixture(
   Directory temp,
   String name,
@@ -1057,6 +1606,7 @@ ArchiveFixture createFixture(
   return ArchiveFixture(file, target(name, checksum));
 }
 
+@internal
 void markZipEntryAsUnix(File file, String name) {
   final bytes = file.readAsBytesSync();
   final encodedName = utf8.encode(name);
@@ -1085,6 +1635,7 @@ bool _bytesEqual(List<int> left, List<int> right) {
   return true;
 }
 
+@internal
 void corruptZipEntry(File file, String name) {
   final bytes = file.readAsBytesSync();
   final encodedName = utf8.encode(name);
@@ -1105,6 +1656,7 @@ void corruptZipEntry(File file, String name) {
   fail('ZIP entry not found: $name');
 }
 
+@internal
 void replaceAscii(File file, String from, String to) {
   final bytes = file.readAsBytesSync();
   final source = ascii.encode(from);
@@ -1124,18 +1676,21 @@ void replaceAscii(File file, String from, String to) {
   file.writeAsBytesSync(bytes);
 }
 
+@internal
 void addEntries(Archive archive, Iterable<ArchiveFile> entries) {
   for (final entry in entries) {
     archive.addFile(entry);
   }
 }
 
+@internal
 File writeArchive(Directory temp, String name, Archive archive) {
   final file = File(p.join(temp.path, name));
   file.writeAsBytesSync(ZipEncoder().encode(archive));
   return file;
 }
 
+@internal
 SwiftPmRemoteBinaryTarget target(String name, String checksum) =>
     SwiftPmRemoteBinaryTarget(
       name: name,
@@ -1147,12 +1702,14 @@ SwiftPmRemoteBinaryTarget target(String name, String checksum) =>
       end: 1,
     );
 
+@internal
 Map<Object?, Object?> readPlist(String path) =>
     PropertyListSerialization.propertyListWithString(
           File(path).readAsStringSync(),
         )
         as Map<Object?, Object?>;
 
+@internal
 Matcher throwsBuildErrorContaining(String text) => throwsA(
   isA<FlutterBuildError>().having(
     (error) => error.toString().toLowerCase(),
@@ -1161,6 +1718,7 @@ Matcher throwsBuildErrorContaining(String text) => throwsA(
   ),
 );
 
+@internal
 final class ArchiveFixture {
   const ArchiveFixture(this.file, this.target);
 
@@ -1168,6 +1726,7 @@ final class ArchiveFixture {
   final SwiftPmRemoteBinaryTarget target;
 }
 
+@internal
 final class FakeProcess implements BinaryCopyProcess {
   FakeProcess({this.exitValue, this.stdoutText = '', this.stderrText = ''});
 
@@ -1197,11 +1756,17 @@ final class FakeProcess implements BinaryCopyProcess {
   Stream<List<int>> get stderr => Stream.value(utf8.encode(stderrText));
 }
 
+@internal
 final class FakeBinaryCopyProcess implements BinaryCopyProcess {
-  FakeBinaryCopyProcess({this.killResult = true, this.exitAfterKill = true});
+  FakeBinaryCopyProcess({
+    this.killResult = true,
+    this.exitAfterKill = true,
+    this.throwOnKill = false,
+  });
 
   final bool killResult;
   final bool exitAfterKill;
+  final bool throwOnKill;
   final Completer<int> _exit = Completer<int>();
   bool killed = false;
   bool exitObservedAfterKill = false;
@@ -1215,6 +1780,7 @@ final class FakeBinaryCopyProcess implements BinaryCopyProcess {
   @override
   bool kill() {
     killed = true;
+    if (throwOnKill) throw StateError('kill failed');
     if (exitAfterKill && !_exit.isCompleted) _exit.complete(-1);
     return killResult;
   }
@@ -1228,4 +1794,59 @@ final class FakeBinaryCopyProcess implements BinaryCopyProcess {
 
   @override
   Stream<List<int>> get stderr => const Stream.empty();
+}
+
+@internal
+final class CallbackSwiftPmArchiveTransport implements SwiftPmArchiveTransport {
+  const CallbackSwiftPmArchiveTransport(this.callback);
+  final Future<void> Function(Uri, File, int) callback;
+  @override
+  Future<void> download(Uri url, File destination, int maximumBytes) =>
+      callback(url, destination, maximumBytes);
+}
+
+@internal
+final class FailingQuarantineFileSystem implements SwiftPmArtifactFileSystem {
+  const FailingQuarantineFileSystem(this.delegate);
+  final SwiftPmArtifactFileSystem delegate;
+  @override
+  File file(String path) => path.endsWith('.xcross-live-copy-quarantine')
+      ? FailingQuarantineFile(path)
+      : delegate.file(path);
+  @override
+  Directory directory(String path) => delegate.directory(path);
+  @override
+  Link link(String path) => delegate.link(path);
+  @override
+  FileSystemEntityType typeSync(String path, {bool followLinks = true}) =>
+      delegate.typeSync(path, followLinks: followLinks);
+  @override
+  Future<bool> isLinkOrReparsePoint(String path) =>
+      delegate.isLinkOrReparsePoint(path);
+  @override
+  Future<void> createAlias(String alias, String target) =>
+      delegate.createAlias(alias, target);
+  @override
+  Future<bool> isAliasTo(String alias, String target) =>
+      delegate.isAliasTo(alias, target);
+  @override
+  Future<void> deleteAlias(String alias) => delegate.deleteAlias(alias);
+  @override
+  String processPath(String path) => delegate.processPath(path);
+}
+
+@internal
+final class FailingQuarantineFile implements File {
+  const FailingQuarantineFile(this.path);
+  @override
+  final String path;
+  @override
+  Future<File> writeAsString(
+    String contents, {
+    FileMode mode = FileMode.write,
+    Encoding encoding = utf8,
+    bool flush = false,
+  }) async => throw FileSystemException('injected marker failure', path);
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }

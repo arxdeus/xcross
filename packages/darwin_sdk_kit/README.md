@@ -15,31 +15,45 @@ dart pub add darwin_sdk_kit
 
 ## Usage
 
+Pass a repository, toolchain resolver and extractor composed for the same
+selected host. `DarwinSdkRepository(host, log: log)` owns SDK resolution,
+`DarwinToolchainResolver(runner, locations)` uses host-specific tool locations,
+and `XcodeXipExtractor(host)` streams archive entries. Filtering and writing
+entries remains the caller's responsibility.
+
 ```dart
-import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:darwin_sdk_kit/shared/archive/xcode_xip_extractor.dart';
+import 'package:darwin_sdk_kit/shared/sdk/darwin_sdk_repository.dart';
+import 'package:darwin_sdk_kit/shared/toolchain/darwin_toolchain_resolver.dart';
 
-// Resolve the SDK installed under the xcross config dir, or null if missing.
-final sdk = DarwinSdk.current();
-if (sdk == null) {
-  throw StateError('Run: xcross sdk install <Xcode.xip>');
-}
-
-final iphoneOsSdk = sdk.iPhoneOSSdk();
-final linker = await DarwinSdk.resolveLd64Lld(sdk);
-
-// Low-level: stream decoded CPIO entries from an Xcode.xip.
-await for (final entry in XcodeXipExtractor.extract('/path/to/Xcode.xip')) {
-  // Filter / write entries as needed…
+Future<void> inspectSdk<T extends PlatformHostInterface>(
+  DarwinSdkRepository<T> repository,
+  DarwinToolchainResolver<T> toolchain,
+  XcodeXipExtractor<T> extractor,
+  String xipPath,
+) async {
+  final sdk = repository.current();
+  if (sdk == null) {
+    throw StateError('Run: xcross sdk install <Xcode.xip>');
+  }
+  final linker = await toolchain.resolveLd64Lld();
+  print('SDK: ${sdk.swiftSdkPath}, linker: $linker');
+  await for (final entry in extractor.extract(xipPath)) {
+    print(entry);
+  }
 }
 ```
 
 ## Scope
 
-- **`DarwinSdk`** — locate a valid `xcross-darwin.artifactbundle`, pick an
-  iPhoneOS SDK, resolve stock LLVM `ld64.lld` (skips swiftly proxy shims).
+- **`DarwinSdk` / `DarwinSdkRepository`**: describe and locate a valid
+  `xcross-darwin.artifactbundle`.
+- **`DarwinToolchainResolver`**: resolve stock LLVM `ld64.lld` using selected
+  host locations (skips swiftly proxy shims).
 - **`XcodeXipExtractor`** — pure-Dart XAR → pbzx → CPIO decode of `Xcode.xip`.
-- **`XarReader` / `PbzxReader` / `CpioReader`** — format primitives used by the
-  extractor.
+- **`CpioReader` / `CpioEntry`**: public CPIO primitives. XAR and pbzx
+  implementation details remain internal to the extractor.
 
 Default install location: `~/.config/xcross/swift-sdks/…` (or
 `%APPDATA%\xcross\swift-sdks\…` on Windows).

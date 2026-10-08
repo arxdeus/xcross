@@ -3,18 +3,162 @@ import 'dart:isolate';
 
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
-import 'package:xcross/src/compose/project/kmp_project.dart';
-import 'package:xcross/src/errors.dart';
+import 'package:xcross/src/shared/compose/project/kmp_project.dart';
+import 'package:xcross/src/shared/errors/errors.dart';
+
+import 'support/compose_platforms.dart';
 
 void main() {
+  late ComposeTestSession session;
+  setUp(() {
+    session = createComposeTestSession();
+  });
+  tearDown(() => session.dispose());
   group('KmpProject.detect', () {
+    test('filters simulator-only modules before device disambiguation', () {
+      final root = _fixture();
+      _settings(root, 'include(":device", ":simulator")');
+      _framework(root, 'device', baseName: 'Device');
+      _rawBuildScript(root, 'simulator', '''
+kotlin {
+  iosSimulatorArm64()
+  binaries.framework { baseName = "Simulator" }
+}
+''');
+
+      expect(session.detectKmpProject(root.path).moduleName, 'device');
+      expect(
+        session
+            .detectKmpProject(root.path, gradleTarget: 'iosSimulatorArm64')
+            .moduleName,
+        'simulator',
+      );
+    });
+
+    for (final simulator in [false, true]) {
+      final target = simulator ? 'iosSimulatorArm64' : 'iosArm64';
+      final otherTarget = simulator ? 'iosArm64' : 'iosSimulatorArm64';
+      test('reports missing selected $target before Swift disambiguation', () {
+        final root = _fixture();
+        _settings(root, 'include(":shared")');
+        _rawBuildScript(root, 'shared', '''
+kotlin {
+  $otherTarget()
+  // $target()
+  binaries.framework { baseName = "Shared" }
+}
+''');
+        _swift(root, p.join('iosApp', 'App.swift'), 'import Shared');
+
+        expect(
+          () => session.detectKmpProject(
+            root.path,
+            gradleTarget: simulator ? 'iosSimulatorArm64' : 'iosArm64',
+          ),
+          throwsA(
+            isA<XcrossError>().having(
+              (error) => error.message,
+              'message',
+              allOf(
+                contains('No KMP module with $target()'),
+                contains('Declare $target'),
+              ),
+            ),
+          ),
+        );
+      });
+
+      test('preserves shared framework defaults for $target', () {
+        final root = _fixture();
+        _settings(root, 'include(":shared")');
+        _rawBuildScript(root, 'shared', '''
+baseName = "Unrelated"
+kotlin {
+  listOf(iosArm64(), iosSimulatorArm64()).forEach {
+    it.binaries.framework {
+      export(project(":core")) { transitive = true }
+      val unrelated = "} {"
+    }
+  }
+}
+xcframework { isStatic = true }
+''');
+
+        final project = session.detectKmpProject(
+          root.path,
+          gradleTarget: simulator ? 'iosSimulatorArm64' : 'iosArm64',
+        );
+
+        expect(project.baseName, 'Shared');
+        expect(project.isStaticFramework, isFalse);
+      });
+
+      test('preserves uniform target framework metadata for $target', () {
+        final root = _fixture();
+        _settings(root, 'include(":shared")');
+        _rawBuildScript(root, 'shared', '''
+kotlin {
+  iosArm64 {
+    binaries.framework { baseName = "Unified"; isStatic = true }
+  }
+  iosSimulatorArm64 {
+    binaries.framework { baseName = "Unified"; isStatic.set(true) }
+  }
+}
+''');
+
+        final project = session.detectKmpProject(
+          root.path,
+          gradleTarget: simulator ? 'iosSimulatorArm64' : 'iosArm64',
+        );
+
+        expect(project.baseName, 'Unified');
+        expect(project.isStaticFramework, isTrue);
+      });
+
+      test('rejects conflicting target framework names for $target', () {
+        final root = _fixture();
+        _settings(root, 'include(":shared")');
+        _rawBuildScript(root, 'shared', '''
+kotlin {
+  iosArm64 {
+    binaries.framework { baseName = "Device" }
+  }
+  iosSimulatorArm64 {
+    binaries.framework { baseName = "Simulator" }
+  }
+}
+''');
+
+        expect(
+          () => session.detectKmpProject(
+            root.path,
+            gradleTarget: simulator ? 'iosSimulatorArm64' : 'iosArm64',
+          ),
+          throwsA(
+            isA<XcrossError>().having(
+              (error) => error.message,
+              'message',
+              allOf(
+                contains('Conflicting binaries.framework metadata'),
+                contains('baseName="Device", isStatic=false'),
+                contains('baseName="Simulator", isStatic=false'),
+                contains('for $target'),
+                contains('same literal baseName and isStatic'),
+              ),
+            ),
+          ),
+        );
+      });
+    }
+
     test('detects runnable shared module and Kotlin entry', () {
       final root = _fixture();
       _settings(root, 'include(":shared")');
       _framework(root, 'shared', baseName: 'Shared');
       _kotlinEntry(root, 'shared', file: 'MainViewController.kt');
 
-      final project = KmpProject.detect(root.path);
+      final project = session.detectKmpProject(root.path);
 
       expect(project.moduleName, 'shared');
       expect(project.baseName, 'Shared');
@@ -28,7 +172,7 @@ void main() {
       _settings(root, 'include(":a:b")');
       _framework(root, p.join('a', 'b'));
 
-      final project = KmpProject.detect(root.path);
+      final project = session.detectKmpProject(root.path);
 
       expect(project.moduleName, 'a:b');
       expect(project.modulePath, p.join(root.path, 'a', 'b'));
@@ -41,7 +185,7 @@ void main() {
       _framework(root, 'shared', baseName: 'Shared', isStatic: true);
       _kotlinEntry(root, 'shared', file: 'MainViewController.kt');
 
-      expect(KmpProject.detect(root.path).isStaticFramework, isTrue);
+      expect(session.detectKmpProject(root.path).isStaticFramework, isTrue);
     });
 
     test('treats a framework without isStatic as dynamic', () {
@@ -50,7 +194,7 @@ void main() {
       _framework(root, 'shared', baseName: 'Shared');
       _kotlinEntry(root, 'shared', file: 'MainViewController.kt');
 
-      expect(KmpProject.detect(root.path).isStaticFramework, isFalse);
+      expect(session.detectKmpProject(root.path).isStaticFramework, isFalse);
     });
 
     // A false positive is the expensive direction: the app is then staged with
@@ -75,7 +219,7 @@ xcframework {
 ''');
       _kotlinEntry(root, 'shared', file: 'MainViewController.kt');
 
-      expect(KmpProject.detect(root.path).isStaticFramework, isFalse);
+      expect(session.detectKmpProject(root.path).isStaticFramework, isFalse);
     });
 
     test('ignores isStatic commented out inside the framework block', () {
@@ -93,10 +237,10 @@ kotlin {
 ''');
       _kotlinEntry(root, 'shared', file: 'MainViewController.kt');
 
-      expect(KmpProject.detect(root.path).isStaticFramework, isFalse);
+      expect(session.detectKmpProject(root.path).isStaticFramework, isFalse);
     });
 
-    test('reads isStatic from a later framework block', () {
+    test('rejects conflicting isStatic across target framework blocks', () {
       final root = _fixture();
       _settings(root, 'include(":shared")');
       _rawBuildScript(root, 'shared', '''
@@ -116,7 +260,26 @@ kotlin {
 ''');
       _kotlinEntry(root, 'shared', file: 'MainViewController.kt');
 
-      expect(KmpProject.detect(root.path).isStaticFramework, isTrue);
+      for (final simulator in [false, true]) {
+        expect(
+          () => session.detectKmpProject(
+            root.path,
+            gradleTarget: simulator ? 'iosSimulatorArm64' : 'iosArm64',
+          ),
+          throwsA(
+            isA<XcrossError>().having(
+              (error) => error.message,
+              'message',
+              allOf(
+                contains('Conflicting binaries.framework metadata'),
+                contains('baseName="Shared", isStatic=false'),
+                contains('baseName="Shared", isStatic=true'),
+                contains('separate the targets into modules'),
+              ),
+            ),
+          ),
+        );
+      }
     });
 
     test('reads isStatic set through the property API', () {
@@ -133,7 +296,7 @@ kotlin {
 ''');
       _kotlinEntry(root, 'shared', file: 'MainViewController.kt');
 
-      expect(KmpProject.detect(root.path).isStaticFramework, isTrue);
+      expect(session.detectKmpProject(root.path).isStaticFramework, isTrue);
     });
 
     test('reads isStatic from a framework block with nested braces', () {
@@ -153,7 +316,7 @@ kotlin {
 ''');
       _kotlinEntry(root, 'shared', file: 'MainViewController.kt');
 
-      expect(KmpProject.detect(root.path).isStaticFramework, isTrue);
+      expect(session.detectKmpProject(root.path).isStaticFramework, isTrue);
     });
 
     test('parses Kotlin settings include call with multiple modules', () {
@@ -163,7 +326,7 @@ kotlin {
       _framework(root, 'other', baseName: 'Other');
       _swift(root, p.join('iosApp', 'App.swift'), 'import Shared');
 
-      final project = KmpProject.detect(root.path);
+      final project = session.detectKmpProject(root.path);
 
       expect(project.moduleName, 'shared');
     });
@@ -179,7 +342,7 @@ kotlin {
       _framework(root, 'other', baseName: 'Other');
       _swift(root, p.join('iosApp', 'App.swift'), 'import Other');
 
-      final project = KmpProject.detect(root.path);
+      final project = session.detectKmpProject(root.path);
 
       expect(project.moduleName, 'other');
     });
@@ -199,7 +362,7 @@ kotlin {
         'import Missing',
       );
 
-      final project = KmpProject.detect(root.path);
+      final project = session.detectKmpProject(root.path);
 
       expect(project.entryKind, KmpEntryKind.swiftApp);
       expect(project.swiftAppDir, p.join(root.path, 'iosApp'));
@@ -208,10 +371,10 @@ kotlin {
     });
 
     test('detects committed Compose smoke examples', () {
-      final compose = KmpProject.detect(
+      final compose = session.detectKmpProject(
         p.join(_repoRoot, 'examples', 'compose_app'),
       );
-      final swift = KmpProject.detect(
+      final swift = session.detectKmpProject(
         p.join(_repoRoot, 'examples', 'kmp_swift_app'),
       );
       final composeBuild = File(
@@ -269,7 +432,7 @@ kotlin {
       _settings(root, 'include(":shared")');
       _framework(root, 'shared');
 
-      final project = KmpProject.detect(root.path);
+      final project = session.detectKmpProject(root.path);
 
       expect(project.entryKind, KmpEntryKind.frameworkOnly);
       expect(project.entryClass, isNull);
@@ -284,7 +447,10 @@ kotlin {
         p.join(root.path, 'shared', 'build.gradle.kts'),
       ).writeAsStringSync('kotlin { jvm() }');
 
-      expect(() => KmpProject.detect(root.path), throwsA(isA<XcrossError>()));
+      expect(
+        () => session.detectKmpProject(root.path),
+        throwsA(isA<XcrossError>()),
+      );
     });
 
     test(
@@ -296,7 +462,7 @@ kotlin {
         _framework(root, 'other', baseName: 'Other');
 
         expect(
-          () => KmpProject.detect(root.path),
+          () => session.detectKmpProject(root.path),
           throwsA(
             isA<XcrossError>().having(
               (e) => e.message,
@@ -323,7 +489,7 @@ kotlin {
         _swift(root, p.join('iosApp', 'Feature.swift'), 'import Other');
 
         expect(
-          () => KmpProject.detect(root.path),
+          () => session.detectKmpProject(root.path),
           throwsA(
             isA<XcrossError>().having(
               (e) => e.message,
@@ -352,7 +518,7 @@ kotlin {
         'import Other',
       );
 
-      final project = KmpProject.detect(root.path);
+      final project = session.detectKmpProject(root.path);
 
       expect(project.moduleName, 'shared');
     });
@@ -367,7 +533,7 @@ kotlin {
         bundleId: 'org.example.config',
       );
 
-      final project = KmpProject.detect(
+      final project = session.detectKmpProject(
         root.path,
         bundleId: 'org.example.cli',
         appName: 'CLI App',
@@ -387,7 +553,7 @@ kotlin {
         bundleId: 'org.example.config',
       );
 
-      final project = KmpProject.detect(root.path);
+      final project = session.detectKmpProject(root.path);
 
       expect(project.bundleId, 'org.example.config');
       expect(project.appName, 'Config App');
@@ -398,7 +564,7 @@ kotlin {
       _settings(root, 'include(":shared")');
       _framework(root, 'shared');
 
-      final project = KmpProject.detect(root.path);
+      final project = session.detectKmpProject(root.path);
 
       expect(project.bundleId, 'com.example.myrootapp');
       expect(project.appName, 'My Root App');
@@ -406,9 +572,9 @@ kotlin {
   });
 }
 
-final String _repoRoot = File.fromUri(
-  Isolate.resolvePackageUriSync(Uri.parse('package:xcross/xcross.dart'))!,
-).parent.parent.parent.parent.path;
+final String _repoRoot = Directory.fromUri(
+  Isolate.resolvePackageUriSync(Uri.parse('package:xcross/'))!,
+).parent.parent.parent.path;
 
 Directory _fixture({String name = 'kmp_project'}) {
   final parent = Directory.systemTemp.createTempSync('xcross_fixture_');

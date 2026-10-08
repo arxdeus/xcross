@@ -1,13 +1,15 @@
 import 'dart:async';
 import 'dart:convert';
 
-import 'package:darwin_sdk_kit/src/cpio_reader.dart';
+import 'package:darwin_sdk_kit/shared/archive/cpio_reader.dart';
+import 'package:meta/meta.dart';
 import 'package:test/test.dart';
 
 import 'test_fixtures.dart';
 
 /// Splits [bytes] into small chunks to force [CpioReader.read] to read across
 /// stream-chunk boundaries mid-header and mid-content, not just mid-file.
+@internal
 Stream<List<int>> chunked(List<int> bytes, int chunkSize) async* {
   for (var i = 0; i < bytes.length; i += chunkSize) {
     yield bytes.sublist(i, (i + chunkSize).clamp(0, bytes.length));

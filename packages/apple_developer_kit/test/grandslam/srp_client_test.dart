@@ -19,7 +19,7 @@ import 'dart:convert';
 import 'dart:math';
 import 'dart:typed_data';
 
-import 'package:apple_developer_kit/src/grandslam/srp_client.dart';
+import 'package:apple_developer_kit/src/shared/grandslam/srp_client.dart';
 import 'package:crypto/crypto.dart' as crypto;
 import 'package:pointycastle/export.dart' as pc;
 import 'package:test/test.dart';

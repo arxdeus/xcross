@@ -3,11 +3,41 @@
 // network/native-ADI involved - this is pure persisted-state logic.
 import 'dart:io';
 
-import 'package:apple_developer_kit/src/grandslam/anisette/anisette_state.dart';
+import 'package:apple_developer_kit/shared/errors/errors.dart';
+import 'package:apple_developer_kit/shared/grandslam/anisette/anisette_state.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
+import '../../support/host_services.dart';
+import '../../support/mapped_apple_fixture.dart';
+
 void main() {
+  test(
+    'mapped filesystem preserves pseudo identity and unsigned routing info',
+    () async {
+      final fixture = MappedAppleFixture();
+      addTearDown(fixture.dispose);
+      final store = AnisetteStateStore(hostServices: fixture.services);
+      final fresh = await store.load();
+      final state = fresh.copyWith(
+        provisioned: true,
+        routingInfo: int.parse('9007199254740993'),
+      );
+      await store.save(state);
+      final loaded = await AnisetteStateStore(
+        hostServices: fixture.services,
+      ).load();
+      expect(loaded.localUserUid, fresh.localUserUid);
+      expect(loaded.provisioned, isTrue);
+      expect(loaded.routingInfo, int.parse('9007199254740993'));
+      expect(store.provisioningDirectory, fixture.path('config/xcross/adi'));
+      expect(File(store.path).existsSync(), isFalse);
+      expect(fixture.permissions.hardened, hasLength(2));
+      fixture.fileSystem.file(store.path).writeAsStringSync('{broken');
+      await expectLater(store.load(), throwsA(isA<AppleError>()));
+    },
+  );
+
   late Directory tempDir;
   late String statePath;
 
@@ -39,7 +69,10 @@ void main() {
     () async {
       expect(File(statePath).existsSync(), isFalse);
 
-      final store = AnisetteStateStore(path: statePath);
+      final store = AnisetteStateStore(
+        path: statePath,
+        hostServices: testHostServices,
+      );
       final state = await store.load();
 
       expect(File(statePath).existsSync(), isTrue);
@@ -48,7 +81,10 @@ void main() {
       expect(state.routingInfo, isNull);
 
       // Loading again returns the same persisted UUID, not a new one.
-      final reloaded = await AnisetteStateStore(path: statePath).load();
+      final reloaded = await AnisetteStateStore(
+        path: statePath,
+        hostServices: testHostServices,
+      ).load();
       expect(reloaded.localUserUid, state.localUserUid);
     },
   );
@@ -56,7 +92,10 @@ void main() {
   test(
     'save/load round-trips provisioned state + routingInfo (u64-safe)',
     () async {
-      final store = AnisetteStateStore(path: statePath);
+      final store = AnisetteStateStore(
+        path: statePath,
+        hostServices: testHostServices,
+      );
       // A value that would not round-trip through a JSON double (>2^53).
       // (True near-2^64 values aren't representable at all: routingInfo is
       // stored as a Dart `int`, which is 64-bit *signed* on the VM - values
@@ -67,16 +106,20 @@ void main() {
       // literal is to exceed double precision (2^53), which is exactly what
       // routingInfo's string-based JSON storage (AnisetteState.toJson) is
       // meant to survive.
-      // ignore: avoid_js_rounded_ints
-      const bigRoutingInfo = 9223372036854775800; // near Dart int max
-      const state = AnisetteState(
+      final bigRoutingInfo = int.parse(
+        '9223372036854775800',
+      ); // near Dart int max
+      final state = AnisetteState(
         localUserUid: 'abc12345-6789-4abc-8def-0123456789ab',
         provisioned: true,
         routingInfo: bigRoutingInfo,
       );
 
       await store.save(state);
-      final reloaded = await AnisetteStateStore(path: statePath).load();
+      final reloaded = await AnisetteStateStore(
+        path: statePath,
+        hostServices: testHostServices,
+      ).load();
 
       expect(reloaded.localUserUid, state.localUserUid);
       expect(reloaded.provisioned, isTrue);
@@ -85,7 +128,10 @@ void main() {
   );
 
   test('routingInfo is stored as a JSON string, not a number', () async {
-    final store = AnisetteStateStore(path: statePath);
+    final store = AnisetteStateStore(
+      path: statePath,
+      hostServices: testHostServices,
+    );
     await store.save(
       const AnisetteState(
         localUserUid: 'abc12345-6789-4abc-8def-0123456789ab',

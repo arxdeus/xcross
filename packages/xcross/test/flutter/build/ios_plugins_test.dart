@@ -1,10 +1,11 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:cli_kit/host/linux/linux_host.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
-import 'package:xcross/src/flutter/build/ios_plugins.dart';
-import 'package:xcross/src/flutter/errors.dart';
+import 'package:xcross/src/shared/flutter/build/ios_plugins.dart';
+import 'package:xcross/src/shared/flutter/errors.dart';
 
 void main() {
   late Directory tmp;
@@ -22,7 +23,10 @@ void main() {
   }
 
   test('returns [] when the dependencies file is missing', () async {
-    expect(await PluginDiscovery.discover(tmp.path), isEmpty);
+    expect(
+      await PluginDiscovery(LinuxHost().fileSystem).discover(tmp.path),
+      isEmpty,
+    );
   });
 
   test('returns [] when plugins.ios is empty', () async {
@@ -30,13 +34,19 @@ void main() {
       'plugins': {'ios': <Object?>[]},
     });
 
-    expect(await PluginDiscovery.discover(tmp.path), isEmpty);
+    expect(
+      await PluginDiscovery(LinuxHost().fileSystem).discover(tmp.path),
+      isEmpty,
+    );
   });
 
   test('returns [] when plugins.ios is missing', () async {
     writeDependenciesFile({'plugins': <String, Object?>{}});
 
-    expect(await PluginDiscovery.discover(tmp.path), isEmpty);
+    expect(
+      await PluginDiscovery(LinuxHost().fileSystem).discover(tmp.path),
+      isEmpty,
+    );
   });
 
   test(
@@ -58,9 +68,17 @@ void main() {
         },
       });
 
-      final plugins = await PluginDiscovery.discover(tmp.path);
+      final plugins = await PluginDiscovery(
+        LinuxHost().fileSystem,
+      ).discover(tmp.path);
 
-      expect(plugins, [IosPlugin(name: 'plugin_a', packageRoot: pluginRoot)]);
+      expect(plugins, [
+        IosPlugin(
+          fileSystem: LinuxHost().fileSystem,
+          name: 'plugin_a',
+          packageRoot: pluginRoot,
+        ),
+      ]);
       expect(plugins.single.usesCocoaPods, isTrue);
       expect(plugins.single.usesSwiftPackageManager, isFalse);
     },
@@ -85,7 +103,9 @@ void main() {
         },
       });
 
-      final plugins = await PluginDiscovery.discover(tmp.path);
+      final plugins = await PluginDiscovery(
+        LinuxHost().fileSystem,
+      ).discover(tmp.path);
 
       expect(plugins.single.usesSwiftPackageManager, isTrue);
       expect(plugins.single.usesCocoaPods, isFalse);
@@ -110,7 +130,9 @@ void main() {
       },
     });
 
-    final plugins = await PluginDiscovery.discover(tmp.path);
+    final plugins = await PluginDiscovery(
+      LinuxHost().fileSystem,
+    ).discover(tmp.path);
 
     expect(plugins.single.usesSwiftPackageManager, isTrue);
     expect(plugins.single.usesCocoaPods, isTrue);
@@ -130,7 +152,9 @@ void main() {
         },
       });
 
-      final plugins = await PluginDiscovery.discover(tmp.path);
+      final plugins = await PluginDiscovery(
+        LinuxHost().fileSystem,
+      ).discover(tmp.path);
 
       expect(plugins, hasLength(1));
       expect(plugins.single.usesSwiftPackageManager, isFalse);
@@ -150,7 +174,9 @@ void main() {
       },
     });
 
-    final plugins = await PluginDiscovery.discover(tmp.path);
+    final plugins = await PluginDiscovery(
+      LinuxHost().fileSystem,
+    ).discover(tmp.path);
 
     expect(plugins.single.packageRoot, pluginRoot);
   });
@@ -167,7 +193,9 @@ void main() {
       },
     });
 
-    final plugins = await PluginDiscovery.discover(tmp.path);
+    final plugins = await PluginDiscovery(
+      LinuxHost().fileSystem,
+    ).discover(tmp.path);
 
     expect(plugins.single.packageRoot, pluginRoot);
   });
@@ -178,7 +206,7 @@ void main() {
     ).writeAsStringSync('{ not valid json');
 
     expect(
-      () => PluginDiscovery.discover(tmp.path),
+      () => PluginDiscovery(LinuxHost().fileSystem).discover(tmp.path),
       throwsA(isA<FlutterBuildError>()),
     );
   });
@@ -221,7 +249,9 @@ flutter:
         },
       });
 
-      final plugin = (await PluginDiscovery.discover(tmp.path)).single;
+      final plugin = (await PluginDiscovery(
+        LinuxHost().fileSystem,
+      ).discover(tmp.path)).single;
 
       expect(plugin.sharedDarwinSource, isTrue);
       expect(plugin.platformDirectoryName, 'darwin');
@@ -250,7 +280,9 @@ flutter:
         },
       });
 
-      final plugin = (await PluginDiscovery.discover(tmp.path)).single;
+      final plugin = (await PluginDiscovery(
+        LinuxHost().fileSystem,
+      ).discover(tmp.path)).single;
 
       expect(plugin.sharedDarwinSource, isFalse);
       expect(plugin.platformDirectoryName, 'ios');
@@ -281,7 +313,9 @@ flutter:
         },
       });
 
-      final plugin = (await PluginDiscovery.discover(tmp.path)).single;
+      final plugin = (await PluginDiscovery(
+        LinuxHost().fileSystem,
+      ).discover(tmp.path)).single;
 
       expect(plugin.sharedDarwinSource, isFalse);
       expect(plugin.platformDirectoryName, 'ios');
@@ -289,12 +323,17 @@ flutter:
     });
 
     test('equality and hashCode account for the flag', () {
-      const shared = IosPlugin(
+      final shared = IosPlugin(
+        fileSystem: LinuxHost().fileSystem,
         name: 'plugin',
         packageRoot: '/pkg',
         sharedDarwinSource: true,
       );
-      const notShared = IosPlugin(name: 'plugin', packageRoot: '/pkg');
+      final notShared = IosPlugin(
+        fileSystem: LinuxHost().fileSystem,
+        name: 'plugin',
+        packageRoot: '/pkg',
+      );
 
       expect(shared, isNot(notShared));
       expect(shared.hashCode, isNot(notShared.hashCode));
@@ -323,7 +362,9 @@ flutter:
       });
 
       expect(
-        (await PluginDiscovery.discover(tmp.path)).single.declaresNativeIosCode,
+        (await PluginDiscovery(
+          LinuxHost().fileSystem,
+        ).discover(tmp.path)).single.declaresNativeIosCode,
         isFalse,
       );
     });
@@ -341,7 +382,9 @@ flutter:
       });
 
       expect(
-        (await PluginDiscovery.discover(tmp.path)).single.declaresNativeIosCode,
+        (await PluginDiscovery(
+          LinuxHost().fileSystem,
+        ).discover(tmp.path)).single.declaresNativeIosCode,
         isFalse,
       );
     });

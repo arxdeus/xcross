@@ -11,10 +11,12 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
+import 'package:darwin_sdk_kit/shared/archive/cpio_reader.dart';
+import 'package:darwin_sdk_kit/shared/tbd/tbd_linker_diagnostic.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
-import 'package:xcross/src/cli/basic/sdk_command.dart';
+
+import 'sdk_test_support.dart';
 
 const _sdkRoot =
     '/Applications/Xcode.app/Contents/Developer/Platforms/'
@@ -24,6 +26,8 @@ const _bundleSdk =
     'Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS.sdk';
 
 void main() {
+  final sdkContext = SdkTestContext();
+  final installer = sdkContext.installer();
   late Directory tmp;
 
   setUp(() async {
@@ -87,7 +91,7 @@ void main() {
         reason: 'the fixture must actually carry the new architecture',
       );
 
-      await SdkInstall.writeSdkEntries(Stream.fromIterable(entries), tmp.path);
+      await installer.writeSdkEntries(Stream.fromIterable(entries), tmp.path);
 
       final sysroot = p.join(tmp.path, p.joinAll(_bundleSdk.split('/')));
       final objectPath = p.join(tmp.path, 'probe.o');

@@ -1,9 +1,10 @@
 import 'dart:io';
 
 import 'package:archive/archive_io.dart';
+import 'package:cli_kit/host/linux/linux_host.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
-import 'package:xcross/src/cli/shared/ipa_packager.dart';
+import 'package:xcross/src/shared/cli/shared/ipa_packager.dart';
 
 /// Deterministic, non-repeating byte content — long enough that a truncated
 /// or reordered copy would fail the equality check.
@@ -35,7 +36,7 @@ void main() {
       p.join(appPath, 'Frameworks', 'Flutter.framework', 'Flutter'),
     ).writeAsBytes(flutterBinBytes);
 
-    final ipaPath = await IpaPackager.package(appPath);
+    final ipaPath = await IpaPackager(host: LinuxHost()).package(appPath);
 
     expect(ipaPath, p.join(tmp.path, 'MyApp.ipa'));
     expect(File(ipaPath).existsSync(), isTrue);
@@ -64,11 +65,11 @@ void main() {
       'a mix of the previous run', () async {
     final filePath = p.join(appPath, 'Data.bin');
     await File(filePath).writeAsBytes(_bytesFrom(1, 64));
-    await IpaPackager.package(appPath);
+    await IpaPackager(host: LinuxHost()).package(appPath);
 
     final updatedBytes = _bytesFrom(9, 96);
     await File(filePath).writeAsBytes(updatedBytes);
-    final ipaPath = await IpaPackager.package(appPath);
+    final ipaPath = await IpaPackager(host: LinuxHost()).package(appPath);
 
     final archive = ZipDecoder().decodeBytes(await File(ipaPath).readAsBytes());
     expect(archive.files, hasLength(1));
@@ -81,7 +82,7 @@ void main() {
     await File(p.join(appPath, 'Kept.txt')).writeAsBytes(keptBytes);
     await Directory(p.join(appPath, 'Empty')).create(recursive: true);
 
-    final ipaPath = await IpaPackager.package(appPath);
+    final ipaPath = await IpaPackager(host: LinuxHost()).package(appPath);
 
     final archive = ZipDecoder().decodeBytes(await File(ipaPath).readAsBytes());
     expect(archive.files, hasLength(1));
@@ -95,7 +96,7 @@ void main() {
   test('each entry mode is masked to 12 bits (0..0xFFF)', () async {
     await File(p.join(appPath, 'File.txt')).writeAsBytes(_bytesFrom(2, 8));
 
-    final ipaPath = await IpaPackager.package(appPath);
+    final ipaPath = await IpaPackager(host: LinuxHost()).package(appPath);
 
     final archive = ZipDecoder().decodeBytes(await File(ipaPath).readAsBytes());
     final mode = archive.files.single.mode;
@@ -107,7 +108,7 @@ void main() {
     () async {
       await Directory(p.join(appPath, 'Empty')).create(recursive: true);
 
-      final ipaPath = await IpaPackager.package(appPath);
+      final ipaPath = await IpaPackager(host: LinuxHost()).package(appPath);
 
       final archive = ZipDecoder().decodeBytes(
         await File(ipaPath).readAsBytes(),
@@ -125,12 +126,12 @@ void main() {
 
     try {
       Link(linkPath).createSync(realPath);
-    } catch (e) {
+    } on FileSystemException {
       markTestSkipped('symlink creation unsupported in this environment');
       return;
     }
 
-    final ipaPath = await IpaPackager.package(appPath);
+    final ipaPath = await IpaPackager(host: LinuxHost()).package(appPath);
 
     final archive = ZipDecoder().decodeBytes(await File(ipaPath).readAsBytes());
     final linkEntry = archive.files.firstWhere(

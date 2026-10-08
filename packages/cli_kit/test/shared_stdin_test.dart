@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:cli_kit/src/process.dart';
+import 'package:cli_kit/shared/process/process.dart';
 import 'package:test/test.dart';
 
 void main() {

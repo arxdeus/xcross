@@ -17,11 +17,11 @@ environment:
 resolution: workspace
 
 dependencies:
+  archive: ^4.3.0
   async: ^2.13.1
   cli_kit: ^1.0.0
+  meta: ^1.19.0
   path: ^1.9.1
   xml: ^7.1.0
-  archive: ^4.3.0
-  meta: ^1.19.0
 dev_dependencies:
   test: ^1.32.0

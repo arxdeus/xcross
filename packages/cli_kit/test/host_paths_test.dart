@@ -1,9 +1,11 @@
-import 'package:cli_kit/src/host_paths.dart';
+import 'package:cli_kit/host/linux/linux_host.dart';
+import 'package:cli_kit/host/macos/macos_host.dart';
+import 'package:cli_kit/host/windows/windows_host.dart';
 import 'package:test/test.dart';
 
 void main() {
-  // `windows: true` everywhere, so the Win32 form is covered from any host.
-  String long(String path) => HostPaths.long(path, windows: true);
+  final windows = WindowsHost();
+  String long(String path) => windows.paths.ioPath(path);
 
   group('HostPaths.long on Windows', () {
     test('prefixes an absolute path so it can exceed MAX_PATH', () {
@@ -26,8 +28,11 @@ void main() {
     });
   });
 
-  test('leaves paths alone off Windows', () {
-    expect(HostPaths.long('/usr/lib/x', windows: false), '/usr/lib/x');
-    expect(HostPaths.long('relative/x', windows: false), 'relative/x');
+  test('POSIX paths anchor relative names without rewriting traversal', () {
+    expect(LinuxHost().paths.ioPath('/usr/lib/x'), '/usr/lib/x');
+    final paths = MacOSHost(currentDirectory: '/snapshot').paths;
+    expect(paths.ioPath('relative/x'), '/snapshot/relative/x');
+    expect(paths.ioPath('link/../x'), '/snapshot/link/../x');
+    expect(paths.ioPath('/absolute/link/../x'), '/absolute/link/../x');
   });
 }

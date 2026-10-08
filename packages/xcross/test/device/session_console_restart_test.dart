@@ -1,7 +1,10 @@
-import 'package:dart_mobile_device/dart_mobile_device.dart';
+import 'package:dart_mobile_device/host/shared/network/native_device_sockets.dart';
+import 'package:dart_mobile_device/shared/device/gdb_remote_client.dart';
 import 'package:test/test.dart';
-import 'package:xcross/src/constants.dart';
-import 'package:xcross/src/device/session_console.dart';
+import 'package:xcross/src/shared/runtime/constants.dart';
+import 'package:xcross/src/target/iphone/device/session_console.dart';
+
+import 'test_log_output.dart';
 
 void main() {
   // Kotlin/Native Compose has no in-place reload, so its session supplies a
@@ -10,7 +13,15 @@ void main() {
   // "hot reload is not available" or drive a frontend_server that Compose
   // does not have.
   SessionConsole consoleWith(List<String> events) => SessionConsole(
-    gdb: GdbRemoteClient(host: '127.0.0.1', port: 0),
+    console: TestDeviceConsole(),
+    log: testLog(),
+    keyboardInput: const Stream<List<int>>.empty(),
+    gdb: GdbRemoteClient(
+      sockets: const NativeDeviceSockets(),
+      log: testLog(),
+      host: '127.0.0.1',
+      port: 0,
+    ),
     hotReload: null,
     onRestartRequested: () async {
       events.add('restart');
@@ -44,7 +55,15 @@ void main() {
 
   test('without a restart handler r does not crash the session', () async {
     final console = SessionConsole(
-      gdb: GdbRemoteClient(host: '127.0.0.1', port: 0),
+      console: TestDeviceConsole(),
+      log: testLog(),
+      keyboardInput: const Stream<List<int>>.empty(),
+      gdb: GdbRemoteClient(
+        sockets: const NativeDeviceSockets(),
+        log: testLog(),
+        host: '127.0.0.1',
+        port: 0,
+      ),
       hotReload: null,
       hotReloadUnavailable: 'no reload here',
     );

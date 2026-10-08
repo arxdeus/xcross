@@ -1,0 +1,355 @@
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:cli_kit/host/linux/linux_host.dart';
+import 'package:cli_kit/shared/logging/logging.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:cli_kit/shared/process/process.dart';
+import 'package:cli_kit/shared/process/process_models.dart';
+import 'package:darwin_sdk_kit/host/shared/darwin_toolchain_locations.dart';
+import 'package:darwin_sdk_kit/shared/toolchain/darwin_toolchain_resolver.dart';
+import 'package:meta/meta.dart';
+import 'package:path/path.dart' as p;
+import 'package:test/test.dart';
+import 'package:xcross/src/host/linux/setup/linux_package_manager.dart';
+import 'package:xcross/src/host/linux/setup/linux_setup_requirements.dart';
+import 'package:xcross/src/host/macos/setup/macos_setup_requirements.dart';
+import 'package:xcross/src/host/shared/setup/posix_pipx_path.dart';
+import 'package:xcross/src/host/windows/setup/windows_setup_requirements.dart';
+import 'package:xcross/src/shared/setup/setup_requirements.dart';
+
+import '../host_operations_fixtures.dart';
+
+void main() {
+  late Directory fixture;
+  late FixturePrivileges privileges;
+  late ProcessRunner<LinuxHost> runner;
+  late FixtureProcesses processes;
+  late SetupRequirementServices services;
+  late int pymdInstalls;
+
+  setUp(() {
+    fixture = Directory.systemTemp.createTempSync('host-requirements-');
+    for (final tool in [
+      'clang',
+      'clang++',
+      'ld64.lld',
+      'swift',
+      'flutter',
+      'llvm-ar',
+      'apt-get',
+      'apt-cache',
+      'brew',
+      'pipx',
+    ]) {
+      File(p.join(fixture.path, tool)).createSync();
+    }
+    privileges = FixturePrivileges();
+    processes = FixtureProcesses();
+    final host = LinuxHost(
+      processes: processes,
+      environment: {'PATH': fixture.path},
+    );
+    runner = fixtureRunner(host, log: fixtureLog());
+    pymdInstalls = 0;
+    services = SetupRequirementServices(
+      host: host,
+      runner: runner,
+      privileges: privileges,
+      console: SetupConsole(
+        hasTerminal: false,
+        readLine: () => throw StateError('unexpected fixture input'),
+        output: fixtureSink(),
+      ),
+      toolchain: DarwinToolchainResolver(
+        runner,
+        FixtureLocations(fixture.path),
+      ),
+      resolvePipx: () async => 'pipx',
+      ensurePymdInstalled: () async {
+        pymdInstalls++;
+        return true;
+      },
+    );
+  });
+  tearDown(() => fixture.deleteSync(recursive: true));
+
+  test('package-manager prompt uses only supplied console', () {
+    final unused = fixtureSink();
+    final selected = fixtureSink();
+    addTearDown(unused.close);
+    addTearDown(selected.close);
+    var reads = 0;
+    final console = SetupConsole(
+      hasTerminal: true,
+      readLine: () {
+        reads++;
+        return '2';
+      },
+      output: selected,
+    );
+    final configured = SetupRequirementServices(
+      host: services.host,
+      runner: runner,
+      privileges: privileges,
+      console: console,
+      toolchain: services.toolchain,
+      resolvePipx: services.resolvePipx,
+      ensurePymdInstalled: services.ensurePymdInstalled,
+    );
+    expect(
+      LinuxSetupRequirements(configured).promptForPackageManager([
+        LinuxPackageManager.apt,
+        LinuxPackageManager.dnf,
+      ], 'fixture selection'),
+      LinuxPackageManager.dnf,
+    );
+    expect(reads, 1);
+    expect(selected.buffer.toString(), contains('fixture selection'));
+    expect(unused.buffer.isEmpty, isTrue);
+  });
+
+  test('linker scan uses supplied mapped host filesystem', () {
+    final mapped = FixtureMappedFileSystem(fixture);
+    final bin = Directory(mapped.physical('/usr/bin'))
+      ..createSync(recursive: true);
+    File(p.join(bin.path, 'ld64.lld-22')).createSync();
+    final host = LinuxHost(fileSystem: mapped);
+    final mappedRunner = fixtureRunner(host, log: fixtureLog());
+    final configured = SetupRequirementServices(
+      host: host,
+      runner: mappedRunner,
+      privileges: privileges,
+      console: services.console,
+      toolchain: DarwinToolchainResolver(
+        mappedRunner,
+        const FixtureLocations('/usr/bin'),
+      ),
+      resolvePipx: services.resolvePipx,
+      ensurePymdInstalled: services.ensurePymdInstalled,
+    );
+    expect(LinuxSetupRequirements(configured).versionedLd64Llds(), {
+      22: '/usr/bin/ld64.lld-22',
+    });
+    expect(mapped.touched, ['/usr/bin']);
+  });
+
+  test(
+    'Linux installs through selected manager then verifies compilers and pipx',
+    () async {
+      await LinuxSetupRequirements(services).run();
+      expect(privileges.cached, 1);
+      expect(
+        processes.commands.first,
+        startsWith('/fixture/sudo apt-get install -y'),
+      );
+      expect(processes.commands.last, 'pipx ensurepath');
+      expect(pymdInstalls, 1);
+    },
+  );
+
+  test(
+    'macOS drives Homebrew without Linux privilege or package operations',
+    () async {
+      await MacOSSetupRequirements(services).run();
+      expect(processes.commands, ['brew install lld llvm', 'pipx ensurepath']);
+      expect(privileges.cached, 0);
+      expect(pymdInstalls, 1);
+    },
+  );
+
+  test('Windows hands setup to the per-manager scripts', () async {
+    await expectLater(
+      const WindowsSetupRequirements().run(),
+      throwsA(
+        predicate(
+          (Object error) => error.toString().contains('--manager winget'),
+        ),
+      ),
+    );
+    expect(processes.commands, isEmpty);
+    expect(privileges.cached, 0);
+    expect(pymdInstalls, 0);
+  });
+
+  test('pipx ensurepath failure warns through the selected runner', () async {
+    final warnings = FixtureWarningOutput();
+    final failing = fixtureRunner(
+      LinuxHost(
+        processes: FixtureFailingProcesses(),
+        environment: {'PATH': fixture.path},
+      ),
+      log: Log(output: warnings),
+    );
+    await PosixPipxPath(failing).ensure('pipx');
+    expect(
+      warnings.messages.single,
+      contains('pipx ensurepath failed, add ~/.local/bin to PATH:'),
+    );
+  });
+
+  test('missing Homebrew rejects without Linux fallback', () async {
+    File(p.join(fixture.path, 'brew')).deleteSync();
+    await expectLater(
+      MacOSSetupRequirements(services).run(),
+      throwsA(
+        predicate(
+          (Object error) => error.toString().contains('Homebrew is required'),
+        ),
+      ),
+    );
+    expect(processes.commands, isEmpty);
+    expect(privileges.cached, 0);
+  });
+}
+
+@internal
+final class FixtureLocations implements DarwinToolchainLocationsInterface {
+  const FixtureLocations(this.directory);
+  final String directory;
+  @override
+  List<String> llvmToolDirectories() => [directory];
+  @override
+  String get clangInstallationHint => 'fixture clang';
+  @override
+  String get linkerInstallationHint => 'fixture linker';
+}
+
+@internal
+final class FixtureProcesses implements HostProcessInterface {
+  @override
+  ProcessExitDiagnostic describeExit(int exitCode) {
+    if (exitCode < 0 || exitCode > 255) {
+      throw StateError('Unexpected fixture exit: $exitCode');
+    }
+    return const ProcessExitDiagnostic(crashed: false, description: null);
+  }
+
+  final commands = <String>[];
+  @override
+  Future<Process> start(
+    String executable,
+    List<String> arguments, {
+    String? workingDirectory,
+    Map<String, String>? environment,
+    bool includeParentEnvironment = true,
+    bool runInShell = false,
+    ProcessStartMode mode = ProcessStartMode.normal,
+  }) async {
+    final isVersion = arguments.contains('--version');
+    final isIndex = executable.contains('apt-cache');
+    if (!isVersion && !isIndex) {
+      commands.add('$executable ${arguments.join(' ')}');
+    }
+    return FixtureChild(
+      isIndex
+          ? LinuxPackageManager.apt.packages.join('\n')
+          : executable.contains('ld64.lld')
+          ? 'LLD 22.1.0'
+          : 'clang version 22.1.0',
+    );
+  }
+
+  @override
+  Future<String?> findOnShellPath(
+    String name, {
+    Map<String, String>? environment,
+    bool includeParentEnvironment = true,
+  }) async => null;
+  @override
+  Future<void> killTree(
+    Process process, {
+    Map<String, String>? environment,
+    Map<String, String> executableOverrides = const {},
+  }) async {}
+}
+
+@internal
+final class FixtureWarningOutput implements LogOutput {
+  final messages = <String>[];
+  @override
+  bool get supportsAnsi => false;
+  @override
+  int get terminalColumns => 80;
+  @override
+  void stdout(String message) {}
+  @override
+  void stderr(String message) => messages.add(message);
+  @override
+  void write(String message) {}
+}
+
+@internal
+final class FixtureFailingProcesses implements HostProcessInterface {
+  @override
+  ProcessExitDiagnostic describeExit(int exitCode) =>
+      const ProcessExitDiagnostic(crashed: false, description: null);
+  @override
+  Future<Process> start(
+    String executable,
+    List<String> arguments, {
+    String? workingDirectory,
+    Map<String, String>? environment,
+    bool includeParentEnvironment = true,
+    bool runInShell = false,
+    ProcessStartMode mode = ProcessStartMode.normal,
+  }) async => throw const ProcessException('pipx', ['ensurepath'], 'denied', 1);
+
+  @override
+  Future<String?> findOnShellPath(
+    String name, {
+    Map<String, String>? environment,
+    bool includeParentEnvironment = true,
+  }) async => null;
+  @override
+  Future<void> killTree(
+    Process process, {
+    Map<String, String>? environment,
+    Map<String, String> executableOverrides = const {},
+  }) async {}
+}
+
+@internal
+final class FixtureChild implements Process {
+  FixtureChild(this.output);
+  final String output;
+  @override
+  int get pid => 1;
+  @override
+  Future<int> get exitCode async => 0;
+  @override
+  Stream<List<int>> get stdout => Stream.value(utf8.encode(output));
+  @override
+  Stream<List<int>> get stderr => const Stream.empty();
+  @override
+  IOSink get stdin => FixtureInput();
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+@internal
+final class FixtureInput implements IOSink {
+  @override
+  Future<void> get done async {}
+  @override
+  Future<void> close() async {}
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+@internal
+final class FixturePrivileges implements HostPrivilegesInterface {
+  int cached = 0;
+  @override
+  Future<void> cacheCredentials({String? manualHint}) async {
+    cached++;
+  }
+
+  @override
+  Future<String?> resolve() async => '/fixture/sudo';
+  @override
+  Future<void> ensureElevated({
+    String? manualHint,
+    String? deniedMessage,
+  }) async => throw StateError('unexpected elevation');
+}

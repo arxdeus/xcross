@@ -1,17 +1,60 @@
 import 'dart:convert';
 
+import 'package:darwin_sdk_kit/target/iphone/iphone_build_platform.dart';
+import 'package:darwin_sdk_kit/target/simulator/simulator_build_platform.dart';
 import 'package:test/test.dart';
-import 'package:xcross/src/flutter/build/ios_deployment_target.dart';
-import 'package:xcross/src/flutter/build/ios_native_assets.dart';
+import 'package:xcross/src/shared/flutter/build/ios_deployment_target.dart';
+import 'package:xcross/src/shared/flutter/build/ios_native_assets.dart';
+
+import '../flutter_test_runtime.dart';
 
 void main() {
+  test(
+    'native-hook simulator assembly selects simulator SDK in debug mode',
+    () {
+      final runtime = testSimulatorRuntime();
+      final args =
+          IosNativeAssetsBuilder(
+            nativeAssetFrameworks: runtime.nativeAssetFrameworks,
+            hooks: runtime.nativeAssetHooks,
+            engineCache: runtime.engineCache('/flutter'),
+            runner: runtime.runner,
+            tools: runtime.nativeTools,
+            renderer: runtime.toolShimRenderer,
+            projectRoot: '/project',
+            flutterRoot: '/flutter',
+            deploymentTarget: const IosDeploymentTarget(
+              '15.0',
+              platform: SimulatorBuildPlatform(),
+            ),
+          ).assembleArguments(
+            output: '/output',
+            iosSdk: '/sdk/iPhoneSimulator26.5.sdk',
+          );
+      expect(args, contains('-dSdkRoot=/sdk/iPhoneSimulator26.5.sdk'));
+      expect(args, contains('-dBuildMode=debug'));
+      expect(args, contains('-dIosArchs=arm64'));
+      expect(args.last, 'debug_ios_bundle_flutter_assets');
+    },
+  );
+
   for (final withHooks in [false, true]) {
     group(withHooks ? 'native-hook assembly' : 'bundle assembly', () {
+      final runtime = testIPhoneRuntime();
       List<String> arguments(List<String> defines, {String? flavor}) =>
           IosNativeAssetsBuilder(
+            nativeAssetFrameworks: runtime.nativeAssetFrameworks,
+            hooks: runtime.nativeAssetHooks,
+            engineCache: runtime.engineCache('/flutter'),
+            runner: runtime.runner,
+            tools: runtime.nativeTools,
+            renderer: runtime.toolShimRenderer,
             projectRoot: '/project with spaces',
             flutterRoot: '/flutter',
-            deploymentTarget: const IosDeploymentTarget('15.0'),
+            deploymentTarget: const IosDeploymentTarget(
+              '15.0',
+              platform: IPhoneBuildPlatform(),
+            ),
             entrypoint: 'lib/entry point.dart',
             dartDefines: defines,
             flavor: flavor,
@@ -28,6 +71,8 @@ void main() {
           'FLUTTER_APP_FLAVOR=staging',
         ]);
         expect(args.first, 'assemble');
+        expect(args, contains('-dTargetPlatform=ios'));
+        expect(args, contains('-dIosArchs=arm64'));
         expect(args, contains('-dTargetFile=lib/entry point.dart'));
         expect(args[args.indexOf('-o') + 1], '/output with spaces');
         expect(

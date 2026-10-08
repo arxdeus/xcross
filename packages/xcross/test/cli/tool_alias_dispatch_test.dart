@@ -1,18 +1,40 @@
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:cli_kit/host/windows/windows_host.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:cli_kit/shared/process/process.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
-import 'package:xcross/xcross.dart';
+import 'package:xcross/src/shared/tool/mach_o_slices.dart';
+import 'package:xcross/src/shared/tool/tool_alias_operation.dart';
+
+import '../log_fixture.dart';
+import 'runtime_fixture.dart';
 
 void main() {
+  test('Mach-O slice parser rejects truncated and out-of-range data', () {
+    expect(arm64SliceRange(Uint8List(3)), isNull);
+    final bytes = Uint8List(28);
+    final header = ByteData.sublistView(bytes);
+    header.setUint32(0, 0xcafebabe);
+    header.setUint32(4, 2);
+    expect(arm64SliceRange(bytes), isNull);
+    header.setUint32(4, 1);
+    header.setUint32(8, 0x0100000c);
+    header.setUint32(16, 100);
+    header.setUint32(20, 8);
+    expect(arm64SliceRange(bytes), isNull);
+  });
+
   test(
     'dispatches a prepared Windows alias through its trusted mapping',
     () async {
       String? executable;
       List<String>? forwarded;
 
-      final code = await runPreparedToolAlias(
+      final code = await ToolAliasOperation(windowsAliasRunner()).run(
         ['-dead_strip', 'path with spaces'],
         executablePath: r'C:\prepared\bin\ld.exe',
         environment: const {
@@ -42,7 +64,7 @@ void main() {
 
     String? executable;
     List<String>? forwarded;
-    final code = await runPreparedToolAlias(
+    final code = await ToolAliasOperation(windowsAliasRunner()).run(
       ['--target=aarch64-apple-ios', '--version'],
       executablePath: alias.path,
       environment: const {},
@@ -76,7 +98,7 @@ void main() {
 ''');
 
     expect(
-      await runPreparedToolAlias([
+      await ToolAliasOperation(windowsAliasRunner()).run([
         '-replace',
         'MinimumOSVersion',
         '-string',
@@ -90,11 +112,11 @@ void main() {
 
   test('does not intercept the normal xcross executable', () async {
     expect(
-      await runPreparedToolAlias(
+      await ToolAliasOperation(windowsAliasRunner()).run(
         const [],
         executablePath: '/bundle/bin/xcross',
         environment: const {},
-        run: (_, __) async => fail('must not run'),
+        run: (_, _) async => fail('must not run'),
       ),
       isNull,
     );
@@ -107,7 +129,7 @@ void main() {
       ..writeAsStringSync('fake');
     var invoked = false;
 
-    final code = await runPreparedToolAlias(
+    final code = await ToolAliasOperation(windowsAliasRunner()).run(
       ['framework/Binary', '-o', 'framework.dSYM'],
       executablePath: r'C:\prepared\bin\dsymutil.exe',
       environment: {'XCROSS_APPLE_TOOL_DSYMUTIL': dsymutil.path},
@@ -129,13 +151,13 @@ void main() {
     // unconditionally after every framework link and fails the whole
     // compile on a nonzero exit, so a missing dsymutil must not crash
     // Process.start — it should degrade to a silent success instead.
-    final code = await runPreparedToolAlias(
+    final code = await ToolAliasOperation(windowsAliasRunner()).run(
       ['framework/Binary', '-o', 'framework.dSYM'],
       executablePath: r'C:\prepared\bin\dsymutil.exe',
       environment: const {
         'XCROSS_APPLE_TOOL_DSYMUTIL': r'C:\Program Files\LLVM\bin\dsymutil.exe',
       },
-      run: (_, __) async => fail('must not run a nonexistent executable'),
+      run: (_, _) async => fail('must not run a nonexistent executable'),
     );
 
     expect(code, 0);
@@ -150,7 +172,7 @@ void main() {
     String? executable;
     List<String>? forwarded;
 
-    final code = await runPreparedToolAlias(
+    final code = await ToolAliasOperation(testRuntime().runner).run(
       [
         '-D',
         '-static',
@@ -199,9 +221,23 @@ void main() {
       ..writeAsBytesSync([...header.buffer.asUint8List(), ...slice]);
     final output = p.join(temp.path, 'Out');
 
-    final args = libtoolAsArArguments(['-static', '-o', output, fat.path])!;
+    final args = ToolAliasOperation(
+      testRuntime().runner,
+    ).libtoolAsArArguments(['-static', '-o', output, fat.path])!;
 
     expect(args.take(3), ['qLsD', '--format=darwin', output]);
     expect(File(args.last).readAsBytesSync(), slice);
   });
+}
+
+@internal
+ProcessRunner<WindowsHostInterface> windowsAliasRunner() {
+  final fixture = testRuntime();
+  return ProcessRunner<WindowsHostInterface>(
+    WindowsHost(fileSystem: fixture.host.fileSystem),
+    log: fixture.log,
+    stdinStream: const Stream.empty(),
+    stdoutSink: testByteSink(),
+    stderrSink: testByteSink(),
+  );
 }

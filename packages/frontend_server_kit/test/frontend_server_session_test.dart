@@ -1,5 +1,5 @@
 import 'package:async/async.dart';
-import 'package:frontend_server_kit/frontend_server_kit.dart';
+import 'package:frontend_server_kit/shared/compiler/frontend_server_session.dart';
 import 'package:test/test.dart';
 
 /// Guards the stdin/stdout framing the session speaks with frontend_server.

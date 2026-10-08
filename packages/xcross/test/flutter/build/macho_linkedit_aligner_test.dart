@@ -1,7 +1,8 @@
 import 'dart:typed_data';
 
+import 'package:meta/meta.dart';
 import 'package:test/test.dart';
-import 'package:xcross/src/flutter/build/macho_linkedit_aligner.dart';
+import 'package:xcross/src/shared/flutter/build/macho_linkedit_aligner.dart';
 
 /// Builds a minimal 64-bit Mach-O carrying LC_SYMTAB + LC_DYSYMTAB laid out
 /// the way `ld64.lld` emits it: the string table packed directly after an
@@ -9,6 +10,7 @@ import 'package:xcross/src/flutter/build/macho_linkedit_aligner.dart';
 ///
 /// [strings] is the string-table payload; a real linker ends it with NUL
 /// padding, which is the slack the aligner consumes.
+@internal
 Uint8List buildMachO({required int indirectCount, required List<int> strings}) {
   const headerSize = 32;
   const symtabSize = 24;
@@ -51,6 +53,7 @@ Uint8List buildMachO({required int indirectCount, required List<int> strings}) {
   return bytes;
 }
 
+@internal
 ({int offset, int size}) readSymtab(Uint8List bytes) {
   final data = ByteData.sublistView(bytes);
   return (
@@ -60,6 +63,7 @@ Uint8List buildMachO({required int indirectCount, required List<int> strings}) {
 }
 
 /// `\0name\0` plus [padding] trailing NULs, as a linker would emit.
+@internal
 List<int> stringTable(String name, {required int padding}) => [
   0,
   ...name.codeUnits,

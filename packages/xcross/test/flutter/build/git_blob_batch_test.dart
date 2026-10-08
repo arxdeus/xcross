@@ -1,10 +1,9 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
-import 'package:xcross/src/flutter/build/ios_plugin_package.dart';
+import 'swiftpm_test_context.dart';
 
 /// Covers the failure that turned a cold `flutter_example` CI build into a
 /// multi-hour hang: reading symlink blobs out of a SwiftPM checkout wrote every
@@ -19,8 +18,9 @@ import 'package:xcross/src/flutter/build/ios_plugin_package.dart';
 void main() {
   late Directory temp;
   late String git;
+  final runtime = testSwiftPmRuntime();
 
-  setUpAll(() async => git = await ProcessRunner.locateTool('git'));
+  setUpAll(() async => git = await runtime.runner.locateTool('git'));
   setUp(() => temp = Directory.systemTemp.createTempSync('xcross-blobs-'));
   tearDown(() {
     try {
@@ -38,7 +38,7 @@ void main() {
     required int size,
   }) async {
     final root = Directory(p.join(temp.path, 'repo'))..createSync();
-    await ProcessRunner.runChecked(git, ['-C', root.path, 'init', '--quiet']);
+    await runtime.runner.runChecked(git, ['-C', root.path, 'init', '--quiet']);
     final blobs = <String, String>{};
     for (var index = 0; index < count; index++) {
       // Distinct contents so each gets its own object ID, and so a reply
@@ -46,7 +46,7 @@ void main() {
       final content = '$index:${'x' * (size - '$index:'.length)}';
       final file = File(p.join(root.path, 'blob-$index'))
         ..writeAsStringSync(content);
-      final hashed = await ProcessRunner.run(git, [
+      final hashed = await runtime.runner.run(git, [
         '-C',
         root.path,
         'hash-object',
@@ -64,12 +64,9 @@ void main() {
     // write-then-read order deadlocked here every time.
     final expected = await repositoryWithBlobs(count: 64, size: 64 * 1024);
 
-    final blobs =
-        await GeneratedPluginsPackage.readGitBlobs(
-          p.join(temp.path, 'repo'),
-          expected.keys.toSet(),
-          git,
-        ).timeout(
+    final blobs = await runtime.checkout.repository
+        .readGitBlobs(p.join(temp.path, 'repo'), expected.keys.toSet(), git)
+        .timeout(
           const Duration(minutes: 2),
           onTimeout: () => fail('readGitBlobs deadlocked on the stdout pipe'),
         );
@@ -83,7 +80,7 @@ void main() {
   test('returns each requested blob verbatim', () async {
     final expected = await repositoryWithBlobs(count: 3, size: 64);
 
-    final blobs = await GeneratedPluginsPackage.readGitBlobs(
+    final blobs = await runtime.checkout.repository.readGitBlobs(
       p.join(temp.path, 'repo'),
       expected.keys.toSet(),
       git,
@@ -98,7 +95,7 @@ void main() {
     await repositoryWithBlobs(count: 1, size: 32);
 
     await expectLater(
-      GeneratedPluginsPackage.readGitBlobs(p.join(temp.path, 'repo'), {
+      runtime.checkout.repository.readGitBlobs(p.join(temp.path, 'repo'), {
         '0' * 40,
       }, git),
       throwsA(isA<Exception>()),
@@ -107,7 +104,7 @@ void main() {
 
   test('does nothing for an empty request', () async {
     expect(
-      await GeneratedPluginsPackage.readGitBlobs(temp.path, const {}, git),
+      await runtime.checkout.repository.readGitBlobs(temp.path, const {}, git),
       isEmpty,
     );
   });

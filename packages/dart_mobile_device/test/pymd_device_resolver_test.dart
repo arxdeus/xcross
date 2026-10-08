@@ -1,4 +1,5 @@
-import 'package:dart_mobile_device/dart_mobile_device.dart';
+import 'package:dart_mobile_device/shared/device/models/device.dart';
+import 'package:dart_mobile_device/target/iphone/device/pymd/pymd_device_resolver.dart';
 import 'package:test/test.dart';
 
 void main() {

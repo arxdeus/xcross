@@ -2,7 +2,8 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:darwin_sdk_kit/src/pbzx_reader.dart';
+import 'package:darwin_sdk_kit/src/shared/archive/pbzx_reader.dart';
+import 'package:meta/meta.dart';
 import 'package:test/test.dart';
 
 import 'test_fixtures.dart';
@@ -25,6 +26,7 @@ File _fixture(String repoRelativePath, String packageRelativePath) {
 /// value is the strict, size-based signal that it's stored raw.
 const int _chunkSize = 0x1000000;
 
+@internal
 Future<List<int>> decodeToBytes(RandomAccessFile file, int length) async {
   final out = BytesBuilder();
   await for (final piece in PbzxReader.decode(

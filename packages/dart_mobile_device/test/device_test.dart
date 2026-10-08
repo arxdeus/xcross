@@ -1,4 +1,4 @@
-import 'package:dart_mobile_device/src/models/device.dart';
+import 'package:dart_mobile_device/shared/device/models/device.dart';
 import 'package:test/test.dart';
 
 void main() {

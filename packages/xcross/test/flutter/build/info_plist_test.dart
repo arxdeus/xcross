@@ -1,12 +1,17 @@
 import 'dart:io';
 
+import 'package:darwin_sdk_kit/target/iphone/iphone_build_platform.dart';
+import 'package:darwin_sdk_kit/target/simulator/simulator_build_platform.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
-import 'package:xcross/src/flutter/build/info_plist.dart';
-import 'package:xcross/src/flutter/build/internal/xcconfig_resolver.dart';
-import 'package:xcross/src/flutter/build/ios_deployment_target.dart';
-import 'package:xcross/src/flutter/constants.dart';
+import 'package:xcross/src/shared/artifact/plist_mutations.dart';
+import 'package:xcross/src/shared/flutter/build/info_plist.dart';
+import 'package:xcross/src/shared/flutter/build/ios_deployment_target.dart';
+import 'package:xcross/src/shared/flutter/constants.dart';
 import 'package:xml/xml.dart';
+
+import '../flutter_test_runtime.dart';
 
 const _minimalPlist =
     '<?xml version="1.0"?>\n'
@@ -16,6 +21,36 @@ const _minimalPlist =
     '</plist>\n';
 
 void main() {
+  test(
+    'simulator platform metadata handles formatted template keys and selected SDK version',
+    () {
+      final xml = testSimulatorRuntime().policy.transformPlist(
+        '<plist><dict><key> CFBundleSupportedPlatforms </key><array><string>iPhoneOS</string></array></dict></plist>',
+        sdkName: 'iphonesimulator26.4',
+      );
+      expect(xml, contains('<string>iPhoneSimulator</string>'));
+      expect(xml, contains('<string>iphonesimulator26.4</string>'));
+      expect(xml, contains('<string>26.4</string>'));
+    },
+  );
+
+  test('forces simulator platform metadata over stale device template keys', () {
+    final xml = testSimulatorRuntime().policy.transformPlist(
+      InfoPlist.applyIosRequiredKeys(
+        '<plist><dict><key>DTPlatformName</key><string>iphoneos</string><key>DTSDKName</key><string>iphoneos26.5</string><key>CFBundleSupportedPlatforms</key><array><string>iPhoneOS</string></array></dict></plist>',
+        bundleId: 'dev.test.simulator',
+        deploymentTarget: const IosDeploymentTarget(
+          '15.0',
+          platform: SimulatorBuildPlatform(),
+        ),
+      ),
+    );
+    expect(xml, contains('<string>iphonesimulator</string>'));
+    expect(xml, contains('<string>iPhoneSimulator</string>'));
+    expect(xml, isNot(contains('<string>iPhoneOS</string>')));
+    expect(xml, isNot(contains('<string>iphoneos</string>')));
+  });
+
   group('expandVars', () {
     test(
       r'replaces $(KEY) and ${KEY} forms, leaving unknown keys untouched',
@@ -75,7 +110,10 @@ BAZ = a=b
           ..writeAsStringSync('APP_ID = debug\n');
 
         expect(
-          await InfoPlist.readXcconfigFiles([generated.path, debug.path]),
+          await testIPhoneRuntime().xcconfigs.readFiles([
+            generated.path,
+            debug.path,
+          ]),
           {'APP_ID': 'debug', 'SHARED': 'generated'},
         );
       } finally {
@@ -94,7 +132,7 @@ IGNORED = wrong
 APP_ID = com.example /* device */ .app
 QUOTED = "literal /* not a comment */"
 ''');
-        expect(await InfoPlist.readXcconfigFiles([config.path]), {
+        expect(await testIPhoneRuntime().xcconfigs.readFiles([config.path]), {
           'APP_ID': 'com.example   .app',
           'QUOTED': '"literal /* not a comment */"',
         });
@@ -139,7 +177,9 @@ DISPLAY_NAME = Fish \
 ''');
       final debug = File(p.join(tmp.path, 'Debug.xcconfig'))
         ..writeAsStringSync('#include "Shared.xcconfig"\n');
-      final settings = await InfoPlist.readXcconfigFiles([debug.path]);
+      final settings = await testIPhoneRuntime().xcconfigs.readFiles([
+        debug.path,
+      ]);
       expect(settings['OTHER_SWIFT_FLAGS']!.trim(), '-DDEBUG');
       expect(settings['DISPLAY_NAME'], 'Fish & Chips');
     });
@@ -198,7 +238,7 @@ APP_NAME = generic
 APP[sdk=iphonesimulator*] = simulator
 APP[sdk=iphoneos*] = $(inherited).device
 ''');
-          final settings = await InfoPlist.readXcconfigFiles([
+          final settings = await testIPhoneRuntime().xcconfigs.readFiles([
             generated.path,
             debug.path,
           ]);
@@ -215,12 +255,12 @@ APP[sdk=iphoneos*] = $(inherited).device
         final config = File(p.join(tmp.path, 'Debug.xcconfig'))
           ..writeAsStringSync('#include "missing.xcconfig"\n');
         await expectLater(
-          InfoPlist.readXcconfigFiles([config.path]),
+          testIPhoneRuntime().xcconfigs.readFiles([config.path]),
           throwsFormatException,
         );
         config.writeAsStringSync('#include "Debug.xcconfig"\n');
         await expectLater(
-          InfoPlist.readXcconfigFiles([config.path]),
+          testIPhoneRuntime().xcconfigs.readFiles([config.path]),
           throwsFormatException,
         );
       } finally {
@@ -240,7 +280,7 @@ APP[sdk=iphoneos*] = $(inherited).device
         );
 
       expect(
-        await XcconfigResolver.readDebugConfiguration(
+        await testIPhoneRuntime().xcconfigs.readDebugConfiguration(
           debugPath: debug.path,
           generatedPath: generated.path,
         ),
@@ -248,7 +288,7 @@ APP[sdk=iphoneos*] = $(inherited).device
       );
       await debug.delete();
       expect(
-        await XcconfigResolver.readDebugConfiguration(
+        await testIPhoneRuntime().xcconfigs.readDebugConfiguration(
           debugPath: debug.path,
           generatedPath: generated.path,
         ),
@@ -275,7 +315,7 @@ APP[sdk=iphoneos*] = $(inherited).device
           '\n'
           'LATER = later\n',
         );
-      expect(await InfoPlist.readXcconfigFiles([debug.path]), {
+      expect(await testIPhoneRuntime().xcconfigs.readFiles([debug.path]), {
         'BASE': 'after',
         'APP': 'included',
         'AFTER': 'after',
@@ -287,10 +327,13 @@ APP[sdk=iphoneos*] = $(inherited).device
 
   group('applyIosRequiredKeys', () {
     test('inserts all mandatory keys with sensible defaults', () {
-      final result = InfoPlist.applyIosRequiredKeys(
+      final result = applyIPhoneRequiredKeys(
         _minimalPlist,
         bundleId: 'com.example.app',
-        deploymentTarget: const IosDeploymentTarget('15.6'),
+        deploymentTarget: const IosDeploymentTarget(
+          '15.6',
+          platform: IPhoneBuildPlatform(),
+        ),
       );
 
       expect(
@@ -338,10 +381,13 @@ APP[sdk=iphoneos*] = $(inherited).device
             '</dict>\n'
             '</plist>\n';
 
-        final result = InfoPlist.applyIosRequiredKeys(
+        final result = applyIPhoneRequiredKeys(
           plist,
           bundleId: 'com.example.app',
-          deploymentTarget: const IosDeploymentTarget('15.6'),
+          deploymentTarget: const IosDeploymentTarget(
+            '15.6',
+            platform: IPhoneBuildPlatform(),
+          ),
         );
 
         expect(
@@ -356,15 +402,21 @@ APP[sdk=iphoneos*] = $(inherited).device
     // Regression check: this runs on every build, so without the presence
     // guards in `_ensureKey` a rebuild would pile up duplicate <key> pairs.
     test('applying twice does not duplicate ensure-only keys', () {
-      final once = InfoPlist.applyIosRequiredKeys(
+      final once = applyIPhoneRequiredKeys(
         _minimalPlist,
         bundleId: 'com.example.app',
-        deploymentTarget: IosDeploymentTarget.fallback,
+        deploymentTarget: const IosDeploymentTarget(
+          '13.0',
+          platform: IPhoneBuildPlatform(),
+        ),
       );
-      final twice = InfoPlist.applyIosRequiredKeys(
+      final twice = applyIPhoneRequiredKeys(
         once,
         bundleId: 'com.example.app',
-        deploymentTarget: IosDeploymentTarget.fallback,
+        deploymentTarget: const IosDeploymentTarget(
+          '13.0',
+          platform: IPhoneBuildPlatform(),
+        ),
       );
 
       expect('<key>UIDeviceFamily</key>'.allMatches(twice).length, 1);
@@ -562,7 +614,13 @@ APP[sdk=iphoneos*] = $(inherited).device
     test('keeps UIMainStoryboardFile when the storyboard is compiled', () {
       const xml = '<key>UIMainStoryboardFile</key>\n\t<string>Main</string>';
 
-      expect(InfoPlist.stripUnsatisfiableStoryboards(xml, tmp.path), xml);
+      expect(
+        testIPhoneRuntime().storyboards.stripUnsatisfiableStoryboards(
+          xml,
+          tmp.path,
+        ),
+        xml,
+      );
     });
 
     test('replaces a missing UILaunchStoryboardName with UILaunchScreen', () {
@@ -570,7 +628,10 @@ APP[sdk=iphoneos*] = $(inherited).device
           '<key>UILaunchStoryboardName</key>\n\t<string>Missing</string>';
 
       expect(
-        InfoPlist.stripUnsatisfiableStoryboards(xml, tmp.path),
+        testIPhoneRuntime().storyboards.stripUnsatisfiableStoryboards(
+          xml,
+          tmp.path,
+        ),
         '<key>UILaunchScreen</key>\n\t<dict/>',
       );
     });
@@ -581,7 +642,8 @@ APP[sdk=iphoneos*] = $(inherited).device
           '<key>UILaunchScreen</key>\n\t<dict/>\n'
           '<key>UILaunchStoryboardName</key>\n\t<string>Missing</string>';
 
-      final result = InfoPlist.stripUnsatisfiableStoryboards(xml, tmp.path);
+      final result = testIPhoneRuntime().storyboards
+          .stripUnsatisfiableStoryboards(xml, tmp.path);
 
       expect(result, '<key>UILaunchScreen</key>\n\t<dict/>\n');
       expect('UILaunchScreen'.allMatches(result).length, 1);
@@ -590,7 +652,13 @@ APP[sdk=iphoneos*] = $(inherited).device
     test('keeps UISceneStoryboardFile when the storyboard is compiled', () {
       const xml = '<key>UISceneStoryboardFile</key>\n\t<string>Main</string>';
 
-      expect(InfoPlist.stripUnsatisfiableStoryboards(xml, tmp.path), xml);
+      expect(
+        testIPhoneRuntime().storyboards.stripUnsatisfiableStoryboards(
+          xml,
+          tmp.path,
+        ),
+        xml,
+      );
     });
 
     test('strips a missing UISceneStoryboardFile with no UILaunchScreen '
@@ -598,7 +666,8 @@ APP[sdk=iphoneos*] = $(inherited).device
       const xml =
           '<key>UISceneStoryboardFile</key>\n\t<string>Missing</string>';
 
-      final result = InfoPlist.stripUnsatisfiableStoryboards(xml, tmp.path);
+      final result = testIPhoneRuntime().storyboards
+          .stripUnsatisfiableStoryboards(xml, tmp.path);
 
       expect(result, isEmpty);
     });
@@ -619,7 +688,7 @@ APP[sdk=iphoneos*] = $(inherited).device
           '</dict>\n'
           '</plist>\n';
 
-      final updated = InfoPlist.setPlistString(
+      final updated = PlistMutations.setPlistString(
         xml,
         'AppGroupId',
         'group.qualified',
@@ -634,7 +703,7 @@ APP[sdk=iphoneos*] = $(inherited).device
     });
 
     test('inserts the key when the template lacks it', () {
-      final updated = InfoPlist.setPlistString(
+      final updated = PlistMutations.setPlistString(
         _minimalPlist,
         'AppGroupId',
         'group.qualified',
@@ -731,7 +800,7 @@ APP[sdk=iphoneos*] = $(inherited).device
     test('qualifies a scheme derived from the bundle id', () {
       // The extension opens ShareMedia-<qualified id> at runtime, so the app
       // has to declare that exact scheme or nothing handles the redirect.
-      final updated = InfoPlist.rewriteUrlSchemes(
+      final updated = PlistMutations.rewriteUrlSchemes(
         xml,
         from: 'com.example.App',
         to: 'XCR-ABC.com.example.App',
@@ -744,7 +813,7 @@ APP[sdk=iphoneos*] = $(inherited).device
     });
 
     test('leaves unrelated schemes alone', () {
-      final updated = InfoPlist.rewriteUrlSchemes(
+      final updated = PlistMutations.rewriteUrlSchemes(
         xml,
         from: 'com.example.App',
         to: 'XCR-ABC.com.example.App',
@@ -756,7 +825,7 @@ APP[sdk=iphoneos*] = $(inherited).device
     test('never touches values outside the scheme arrays', () {
       // CFBundleIdentifier is rewritten by its own dedicated step; a blanket
       // replace would corrupt any key that mentions the original id.
-      final updated = InfoPlist.rewriteUrlSchemes(
+      final updated = PlistMutations.rewriteUrlSchemes(
         xml,
         from: 'com.example.App',
         to: 'XCR-ABC.com.example.App',
@@ -772,7 +841,7 @@ APP[sdk=iphoneos*] = $(inherited).device
 
     test('is a no-op when the id is unchanged', () {
       expect(
-        InfoPlist.rewriteUrlSchemes(
+        PlistMutations.rewriteUrlSchemes(
           xml,
           from: 'com.example.App',
           to: 'com.example.App',
@@ -790,3 +859,16 @@ APP[sdk=iphoneos*] = $(inherited).device
     });
   });
 }
+
+@internal
+String applyIPhoneRequiredKeys(
+  String xml, {
+  required String bundleId,
+  required IosDeploymentTarget deploymentTarget,
+}) => testIPhoneRuntime().policy.transformPlist(
+  InfoPlist.applyIosRequiredKeys(
+    xml,
+    bundleId: bundleId,
+    deploymentTarget: deploymentTarget,
+  ),
+);

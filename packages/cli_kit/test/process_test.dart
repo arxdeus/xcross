@@ -2,58 +2,98 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:cli_kit/src/errors.dart';
-import 'package:cli_kit/src/logging.dart';
-import 'package:cli_kit/src/process.dart';
+import 'package:cli_kit/composition/native_host.dart';
+import 'package:cli_kit/host/linux/linux_host.dart';
+import 'package:cli_kit/host/shared/posix_paths.dart';
+import 'package:cli_kit/host/windows/windows_host.dart';
+import 'package:cli_kit/host/windows/windows_paths.dart';
+import 'package:cli_kit/shared/errors/errors.dart';
+import 'package:cli_kit/shared/logging/logging.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:cli_kit/shared/process/process.dart';
+import 'package:cli_kit/shared/process/process_models.dart';
+import 'package:cli_kit/src/host/windows/windows_batch.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
+import 'support/test_log_output.dart';
+import 'support/test_process_io.dart';
+
 void main() {
-  setUp(ProcessRunner.resetConfiguration);
-  tearDown(ProcessRunner.resetConfiguration);
+  final io = TestProcessIo();
+  tearDownAll(io.close);
+  final log = Log(output: TestLogOutput(emit: print));
+  final nativeHost = detectPlatformHost();
+  late ProcessRunner<PlatformHostInterface> runner;
+  setUp(
+    () => runner = ProcessRunner(
+      nativeHost,
+      log: log,
+      stdinStream: io.input,
+      stdoutSink: io.output,
+      stderrSink: io.error,
+    ),
+  );
+
+  ProcessRunner<PlatformHostInterface> windowsRunner() => ProcessRunner(
+    WindowsHost(
+      environment: nativeHost.environment.values,
+      paths: WindowsPaths(context: nativeHost.paths.context),
+      fileSystem: nativeHost.fileSystem,
+    ),
+    log: log,
+    configuration: runner.configuration,
+    stdinStream: io.input,
+    stdoutSink: io.output,
+    stderrSink: io.error,
+  );
+  ProcessRunner<PlatformHostInterface> posixRunner() => ProcessRunner(
+    LinuxHost(
+      environment: nativeHost.environment.values,
+      paths: PosixPaths(context: nativeHost.paths.context),
+      fileSystem: nativeHost.fileSystem,
+    ),
+    log: log,
+    configuration: runner.configuration,
+    stdinStream: io.input,
+    stdoutSink: io.output,
+    stderrSink: io.error,
+  );
 
   group('commandLine', () {
-    test('quotes an empty-string argument as a pair of empty quotes', () {
-      expect(ProcessRunner.commandLine('ls', ['']), "ls ''");
+    test('displays empty arguments explicitly', () {
+      expect(ProcessRunner.commandLine('ls', ['']), 'ls ""');
     });
 
-    test('leaves a token with no special characters unquoted', () {
+    test('leaves plain tokens readable', () {
       expect(ProcessRunner.commandLine('echo', ['hello']), 'echo hello');
     });
 
-    test('single-quotes a token containing a space', () {
+    test('uses JSON string escapes for display, not shell syntax', () {
+      for (final token in [r'$HOME`cmd`"quoted"', 'line\nbreak', 'tab\there']) {
+        expect(
+          ProcessRunner.commandLine('echo', [token]),
+          'echo ${jsonEncode(token)}',
+        );
+      }
+    });
+
+    test('keeps native path separators readable', () {
       expect(
-        ProcessRunner.commandLine('echo', ['has space']),
-        "echo 'has space'",
+        ProcessRunner.commandLine(r'C:\dart-sdk\bin\dart.exe', ['--flag']),
+        r'C:\dart-sdk\bin\dart.exe --flag',
+      );
+      expect(
+        ProcessRunner.commandLine('echo', [r'C:\Program Files\tool', "it's"]),
+        r'''echo "C:\Program Files\tool" "it's"''',
       );
     });
 
-    // Regression check: the classic POSIX idiom for embedding a literal
-    // single quote inside a single-quoted string is close-quote,
-    // backslash-escaped-quote, reopen-quote. Getting this wrong produces a
-    // command line that a shell can't actually parse back.
-    test(
-      'single-quotes a token with an embedded quote using close/escape/reopen',
-      () {
-        final result = ProcessRunner.commandLine('echo', ["it's"]);
-        expect(
-          result,
-          'echo '
-          r"'it'\''s'",
-        );
-      },
-    );
-
-    test(r'quotes tokens containing $, backtick, or double-quote', () {
-      const token = r'$HOME`cmd`"quoted"';
-      final result = ProcessRunner.commandLine('echo', [token]);
-      expect(result, "echo '$token'");
-    });
-
-    test('joins executable and arguments, quoting only where needed', () {
-      final result = ProcessRunner.commandLine('ls', ['-la', 'my file.txt']);
-      expect(result, startsWith('ls -la'));
-      expect(result, contains("'my file.txt'"));
+    test('formats executable and arguments consistently', () {
+      expect(
+        ProcessRunner.commandLine('my tool', ['-la', 'my file.txt']),
+        '"my tool" -la "my file.txt"',
+      );
     });
   });
 
@@ -209,23 +249,7 @@ void main() {
         final file = File(p.join(tmp.path, 'script.sh'));
         await file.writeAsString('#!/bin/sh\necho hi\n');
 
-        try {
-          ProcessRunner.makeExecutable(file.path);
-          // ignore: avoid_catching_errors
-        } on ArgumentError catch (e) {
-          // The installed posix package dlopens its native helper library
-          // eagerly, at construction, instead of catching a missing library
-          // and reporting it through isPosixSupported — so on a host lacking
-          // that helper (this dev box has no primitives.dll) even the
-          // isPosixSupported guard inside makeExecutable throws instead of
-          // returning false. That is an environment/dependency gap, not
-          // something a test on this file can fix — skip gracefully.
-          if (e.toString().contains('dynamic library')) {
-            markTestSkipped('posix native helper library unavailable: $e');
-            return;
-          }
-          rethrow;
-        }
+        expect(() => runner.makeExecutable(file.path), returnsNormally);
 
         if (Platform.isLinux || Platform.isMacOS) {
           final mode = file.statSync().mode;
@@ -237,19 +261,12 @@ void main() {
 
   group('hostExecutableName', () {
     test('adds the requested Windows extension only on Windows', () {
+      expect(windowsRunner().hostExecutableName('dart'), 'dart.exe');
       expect(
-        ProcessRunner.hostExecutableName('dart', windows: true),
-        'dart.exe',
-      );
-      expect(
-        ProcessRunner.hostExecutableName(
-          'flutter',
-          windows: true,
-          windowsExtension: '.bat',
-        ),
+        windowsRunner().hostExecutableName('flutter', extension: '.bat'),
         'flutter.bat',
       );
-      expect(ProcessRunner.hostExecutableName('dart', windows: false), 'dart');
+      expect(posixRunner().hostExecutableName('dart'), 'dart');
     });
   });
 
@@ -259,9 +276,8 @@ void main() {
       addTearDown(() => tmp.deleteSync(recursive: true));
       final executable = File(p.join(tmp.path, 'python.EXE'))..createSync();
 
-      final result = await ProcessRunner.which(
+      final result = await windowsRunner().which(
         'python',
-        windows: true,
         environment: {'Path': tmp.path, 'Pathext': '.EXE;.BAT'},
       );
 
@@ -273,9 +289,8 @@ void main() {
       addTearDown(() => tmp.deleteSync(recursive: true));
       final executable = File(p.join(tmp.path, 'ld64.lld.EXE'))..createSync();
 
-      final result = await ProcessRunner.which(
+      final result = await windowsRunner().which(
         'ld64.lld',
-        windows: true,
         environment: {'PATH': tmp.path, 'PATHEXT': '.EXE;.BAT'},
       );
 
@@ -286,7 +301,7 @@ void main() {
     test(
       'resolves to null for an executable that does not exist on PATH',
       () async {
-        final result = await ProcessRunner.which(
+        final result = await runner.which(
           'definitely-not-a-real-executable-xyz-987',
         );
         expect(result, isNull);
@@ -320,12 +335,12 @@ void main() {
           llvmBin.path,
         ].join(Platform.isWindows ? ';' : ':'),
       };
-      expect(await ProcessRunner.which('ld64.lld', environment: env), shim);
+      expect(await runner.which('ld64.lld', environment: env), shim);
       expect(
-        await ProcessRunner.which(
+        await runner.which(
           'ld64.lld',
           environment: env,
-          accept: (path) => !ProcessRunner.isSwiftlyProxy(path),
+          accept: (path) => !runner.isSwiftlyProxy(path),
         ),
         real.path,
       );
@@ -333,68 +348,86 @@ void main() {
   });
 
   group('configured process lookup', () {
-    test('copies its inputs and can be reset', () {
+    test('copies inputs and isolates runner configuration', () {
       final tools = {'dart': Platform.resolvedExecutable};
       final environment = {'DECLARED': 'yes'};
-      ProcessRunner.configure(
-        normalizedTools: tools,
-        effectiveChildEnvironment: environment,
+      runner = ProcessRunner(
+        nativeHost,
+        log: log,
+        configuration: ProcessConfiguration(
+          normalizedTools: tools,
+          effectiveChildEnvironment: environment,
+        ),
+        stdinStream: io.input,
+        stdoutSink: io.output,
+        stderrSink: io.error,
       );
       tools.clear();
       environment.clear();
 
-      expect(ProcessRunner.configuration?.normalizedTools, contains('dart'));
+      expect(runner.configuration?.normalizedTools, contains('dart'));
       expect(
-        ProcessRunner.configuration?.effectiveChildEnvironment,
+        runner.configuration?.effectiveChildEnvironment,
         containsPair('DECLARED', 'yes'),
       );
-      ProcessRunner.resetConfiguration();
-      expect(ProcessRunner.configuration, isNull);
+      runner = ProcessRunner(
+        nativeHost,
+        log: log,
+        stdinStream: io.input,
+        stdoutSink: io.output,
+        stderrSink: io.error,
+      );
+      expect(runner.configuration, isNull);
     });
 
     test(
       'uses exact extension-aware overrides before configured PATH',
       () async {
         const configured = '/declared/python.exe';
-        ProcessRunner.configure(
-          normalizedTools: const {'python': configured},
-          effectiveChildEnvironment: const {
-            'PATH': '/directory/that/must/not/be/searched',
-            'PATHEXT': '.EXE;.BAT',
-          },
+        runner = ProcessRunner(
+          nativeHost,
+          log: log,
+          configuration: ProcessConfiguration(
+            normalizedTools: const {'python': configured},
+            effectiveChildEnvironment: const {
+              'PATH': '/directory/that/must/not/be/searched',
+              'PATHEXT': '.EXE;.BAT',
+            },
+          ),
+          stdinStream: io.input,
+          stdoutSink: io.output,
+          stderrSink: io.error,
         );
 
-        expect(await ProcessRunner.which('python', windows: true), configured);
-        expect(await ProcessRunner.whichAll('python.exe', windows: true), [
-          configured,
-        ]);
+        expect(await windowsRunner().which('python'), configured);
+        expect(await windowsRunner().whichAll('python.exe'), [configured]);
         expect(
-          await ProcessRunner.which(
+          await windowsRunner().which(
             'python',
-            windows: true,
             accept: (_) => false,
             extraDirectories: [p.dirname(Platform.resolvedExecutable)],
           ),
           isNull,
         );
-        expect(await ProcessRunner.which('dart', windows: false), isNull);
+        expect(await posixRunner().which('dart'), isNull);
       },
     );
 
     test('run resolves an explicit bare executable override', () async {
-      ProcessRunner.configure(
-        normalizedTools: {'dart': Platform.resolvedExecutable},
-        effectiveChildEnvironment: const {'XCROSS_TEST': '1'},
+      runner = ProcessRunner(
+        nativeHost,
+        log: log,
+        configuration: ProcessConfiguration(
+          normalizedTools: {'dart': Platform.resolvedExecutable},
+          effectiveChildEnvironment: const {'XCROSS_TEST': '1'},
+        ),
+        stdinStream: io.input,
+        stdoutSink: io.output,
+        stderrSink: io.error,
       );
 
-      expect(
-        (await ProcessRunner.run('dart', const ['--version'])).exitCode,
-        0,
-      );
-      expect(
-        ProcessRunner.run('missing', const []),
-        throwsA(isA<ProcessException>()),
-      );
+      expect((await runner.run('dart', const ['--version'])).exitCode, 0);
+      expect(runner.run('missing', const []), throwsA(isA<ProcessException>()));
     });
 
     test('explicit tools override toolchain directories', () async {
@@ -403,15 +436,22 @@ void main() {
       final llvm = Directory(p.join(temporary.path, 'llvm'))..createSync();
       File(p.join(llvm.path, 'clang')).createSync();
       const explicit = '/explicit/clang';
-      ProcessRunner.configure(
-        normalizedTools: const {'clang': explicit},
-        toolchainDirectories: {
-          'llvm': [llvm.path],
-        },
-        effectiveChildEnvironment: const {},
+      runner = ProcessRunner(
+        nativeHost,
+        log: log,
+        configuration: ProcessConfiguration(
+          normalizedTools: const {'clang': explicit},
+          toolchainDirectories: {
+            'llvm': [llvm.path],
+          },
+          effectiveChildEnvironment: const {},
+        ),
+        stdinStream: io.input,
+        stdoutSink: io.output,
+        stderrSink: io.error,
       );
 
-      expect(await ProcessRunner.which('clang'), explicit);
+      expect(await runner.which('clang'), explicit);
     });
 
     test('resolves known Swift and LLVM toolchain executables', () async {
@@ -424,32 +464,46 @@ void main() {
       final clang = File(p.join(llvm.path, 'clang'))..createSync();
       final llvmStrip = File(p.join(llvm.path, 'llvm-strip'))..createSync();
       File(p.join(path.path, 'clang')).createSync();
-      ProcessRunner.configure(
-        normalizedTools: const {},
-        toolchainDirectories: {
-          'swift': [swift.path],
-          'llvm': [llvm.path],
-        },
-        effectiveChildEnvironment: {'PATH': path.path},
+      runner = ProcessRunner(
+        nativeHost,
+        log: log,
+        configuration: ProcessConfiguration(
+          normalizedTools: const {},
+          toolchainDirectories: {
+            'swift': [swift.path],
+            'llvm': [llvm.path],
+          },
+          effectiveChildEnvironment: {'PATH': path.path},
+        ),
+        stdinStream: io.input,
+        stdoutSink: io.output,
+        stderrSink: io.error,
       );
 
-      expect(await ProcessRunner.which('swiftc'), swiftCompiler.path);
-      expect(await ProcessRunner.which('clang'), clang.path);
-      expect(await ProcessRunner.which('cc'), clang.path);
-      expect(await ProcessRunner.which('llvm-strip'), llvmStrip.path);
+      expect(await runner.which('swiftc'), swiftCompiler.path);
+      expect(await runner.which('clang'), clang.path);
+      expect(await runner.which('cc'), clang.path);
+      expect(await runner.which('llvm-strip'), llvmStrip.path);
     });
 
     test('can bypass configured tools and search PATH directly', () async {
       final temporary = Directory.systemTemp.createTempSync('process-path-');
       addTearDown(() => temporary.deleteSync(recursive: true));
       final pathTool = File(p.join(temporary.path, 'clang'))..createSync();
-      ProcessRunner.configure(
-        normalizedTools: const {'clang': '/configured/clang'},
-        effectiveChildEnvironment: {'PATH': temporary.path},
+      runner = ProcessRunner(
+        nativeHost,
+        log: log,
+        configuration: ProcessConfiguration(
+          normalizedTools: const {'clang': '/configured/clang'},
+          effectiveChildEnvironment: {'PATH': temporary.path},
+        ),
+        stdinStream: io.input,
+        stdoutSink: io.output,
+        stderrSink: io.error,
       );
 
       expect(
-        await ProcessRunner.which('clang', useConfiguration: false),
+        await runner.which('clang', useConfiguration: false),
         pathTool.path,
       );
     });
@@ -457,24 +511,31 @@ void main() {
     test('falls back to PATH for an unspecified tool', () async {
       final directory = p.dirname(Platform.resolvedExecutable);
       final name = p.basenameWithoutExtension(Platform.resolvedExecutable);
-      ProcessRunner.configure(
-        normalizedTools: const {},
-        effectiveChildEnvironment: {'PATH': directory},
+      runner = ProcessRunner(
+        nativeHost,
+        log: log,
+        configuration: ProcessConfiguration(
+          normalizedTools: const {},
+          effectiveChildEnvironment: {'PATH': directory},
+        ),
+        stdinStream: io.input,
+        stdoutSink: io.output,
+        stderrSink: io.error,
       );
 
-      expect(await ProcessRunner.which(name), isNotNull);
-      expect(await ProcessRunner.locateTool(name), isNotEmpty);
+      expect(await runner.which(name), isNotNull);
+      expect(await runner.locateTool(name), isNotEmpty);
     });
   });
 
   group('effectiveEnvironment', () {
     test('reads differently cased Windows environment keys', () {
       expect(
-        ProcessRunner.environmentValue(const {'Path': 'configured'}, 'PATH'),
+        windowsRunner().environmentValue(const {'Path': 'configured'}, 'PATH'),
         'configured',
       );
       expect(
-        ProcessRunner.environmentValue(const {
+        windowsRunner().environmentValue(const {
           'Path': 'old',
           'PATH': 'new',
         }, 'PATH'),
@@ -483,33 +544,33 @@ void main() {
     });
 
     test('preserves host environment without configuration', () {
-      expect(ProcessRunner.effectiveEnvironment, same(Platform.environment));
+      expect(runner.effectiveEnvironment, same(nativeHost.environment.values));
     });
 
     test('exposes only configured child environment', () {
-      ProcessRunner.configure(
-        normalizedTools: const {},
-        effectiveChildEnvironment: const {'SAFE': 'value'},
+      runner = ProcessRunner(
+        nativeHost,
+        log: log,
+        configuration: ProcessConfiguration(
+          normalizedTools: const {},
+          effectiveChildEnvironment: const {'SAFE': 'value'},
+        ),
+        stdinStream: io.input,
+        stdoutSink: io.output,
+        stderrSink: io.error,
       );
 
-      expect(ProcessRunner.effectiveEnvironment, const {'SAFE': 'value'});
+      expect(runner.effectiveEnvironment, const {'SAFE': 'value'});
     });
   });
 
-  group('isWindowsBatchScript', () {
-    test('matches .bat and .cmd case-insensitively only on Windows', () {
+  group('WindowsBatchPolicy.isBatchScript', () {
+    test('matches only batch extensions case-insensitively', () {
       for (final name in ['dart.bat', r'C:\sdk\dart.CMD', 'flutter.Bat']) {
-        expect(ProcessRunner.isWindowsBatchScript(name, windows: true), isTrue);
-        expect(
-          ProcessRunner.isWindowsBatchScript(name, windows: false),
-          isFalse,
-        );
+        expect(WindowsBatchPolicy.isBatchScript(name), isTrue);
       }
       for (final name in ['dart', 'dart.exe', 'bat', 'dart.bat.txt']) {
-        expect(
-          ProcessRunner.isWindowsBatchScript(name, windows: true),
-          isFalse,
-        );
+        expect(WindowsBatchPolicy.isBatchScript(name), isFalse);
       }
     });
   });
@@ -517,7 +578,7 @@ void main() {
   group('windowsBatchArguments', () {
     test('caret-escapes percent in unquoted arguments', () {
       expect(
-        ProcessRunner.windowsBatchArguments([
+        WindowsBatchPolicy.arguments([
           'run',
           '-DXCROSS_VERSION=feature%2Fa%2Cb%3Dc',
           '%PATH%',
@@ -527,14 +588,14 @@ void main() {
     });
 
     test('leaves quoted arguments without percent unchanged', () {
-      expect(ProcessRunner.windowsBatchArguments([r'C:\Program Files\a & b']), [
+      expect(WindowsBatchPolicy.arguments([r'C:\Program Files\a & b']), [
         r'C:\Program Files\a & b',
       ]);
     });
 
     test('allows quoted arguments when the script path has no whitespace', () {
       expect(
-        ProcessRunner.windowsBatchArguments([
+        WindowsBatchPolicy.arguments([
           'a b',
           '',
         ], executable: r'C:\sdk\bin\dart.bat'),
@@ -545,14 +606,14 @@ void main() {
     test('rejects quoted arguments when the script path is quoted', () {
       for (final argument in ['a b', '']) {
         expect(
-          () => ProcessRunner.windowsBatchArguments([
+          () => WindowsBatchPolicy.arguments([
             argument,
           ], executable: r'C:\Program Files\sdk\dart.bat'),
           throwsA(isA<CliError>()),
         );
       }
       expect(
-        ProcessRunner.windowsBatchArguments([
+        WindowsBatchPolicy.arguments([
           'pub',
           'get',
         ], executable: r'C:\Program Files\sdk\dart.bat'),
@@ -570,7 +631,7 @@ void main() {
     ]) {
       test('rejects the script path ${jsonEncode(executable)}', () {
         expect(
-          () => ProcessRunner.windowsBatchArguments(const [
+          () => WindowsBatchPolicy.arguments(const [
             'pub',
           ], executable: executable),
           throwsA(
@@ -586,13 +647,13 @@ void main() {
 
     test('rejects a quoted script path that cmd.exe would unquote', () {
       expect(
-        () => ProcessRunner.windowsBatchArguments(const [
+        () => WindowsBatchPolicy.arguments(const [
           'pub',
         ], executable: r'C:\Program Files (x86)\sdk\dart.bat'),
         throwsA(isA<CliError>()),
       );
       expect(
-        ProcessRunner.windowsBatchArguments(const [
+        WindowsBatchPolicy.arguments(const [
           'pub',
         ], executable: r'C:\sdk(x86)\dart.bat'),
         ['pub'],
@@ -616,7 +677,7 @@ void main() {
     ]) {
       test('rejects ${jsonEncode(argument)}', () {
         expect(
-          () => ProcessRunner.windowsBatchArguments([argument]),
+          () => WindowsBatchPolicy.arguments([argument]),
           throwsA(
             isA<CliError>().having(
               (error) => error.message,
@@ -631,6 +692,143 @@ void main() {
 
   group('start', () {
     test(
+      'passes Windows extended-length paths to children in plain form',
+      () async {
+        final directory = Directory.systemTemp.createTempSync('plain-args-');
+        addTearDown(() => directory.deleteSync(recursive: true));
+        final script = File(p.join(directory.path, 'args.dart'))
+          ..writeAsStringSync(
+            "import 'dart:io'; void main(List<String> a) { stdout.write(a.join('|')); }",
+          );
+        final extended = '\\\\?\\${directory.path}';
+
+        final process = await runner.start(Platform.resolvedExecutable, [
+          '\\\\?\\${script.path}',
+          extended,
+          '--out=$extended',
+          'plain',
+        ]);
+        final output = await process.stdout
+            .transform(systemEncoding.decoder)
+            .join();
+
+        expect(await process.exitCode, 0);
+        expect(output, '${directory.path}|--out=${directory.path}|plain');
+      },
+      skip: !Platform.isWindows,
+    );
+
+    test(
+      'keeps Windows extended-length form for paths beyond the plain limit',
+      () async {
+        final directory = Directory.systemTemp.createTempSync('long-args-');
+        addTearDown(() => directory.deleteSync(recursive: true));
+        final script = File(p.join(directory.path, 'args.dart'))
+          ..writeAsStringSync(
+            "import 'dart:io'; void main(List<String> a) { stdout.write(a.join('|')); }",
+          );
+        final long = p.joinAll([
+          directory.path,
+          for (var i = 0; i < 30; i++) 'segment$i',
+        ]);
+        final extended = '\\\\?\\$long';
+
+        final process = await runner.start(Platform.resolvedExecutable, [
+          script.path,
+          extended,
+          '--out=$extended',
+        ]);
+        final output = await process.stdout
+            .transform(systemEncoding.decoder)
+            .join();
+
+        expect(await process.exitCode, 0);
+        expect(output, '$extended|--out=$extended');
+      },
+      skip: !Platform.isWindows,
+    );
+
+    test(
+      'passes Windows extended-length environment paths in plain form',
+      () async {
+        final directory = Directory.systemTemp.createTempSync('plain-env-');
+        addTearDown(() => directory.deleteSync(recursive: true));
+        final script = File(p.join(directory.path, 'env.dart'))
+          ..writeAsStringSync(
+            "import 'dart:io'; void main() { final e = Platform.environment; "
+            r"stdout.write('${e['PATH']}|${e['TOOL_ROOT']}'); }",
+          );
+        final extended = '\\\\?\\${directory.path}';
+
+        final process = await runner.start(
+          Platform.resolvedExecutable,
+          [script.path],
+          environment: {
+            'PATH': '$extended;${Platform.environment['PATH']}',
+            'TOOL_ROOT': extended,
+          },
+        );
+        final output = await process.stdout
+            .transform(systemEncoding.decoder)
+            .join();
+
+        expect(await process.exitCode, 0);
+        expect(output, startsWith('${directory.path};'));
+        expect(output, endsWith('|${directory.path}'));
+      },
+      skip: !Platform.isWindows,
+    );
+
+    test('starts Windows children in a plain working directory', () async {
+      final directory = Directory.systemTemp.createTempSync('plain-cwd-');
+      addTearDown(() => directory.deleteSync(recursive: true));
+      final script = File(p.join(directory.path, 'cwd.dart'))
+        ..writeAsStringSync(
+          "import 'dart:io'; void main() { stdout.write(Directory.current.path); }",
+        );
+
+      final process = await runner.start(Platform.resolvedExecutable, [
+        script.path,
+      ], workingDirectory: directory.path);
+      final output = await process.stdout
+          .transform(systemEncoding.decoder)
+          .join();
+
+      expect(await process.exitCode, 0);
+      expect(output, isNot(startsWith(r'\\?\')));
+      expect(
+        output.toLowerCase(),
+        directory.resolveSymbolicLinksSync().toLowerCase(),
+      );
+    }, skip: !Platform.isWindows);
+
+    test('starts Windows batch scripts in a plain working directory', () async {
+      final directory = Directory.systemTemp.createTempSync('batch-cwd-');
+      addTearDown(() => directory.deleteSync(recursive: true));
+      final script = File(p.join(directory.path, 'cwd.cmd'))
+        ..writeAsStringSync('@echo off\r\necho %CD%\r\n');
+
+      final process = await runner.start(
+        script.path,
+        const [],
+        workingDirectory: directory.path,
+      );
+      final output = await process.stdout
+          .transform(systemEncoding.decoder)
+          .join();
+      final errors = await process.stderr
+          .transform(systemEncoding.decoder)
+          .join();
+
+      expect(await process.exitCode, 0);
+      expect(errors, isNot(contains('UNC')));
+      expect(
+        output.trim().toLowerCase(),
+        directory.resolveSymbolicLinksSync().toLowerCase(),
+      );
+    }, skip: !Platform.isWindows);
+
+    test(
       'forwards escaped and quoted arguments through a Windows batch script',
       () async {
         final directory = Directory.systemTemp.createTempSync('batch-start-');
@@ -638,7 +836,7 @@ void main() {
         final script = File(p.join(directory.path, 'emit.cmd'))
           ..writeAsStringSync('@echo off\r\necho %1\r\necho %2\r\n');
 
-        final process = await ProcessRunner.start(
+        final process = await runner.start(
           script.path,
           const ['feature%2Fa%2Cb', r'C:\Program Files\a & b'],
           environment: const {'2Fa': 'EXPANDED'},
@@ -659,9 +857,16 @@ void main() {
     test(
       'merges configured child environment without inheriting parent',
       () async {
-        ProcessRunner.configure(
-          normalizedTools: const {},
-          effectiveChildEnvironment: const {'START_VALUE': 'configured'},
+        runner = ProcessRunner(
+          nativeHost,
+          log: log,
+          configuration: ProcessConfiguration(
+            normalizedTools: const {},
+            effectiveChildEnvironment: const {'START_VALUE': 'configured'},
+          ),
+          stdinStream: io.input,
+          stdoutSink: io.output,
+          stderrSink: io.error,
         );
 
         final directory = Directory.systemTemp.createTempSync('process-start-');
@@ -671,7 +876,7 @@ void main() {
             "import 'dart:io'; void main() { "
             "stdout.write(Platform.environment['START_VALUE']); }",
           );
-        final process = await ProcessRunner.start(Platform.resolvedExecutable, [
+        final process = await runner.start(Platform.resolvedExecutable, [
           script.path,
         ]);
         final output = await process.stdout
@@ -704,7 +909,7 @@ void main() {
     String written() => File(output).readAsStringSync().trim();
 
     test('run', () async {
-      final result = await ProcessRunner.run(script, const [
+      final result = await runner.run(script, const [
         encoded,
       ], environment: environment);
       expect(result.exitCode, 0);
@@ -712,7 +917,7 @@ void main() {
     });
 
     test('run with a timeout', () async {
-      final result = await ProcessRunner.run(
+      final result = await runner.run(
         script,
         const [encoded],
         environment: environment,
@@ -725,13 +930,13 @@ void main() {
     for (final (name, call) in <(String, Future<void> Function(String))>[
       (
         'runChecked',
-        (script) => ProcessRunner.runChecked(script, const [
+        (script) => runner.runChecked(script, const [
           encoded,
         ], environment: environment),
       ),
       (
         'runChecked inheritStdio',
-        (script) => ProcessRunner.runChecked(
+        (script) => runner.runChecked(
           script,
           const [encoded],
           environment: environment,
@@ -740,7 +945,7 @@ void main() {
       ),
       (
         'runChecked captureAndEcho',
-        (script) => ProcessRunner.runChecked(
+        (script) => runner.runChecked(
           script,
           const [encoded],
           environment: environment,
@@ -749,13 +954,13 @@ void main() {
       ),
       (
         'runChecked tail',
-        (script) => Log.logStep(
+        (script) => log.logStep(
           'batch',
-          () => ProcessRunner.runChecked(
+          () => runner.runChecked(
             script,
             const [encoded],
             environment: environment,
-            tail: Log.activeStep,
+            tail: log.activeStep,
             forwardStdin: false,
           ),
         ),
@@ -769,7 +974,7 @@ void main() {
 
     test('runChecked rejects an argument cmd.exe would alter', () async {
       await expectLater(
-        ProcessRunner.runChecked(script, const ['a&b']),
+        runner.runChecked(script, const ['a&b']),
         throwsA(isA<CliError>()),
       );
       expect(File(output).existsSync(), isFalse);
@@ -788,12 +993,19 @@ void main() {
           "e.key.toUpperCase() == 'PATH').toList(); "
           r"stdout.write('${paths.length}|${paths.single.value}'); }",
         );
-      ProcessRunner.configure(
-        normalizedTools: const {},
-        effectiveChildEnvironment: const {'Path': 'configured'},
+      runner = ProcessRunner(
+        nativeHost,
+        log: log,
+        configuration: ProcessConfiguration(
+          normalizedTools: const {},
+          effectiveChildEnvironment: const {'Path': 'configured'},
+        ),
+        stdinStream: io.input,
+        stdoutSink: io.output,
+        stderrSink: io.error,
       );
 
-      final result = await ProcessRunner.run(
+      final result = await runner.run(
         Platform.resolvedExecutable,
         [script.path],
         environment: const {'PATH': 'local'},
@@ -806,7 +1018,7 @@ void main() {
     test(
       'captures stdout/stderr and the exit code of a real process',
       () async {
-        final result = await ProcessRunner.run(Platform.resolvedExecutable, [
+        final result = await runner.run(Platform.resolvedExecutable, [
           '--version',
         ]);
         expect(result.exitCode, 0);
@@ -826,15 +1038,22 @@ void main() {
             "Platform.environment['OVERRIDE'], "
             "Platform.environment['LOCAL']].join('|')); }",
           );
-        ProcessRunner.configure(
-          normalizedTools: const {},
-          effectiveChildEnvironment: const {
-            'BASE': 'configured',
-            'OVERRIDE': 'configured',
-          },
+        runner = ProcessRunner(
+          nativeHost,
+          log: log,
+          configuration: ProcessConfiguration(
+            normalizedTools: const {},
+            effectiveChildEnvironment: const {
+              'BASE': 'configured',
+              'OVERRIDE': 'configured',
+            },
+          ),
+          stdinStream: io.input,
+          stdoutSink: io.output,
+          stderrSink: io.error,
         );
 
-        final result = await ProcessRunner.run(
+        final result = await runner.run(
           Platform.resolvedExecutable,
           [script.path],
           environment: const {'OVERRIDE': 'local', 'LOCAL': 'present'},
@@ -853,7 +1072,7 @@ void main() {
           "import 'dart:io'; void main() { stdout.add([255]); }",
         );
 
-      final result = await ProcessRunner.run(Platform.resolvedExecutable, [
+      final result = await runner.run(Platform.resolvedExecutable, [
         script.path,
       ]);
 
@@ -871,7 +1090,7 @@ void main() {
           "import 'dart:io'; void main() { stderr.writeln('missing-Swift.h file not found'); exit(1); }",
         );
       await expectLater(
-        ProcessRunner.runChecked(Platform.resolvedExecutable, [
+        runner.runChecked(Platform.resolvedExecutable, [
           script.path,
         ], captureAndEcho: true),
         throwsA(
@@ -888,7 +1107,7 @@ void main() {
       'throws CliError with the command line embedded on a non-zero exit',
       () async {
         await expectLater(
-          ProcessRunner.runChecked(Platform.resolvedExecutable, [
+          runner.runChecked(Platform.resolvedExecutable, [
             '--this-flag-does-not-exist-xyz',
           ]),
           throwsA(
@@ -910,10 +1129,9 @@ void main() {
       final tool = File(p.join(tmp.path, 'ld64.lld'))..createSync();
 
       expect(
-        await ProcessRunner.whichAll(
+        await posixRunner().whichAll(
           'ld64.lld',
           environment: const {'PATH': ''},
-          windows: false,
           extraDirectories: [tmp.path],
         ),
         [tool.path],
@@ -928,10 +1146,9 @@ void main() {
         File(p.join(tmp.path, 'ld64.lld')).createSync();
 
         expect(
-          await ProcessRunner.whichAll(
+          await posixRunner().whichAll(
             'ld64.lld',
             environment: {'PATH': tmp.path},
-            windows: false,
             extraDirectories: [tmp.path],
           ),
           hasLength(1),
@@ -948,13 +1165,9 @@ void main() {
       File(p.join(extra.path, 'ld64.lld')).createSync();
 
       expect(
-        await ProcessRunner.whichAll(
+        await runner.whichAll(
           'ld64.lld',
           environment: {'PATH': onPath.path},
-          // The PATH entry is a real host path, so it has to be split with
-          // the host's own separator: ':' would cut a Windows drive letter
-          // off its own directory and drop the entry.
-          windows: Platform.isWindows,
           extraDirectories: [extra.path],
         ),
         [p.join(onPath.path, 'ld64.lld'), p.join(extra.path, 'ld64.lld')],
@@ -965,40 +1178,42 @@ void main() {
   group('describeExitCode', () {
     test('names a Windows NTSTATUS reported as a raw DWORD', () {
       expect(
-        ProcessRunner.describeExitCode(0xC0000135),
+        windowsRunner().describeExitCode(0xC0000135),
         contains('STATUS_DLL_NOT_FOUND'),
       );
     });
 
     test('names the same status when dart:io sign-extends it', () {
       expect(
-        ProcessRunner.describeExitCode(-1073740791),
+        windowsRunner().describeExitCode(-1073740791),
         allOf(contains('0xC0000409'), contains('abort()')),
       );
     });
 
     test('still explains an NTSTATUS it has no name for', () {
       expect(
-        ProcessRunner.describeExitCode(0xC0000123),
+        windowsRunner().describeExitCode(0xC0000123),
         contains('died instead of exiting'),
       );
     });
 
     test('reads a small negative code as a POSIX signal', () {
-      expect(ProcessRunner.describeExitCode(-11), 'killed by signal 11');
+      expect(posixRunner().describeExitCode(-11), 'killed by signal 11');
     });
 
     test('says nothing about an ordinary non-zero exit', () {
-      expect(ProcessRunner.describeExitCode(1), isNull);
-      expect(ProcessRunner.describeExitCode(255), isNull);
+      expect(windowsRunner().describeExitCode(1), isNull);
+      expect(windowsRunner().describeExitCode(255), isNull);
     });
 
     test('separates a crash from a chosen exit status', () {
-      expect(ProcessRunner.crashed(1), isFalse);
-      expect(ProcessRunner.crashed(255), isFalse);
-      expect(ProcessRunner.crashed(-11), isTrue);
-      expect(ProcessRunner.crashed(-1073740791), isTrue);
-      expect(ProcessRunner.crashed(0xC0000409), isTrue);
+      expect(windowsRunner().crashed(1), isFalse);
+      expect(windowsRunner().crashed(255), isFalse);
+      expect(posixRunner().crashed(-11), isTrue);
+      expect(windowsRunner().crashed(-11), isFalse);
+      expect(posixRunner().crashed(0xC0000409), isFalse);
+      expect(windowsRunner().crashed(-1073740791), isTrue);
+      expect(windowsRunner().crashed(0xC0000409), isTrue);
     });
   });
 }

@@ -1,24 +1,104 @@
 import 'dart:io';
 
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:cli_kit/shared/process/process.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
-import 'package:xcross/src/compose/compose.dart';
-import 'package:xcross/src/errors.dart';
+import 'package:xcross/src/shared/compose/build/gradle_klib_builder.dart';
+import 'package:xcross/src/shared/compose/build/konan_configuration.dart';
+import 'package:xcross/src/shared/compose/build/kotlin_framework_builder.dart';
+import 'package:xcross/src/shared/compose/compose_host.dart';
+import 'package:xcross/src/shared/compose/models/compose_build_options.dart';
+import 'package:xcross/src/shared/compose/project/kmp_project.dart';
+import 'package:xcross/src/shared/compose/toolchain/compose_toolchain.dart';
+import 'package:xcross/src/shared/errors/errors.dart';
+import 'package:xcross/src/target/shared/compose/compose_target.dart';
+
+import 'support/compose_platforms.dart';
 
 void main() {
+  late ComposeTestSession session;
+  setUp(() {
+    session = createComposeTestSession();
+  });
+  tearDown(() => session.dispose());
+  test(
+    'simulator framework uses Kotlin simulator target and isolated output',
+    () async {
+      final fixture = ComposeFixture.create(
+        session,
+        fixtureSimulatorTargetFor(session.hosts.macosArm64),
+      )..createInputs();
+      addTearDown(fixture.dispose);
+      final calls = <List<String>>[];
+      final output =
+          await KotlinFrameworkBuilder.withSeams(
+            fixture.toolchain.runner,
+            log: session.fixtureLog,
+            runChecked:
+                (executable, arguments, {workingDirectory, environment}) async {
+                  calls.add(arguments);
+                  final produced = arguments[arguments.indexOf('-o') + 1];
+                  expect(
+                    produced,
+                    contains('/bin/iosSimulatorArm64/debugFramework/'),
+                  );
+                  File(p.join(produced, 'Headers', 'Shared.h'))
+                    ..createSync(recursive: true)
+                    ..writeAsStringSync('header');
+                  File(p.join(produced, 'Shared'))
+                    ..createSync(recursive: true)
+                    ..writeAsStringSync('simulator');
+                },
+            prepareKonan: ({required project, required toolchain}) async =>
+                fixture.prepared,
+          ).build(
+            project: fixture.project,
+            options: const ComposeBuildOptions(),
+            toolchain: fixture.toolchain,
+            klib: fixture.klib,
+          );
+      expect(
+        output,
+        p.join(
+          fixture.root,
+          'build',
+          'xcross-ios-simulator',
+          'Shared.framework',
+        ),
+      );
+      expect(
+        calls.single,
+        containsAllInOrder(['-target', 'ios_simulator_arm64']),
+      );
+      expect(File(p.join(output, 'Shared')).readAsStringSync(), 'simulator');
+    },
+  );
+
   test(
     'builds debug framework with module klib, dependency libraries, and bundle id',
     () async {
-      final fixture = _Fixture.create(ComposeHost.linuxX64)..createInputs();
-      final calls = <_Call>[];
+      final fixture = ComposeFixture.create(
+        session,
+        fixtureIPhoneTargetFor(session.hosts.linuxX64),
+      )..createInputs();
+      final calls = <ComposeCall>[];
       addTearDown(fixture.dispose);
 
       final output =
           await KotlinFrameworkBuilder.withSeams(
+            fixture.toolchain.runner,
+            log: session.fixtureLog,
             runChecked:
                 (executable, arguments, {workingDirectory, environment}) async {
                   calls.add(
-                    _Call(executable, arguments, workingDirectory, environment),
+                    ComposeCall(
+                      executable,
+                      arguments,
+                      workingDirectory,
+                      environment,
+                    ),
                   );
                   fixture.createProducedFramework('debugFramework');
                 },
@@ -100,16 +180,26 @@ void main() {
   );
 
   test('passes -Xstatic-framework only for static frameworks', () async {
-    final fixture = _Fixture.create(ComposeHost.linuxX64)..createInputs();
-    final calls = <_Call>[];
+    final fixture = ComposeFixture.create(
+      session,
+      fixtureIPhoneTargetFor(session.hosts.linuxX64),
+    )..createInputs();
+    final calls = <ComposeCall>[];
     addTearDown(fixture.dispose);
 
     Future<void> link(KmpProject project) =>
         KotlinFrameworkBuilder.withSeams(
+          fixture.toolchain.runner,
+          log: session.fixtureLog,
           runChecked:
               (executable, arguments, {workingDirectory, environment}) async {
                 calls.add(
-                  _Call(executable, arguments, workingDirectory, environment),
+                  ComposeCall(
+                    executable,
+                    arguments,
+                    workingDirectory,
+                    environment,
+                  ),
                 );
                 fixture.createProducedFramework('debugFramework');
               },
@@ -131,14 +221,24 @@ void main() {
   });
 
   test('builds release framework with opt and project bundle id', () async {
-    final fixture = _Fixture.create(ComposeHost.linuxX64)..createInputs();
-    _Call? call;
+    final fixture = ComposeFixture.create(
+      session,
+      fixtureIPhoneTargetFor(session.hosts.linuxX64),
+    )..createInputs();
+    ComposeCall? call;
     addTearDown(fixture.dispose);
 
     await KotlinFrameworkBuilder.withSeams(
+      fixture.toolchain.runner,
+      log: session.fixtureLog,
       runChecked:
           (executable, arguments, {workingDirectory, environment}) async {
-            call = _Call(executable, arguments, workingDirectory, environment);
+            call = ComposeCall(
+              executable,
+              arguments,
+              workingDirectory,
+              environment,
+            );
             fixture.createProducedFramework('releaseFramework');
           },
       prepareKonan: ({required project, required toolchain}) async =>
@@ -175,14 +275,24 @@ void main() {
   });
 
   test('invokes Java directly with a Kotlin argfile on Windows', () async {
-    final fixture = _Fixture.create(ComposeHost.windowsX64)..createInputs();
-    _Call? call;
+    final fixture = ComposeFixture.create(
+      session,
+      fixtureIPhoneTargetFor(session.hosts.windowsX64),
+    )..createInputs();
+    ComposeCall? call;
     addTearDown(fixture.dispose);
 
     await KotlinFrameworkBuilder.withSeams(
+      fixture.toolchain.runner,
+      log: session.fixtureLog,
       runChecked:
           (executable, arguments, {workingDirectory, environment}) async {
-            call = _Call(executable, arguments, workingDirectory, environment);
+            call = ComposeCall(
+              executable,
+              arguments,
+              workingDirectory,
+              environment,
+            );
             fixture.createProducedFramework('debugFramework');
           },
       prepareKonan: ({required project, required toolchain}) async =>
@@ -210,11 +320,16 @@ void main() {
   });
 
   test('throws when Kotlin Native omits the framework binary', () async {
-    final fixture = _Fixture.create(ComposeHost.linuxX64)..createInputs();
+    final fixture = ComposeFixture.create(
+      session,
+      fixtureIPhoneTargetFor(session.hosts.linuxX64),
+    )..createInputs();
     addTearDown(fixture.dispose);
 
     await expectLater(
       KotlinFrameworkBuilder.withSeams(
+        fixture.toolchain.runner,
+        log: session.fixtureLog,
         runChecked:
             (executable, arguments, {workingDirectory, environment}) async {
               Directory(
@@ -240,11 +355,16 @@ void main() {
     );
   });
   test('throws when Kotlin Native omits the framework header', () async {
-    final fixture = _Fixture.create(ComposeHost.linuxX64)..createInputs();
+    final fixture = ComposeFixture.create(
+      session,
+      fixtureIPhoneTargetFor(session.hosts.linuxX64),
+    )..createInputs();
     addTearDown(fixture.dispose);
 
     await expectLater(
       KotlinFrameworkBuilder.withSeams(
+        fixture.toolchain.runner,
+        log: session.fixtureLog,
         runChecked:
             (executable, arguments, {workingDirectory, environment}) async {
               final framework = fixture.producedFramework('debugFramework');
@@ -264,7 +384,10 @@ void main() {
   });
 
   test('replaces stale framework-only destination contents', () async {
-    final fixture = _Fixture.create(ComposeHost.linuxX64)..createInputs();
+    final fixture = ComposeFixture.create(
+      session,
+      fixtureIPhoneTargetFor(session.hosts.linuxX64),
+    )..createInputs();
     final destination = Directory(
       p.join(fixture.root, 'build', 'xcross-ios', 'Shared.framework'),
     )..createSync(recursive: true);
@@ -273,6 +396,8 @@ void main() {
 
     final output =
         await KotlinFrameworkBuilder.withSeams(
+          fixture.toolchain.runner,
+          log: session.fixtureLog,
           runChecked:
               (executable, arguments, {workingDirectory, environment}) async {
                 fixture.createProducedFramework(
@@ -294,8 +419,9 @@ void main() {
   });
 }
 
-final class _Fixture {
-  _Fixture._(this.temp, this.host)
+@internal
+final class ComposeFixture {
+  ComposeFixture._(this.session, this.temp, this.target)
     : root = temp.path,
       modulePath = p.join(temp.path, 'shared'),
       kotlinHome = p.join(temp.path, 'kotlin-home'),
@@ -306,7 +432,7 @@ final class _Fixture {
         'build',
         'classes',
         'kotlin',
-        'iosArm64',
+        target.gradleTarget,
         'main',
         'klib',
         'shared',
@@ -314,15 +440,20 @@ final class _Fixture {
       depOne = p.join(temp.path, 'deps', 'compose.klib'),
       depTwo = p.join(temp.path, 'deps', 'coroutines.klib');
 
-  factory _Fixture.create(ComposeHost host) {
+  factory ComposeFixture.create(
+    ComposeTestSession session,
+    ComposeTarget<PlatformHostInterface> target,
+  ) {
     final temp = Directory.systemTemp.createTempSync(
       'xcross_framework_builder_test_',
     );
-    return _Fixture._(temp, host);
+    return ComposeFixture._(session, temp, target);
   }
+  final ComposeTestSession session;
 
   final Directory temp;
-  final ComposeHost host;
+  final ComposeTarget<PlatformHostInterface> target;
+  ComposeHost<PlatformHostInterface> get host => target.toolchainHost;
   final String root;
   final String modulePath;
   final String kotlinHome;
@@ -378,21 +509,24 @@ final class _Fixture {
   );
 
   ComposeToolchain get toolchain => ComposeToolchain(
-    host: host,
+    log: session.fixtureLog,
+    target: target,
+    runner: ProcessRunner(
+      log: session.fixtureLog,
+      host.host,
+      stdinStream: const Stream<List<int>>.empty(),
+      stdoutSink: session.stdoutSink,
+      stderrSink: session.stderrSink,
+    ),
     kotlinHome: kotlinHome,
     konanCache: p.join(root, 'konan-cache'),
-    konancExecutable: p.join(
-      kotlinHome,
-      'bin',
-      host.isWindows ? 'konanc.bat' : 'konanc',
-    ),
+    konancExecutable: host.konancExecutable(kotlinHome),
     javaHome: javaHome,
-    javaExecutable: p.join(
-      javaHome,
-      'bin',
-      host.isWindows ? 'java.exe' : 'java',
+    javaExecutable: host.javaExecutable(javaHome),
+    gradleExecutable: host.host.paths.executableName(
+      'gradle',
+      extension: '.bat',
     ),
-    gradleExecutable: host.isWindows ? 'gradle.bat' : 'gradle',
     swiftc: p.join(root, 'swiftc'),
     clang: p.join(root, 'clang'),
     ld64Lld: p.join(root, 'ld64.lld'),
@@ -437,8 +571,9 @@ final class _Fixture {
   }
 }
 
-final class _Call {
-  const _Call(
+@internal
+final class ComposeCall {
+  const ComposeCall(
     this.executable,
     this.arguments,
     this.workingDirectory,

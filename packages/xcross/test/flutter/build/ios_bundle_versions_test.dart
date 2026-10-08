@@ -2,7 +2,9 @@ import 'dart:io';
 
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
-import 'package:xcross/src/flutter/build/ios_bundle_versions.dart';
+import 'package:xcross/src/shared/flutter/build/ios_bundle_versions.dart';
+
+import '../flutter_test_runtime.dart';
 
 const _pbxproj = '''
 {
@@ -74,7 +76,7 @@ void main() {
     () async {
       await writePbxproj(_pbxproj);
 
-      final versions = IosBundleVersions.resolve(tmp.path);
+      final versions = testIPhoneRuntime().versions.resolve(tmp.path);
 
       expect(versions.shortVersion, '2.4.1');
       expect(versions.bundleVersion, '37');
@@ -84,14 +86,14 @@ void main() {
   test('falls back when the project declares no versions', () async {
     await writePbxproj('{ objects = { }; }');
 
-    final versions = IosBundleVersions.resolve(tmp.path);
+    final versions = testIPhoneRuntime().versions.resolve(tmp.path);
 
     expect(versions.shortVersion, IosBundleVersions.fallback.shortVersion);
     expect(versions.bundleVersion, IosBundleVersions.fallback.bundleVersion);
   });
 
   test('falls back for a project with no Xcode project at all', () {
-    final versions = IosBundleVersions.resolve(tmp.path);
+    final versions = testIPhoneRuntime().versions.resolve(tmp.path);
 
     expect(versions.shortVersion, '1.0.0');
     expect(versions.bundleVersion, '1');
@@ -100,7 +102,7 @@ void main() {
   test('CLI build-name/build-number win over the project settings', () async {
     await writePbxproj(_pbxproj);
 
-    final versions = IosBundleVersions.resolve(
+    final versions = testIPhoneRuntime().versions.resolve(
       tmp.path,
       buildName: '5.0.0',
       buildNumber: '500',
@@ -137,7 +139,10 @@ void main() {
 }
 ''');
 
-    expect(IosBundleVersions.resolve(tmp.path).shortVersion, '1.0.0');
+    expect(
+      testIPhoneRuntime().versions.resolve(tmp.path).shortVersion,
+      '1.0.0',
+    );
   });
 
   group('fromBuiltPlist', () {
@@ -150,7 +155,7 @@ void main() {
         '</dict>',
       );
 
-      final versions = IosBundleVersions.fromBuiltPlist(plist.path);
+      final versions = testIPhoneRuntime().versions.fromBuiltPlist(plist.path);
 
       expect(versions?.shortVersion, '3.2.1');
       expect(versions?.bundleVersion, '42');
@@ -165,12 +170,14 @@ void main() {
         '</dict>',
       );
 
-      expect(IosBundleVersions.fromBuiltPlist(plist.path), isNull);
+      expect(testIPhoneRuntime().versions.fromBuiltPlist(plist.path), isNull);
     });
 
     test('returns null when the file is absent', () {
       expect(
-        IosBundleVersions.fromBuiltPlist(p.join(tmp.path, 'nope.plist')),
+        testIPhoneRuntime().versions.fromBuiltPlist(
+          p.join(tmp.path, 'nope.plist'),
+        ),
         isNull,
       );
     });

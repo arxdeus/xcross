@@ -1,9 +1,13 @@
 import 'dart:convert';
 import 'dart:io';
-
+import 'package:cli_kit/host/linux/linux_host.dart';
+import 'package:cli_kit/shared/http/local_http.dart';
 import 'package:test/test.dart';
-import 'package:xcross/src/flutter/errors.dart';
-import 'package:xcross/src/flutter/hot_reload/dart_vm_service_client.dart';
+
+import 'package:xcross/src/shared/flutter/errors.dart';
+import 'package:xcross/src/shared/flutter/hot_reload/dart_vm_service_client.dart';
+import 'package:xcross/src/shared/flutter/vm_service_connector.dart';
+import 'flutter_test_log.dart';
 
 /// The VM Service socket carries three message shapes, and the client has to
 /// tell them apart: a notification (method, no id), a request the VM makes OF
@@ -20,7 +24,12 @@ void main() {
   setUp(() async {
     server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
     socket = server.first.then(WebSocketTransformer.upgrade);
-    client = DartVmServiceClient();
+    client = DartVmServiceClient(
+      log: testFlutterLog(),
+      connector: LocalVmServiceConnector(
+        LocalHttp(LinuxHost(), createClient: HttpClient.new),
+      ),
+    );
     await client.connect(Uri.parse('ws://127.0.0.1:${server.port}/ws'));
   });
 
@@ -214,6 +223,7 @@ void main() {
           .map((raw) => jsonDecode(raw as String) as Map<String, Object?>)
           .first;
 
+      addTearDown(ws.close);
       final result = client.streamListen('Isolate');
 
       final frame = await requestFrame.timeout(const Duration(seconds: 5));

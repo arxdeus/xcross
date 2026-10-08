@@ -6,7 +6,7 @@
 .DESCRIPTION
   What this script does, in order:
 
-    1. Confirms this machine matches the published release (x64 only).
+    1. Picks the published release matching this machine (x64 or ARM64).
     2. Downloads the release zip into a temp directory.
     3. Extracts it and checks the archive contains what we expect.
     4. Replaces any previous installation with the new one.
@@ -48,8 +48,12 @@ $ErrorActionPreference = 'Stop'
 # GitHub repository that publishes the releases.
 $Repo = 'arxdeus/xcross'
 
-# The only Windows asset published today; see the architecture check below.
-$Asset = 'xcross-windows-x64.zip'
+# Windows assets published per release, keyed by native CPU architecture. The
+# one to download is picked by the architecture check below.
+$Assets = @{
+  'AMD64' = 'xcross-windows-x64.zip'
+  'ARM64' = 'xcross-windows-arm64.zip'
+}
 
 # Release to install: a tag such as 'v1.2.3', or 'latest'.
 $Version = if ($env:XCROSS_VERSION) { $env:XCROSS_VERSION } else { 'latest' }
@@ -95,12 +99,47 @@ function Fail([string]$Message) { Write-Error "error: $Message"; exit 1 }
 # Step 1 — check that this machine can run a prebuilt release
 # ---------------------------------------------------------------------------
 
-# PROCESSOR_ARCHITECTURE reports the architecture of the current process. Only
-# x64 binaries are published; on arm64 you have to build from source.
-$arch = $env:PROCESSOR_ARCHITECTURE
-if ($arch -ne 'AMD64') {
-  Fail "prebuilt Windows releases are x64-only (got: $arch); build from source"
+# PROCESSOR_ARCHITECTURE reports the architecture of the current *process*, not
+# of the machine. On ARM64 Windows an x64 (emulated) or x86 PowerShell sees
+# AMD64 or x86 there, so it alone would install the emulated build. Collect
+# every source that can reveal the native architecture instead:
+#
+#   PROCESSOR_ARCHITEW6432   set for emulated processes to the native machine
+#   Machine-scope variable   read from the registry, which is not redirected
+#   OSArchitecture           .NET's view of the OS, where the runtime has it
+#   PROCESSOR_ARCHITECTURE   the process itself, as the last resort
+#
+# ARM64 wins whenever any source reports it; otherwise x64 must be reported.
+$osArch = $null
+try {
+  $osArch = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString()
+} catch {
+  # Older .NET Framework builds lack RuntimeInformation; the other sources
+  # still decide.
 }
+$archSources = @(
+  $env:PROCESSOR_ARCHITEW6432
+  [Environment]::GetEnvironmentVariable('PROCESSOR_ARCHITECTURE', 'Machine')
+  $osArch
+  $env:PROCESSOR_ARCHITECTURE
+) | Where-Object { $_ } | ForEach-Object {
+  switch ($_.ToUpperInvariant()) {
+    'X64' { 'AMD64' }
+    default { $_ }
+  }
+}
+$arch = if ($archSources -contains 'ARM64') {
+  'ARM64'
+} elseif ($archSources -contains 'AMD64') {
+  'AMD64'
+} else {
+  $null
+}
+if (-not $arch) {
+  $seen = ($archSources | Select-Object -Unique) -join ', '
+  Fail "prebuilt Windows releases are x64 and ARM64 only (got: $seen); build from source"
+}
+$Asset = $Assets[$arch]
 Info "Detected: Windows/$arch -> $Asset"
 
 # ---------------------------------------------------------------------------
@@ -249,7 +288,7 @@ if (-not (Get-Command py -ErrorAction SilentlyContinue) -and
 
 if ($missing.Count -gt 0) {
   Write-Host ''
-  Write-Host 'Missing prerequisites (install from an Administrator PowerShell):' `
+  Write-Host 'Missing prerequisites (`xcross setup` installs them via winget, Scoop, Chocolatey or direct downloads, or run these from an Administrator PowerShell):' `
     -ForegroundColor Yellow
   $missing | ForEach-Object { Write-Host "  $_" }
 }
@@ -260,7 +299,7 @@ if ($missing.Count -gt 0) {
 
 Write-Host ''
 Write-Host 'Next steps:' -ForegroundColor Green
-Write-Host '  xcross setup                              # install pymobiledevice3 & friends'
+Write-Host '  xcross setup                              # Swift, LLVM, Python & pymobiledevice3 (winget/scoop/choco)'
 Write-Host '  xcross sdk install C:\Downloads\Xcode.xip # once'
 Write-Host '  xcross auth --apple-id you@example.com'
 Write-Host '  xcross tunnel                             # Administrator PowerShell, per reconnect'

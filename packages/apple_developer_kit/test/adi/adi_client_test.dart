@@ -1,57 +1,48 @@
-@TestOn('linux')
+@TestOn('linux || mac-os')
 library;
 
-import 'dart:ffi';
 import 'dart:io';
 
-import 'package:apple_developer_kit/apple_developer_kit.dart';
+import 'package:apple_developer_kit/shared/adi/apk_fetch.dart';
+import 'package:apple_developer_kit/src/shared/adi/adi_client.dart';
+import 'package:http/http.dart' as http;
 import 'package:test/test.dart';
 
-void main() {
-  // NOTE: this test downloads the real Apple Music APK (Apple's own
-  // native libraries; not redistributed with this package for licensing
-  // reasons — see NOTICE.md) on first run, and caches it under
-  // ~/.cache/provision_dart. It is network-dependent and will fail/be
-  // slow in offline CI sandboxes; that's expected for this phase.
-  //
-  // It does NOT exercise real Apple provisioning (no network calls to
-  // Apple's GrandSlam servers) — it only proves the download/extract/
-  // custom-ELF-load/relocate/symbol-lookup plumbing isn't broken. It does
-  // NOT run under ASan/valgrind and has not been used to validate the
-  // manual relocation logic against memory-safety tooling — see
-  // NOTICE.md; that remains required before this is trusted with real
-  // Apple ID credentials.
-  //
-  // Linux: PosixNativeLibraryLoader. Windows: covered by
-  // adi_client_windows_test.dart.
-  test(
-    'native ADI library can be fetched, manually ELF-loaded, and a known symbol resolved',
-    () async {
-      final fetcher = AdiLibraryFetcher();
-      final paths = await fetcher.ensureLibraries();
+import '../support/host_services.dart';
 
+void main() {
+  test(
+    'real ADI initializes and queries isolated unprovisioned state',
+    () async {
+      final directory = Directory.systemTemp.createTempSync(
+        'adi-native-smoke-',
+      );
+      addTearDown(() => directory.deleteSync(recursive: true));
+      final apk = Platform.environment['ADI_TEST_APK'];
+      if (apk != null) File(apk).copySync('${directory.path}/applemusic.apk');
+      final fetcher = AdiLibraryFetcher(
+        hostServices: testHostServices,
+        cacheDir: directory.path,
+        abi: testHostServices.abi,
+        createClient: http.Client.new,
+      );
+      final paths = await fetcher.ensureLibraries();
       expect(File(paths.coreAdiPath).existsSync(), isTrue);
       expect(File(paths.storeServicesPath).existsSync(), isTrue);
-      expect(paths.apkSha256, isNotEmpty);
-
-      // Full custom-loader + binding + client construction: this
-      // manually ELF-loads libstoreservicescore.so, applies relocations
-      // (exercising the dlopen-emulation path too, if
-      // libstoreservicescore.so pulls in libCoreADI.so lazily at
-      // load/relocation time — see AdiClient.fromDirectory's doc
-      // comment), and resolves all 11 ADI symbols in AdiNativeBindings'
-      // constructor. Any failure in that chain throws before `client` is
-      // ever produced — still without making any real provisioning
-      // network calls.
-      final client = AdiClient.fromDirectory(fetcher.cacheDir.path);
-      expect(client, isNotNull);
+      expect(paths.apkSha256, hasLength(64));
+      final client = AdiClient.fromDirectory(
+        fetcher.libraryDirectory.path,
+        loader: testNativeLoader(),
+        paths: testHostServices.host.paths.context,
+      );
+      final state = Directory('${directory.path}/state')..createSync();
+      client.provisioningPath = state.path;
+      client.identifier = '0123456789abcdef';
+      expect(await client.isMachineProvisioned(-2), isFalse);
     },
-    timeout: const Timeout(Duration(minutes: 2)),
-    // Apple publishes the ADI libraries as an x86_64 slice only, and the
-    // loader maps their code into this process: running it on arm64
-    // takes the whole test runner down with a SIGSEGV.
-    skip: Abi.current() == Abi.linuxX64
-        ? null
-        : 'ADI is x86_64-only (host is ${Abi.current()}).',
+    timeout: const Timeout(Duration(minutes: 5)),
+    skip: Platform.environment['ADI_NATIVE_SMOKE'] != '1'
+        ? 'Set ADI_NATIVE_SMOKE=1 for isolated real Apple APK validation.'
+        : false,
   );
 }

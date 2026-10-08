@@ -4,23 +4,32 @@ import 'dart:isolate';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
-final String _packageRoot = File.fromUri(
-  Isolate.resolvePackageUriSync(
-    Uri.parse('package:apple_developer_kit/apple_developer_kit.dart'),
-  )!,
-).parent.parent.path;
+final String _packageRoot = Directory.fromUri(
+  Isolate.resolvePackageUriSync(Uri.parse('package:apple_developer_kit/'))!,
+).parent.path;
 
-/// A bare `@Native` external resolves against an asset id equal to the URI of
-/// the library that declares it, so moving such a library without moving the
-/// asset name in `hook/build.dart` only fails at runtime, deep inside an Apple
-/// ID login: "No asset with id ...".
 void main() {
-  test('the code asset is named after the library declaring @Native', () {
+  test('host-specific native bindings retain the stable code asset id', () {
     final hook = File(p.join(_packageRoot, 'hook', 'build.dart'));
     final declared = RegExp(
       r"_assetName\s*=\s*'([^']+)'",
     ).firstMatch(hook.readAsStringSync())?.group(1);
-    expect(declared, isNotNull, reason: 'hook/build.dart declares no asset');
+    expect(
+      declared,
+      'src/host/shared/adi/loader/internal/sysv_abi_bridge.dart',
+    );
+
+    const bindings = {
+      'src/host/shared/adi/loader/internal/posix_native_bindings.dart': [
+        'provision_clear_cache',
+        'provision_posix_symbol',
+      ],
+      'src/host/windows/adi/loader/internal/windows_abi_bridge.dart': [
+        'provision_sysv_wrap_export',
+        'provision_sysv_wrap_import',
+        'provision_windows_arm64_prepare_code',
+      ],
+    };
 
     final natives = Directory(p.join(_packageRoot, 'lib'))
         .listSync(recursive: true)
@@ -34,6 +43,35 @@ void main() {
         )
         .toList();
 
-    expect(natives, [declared]);
+    expect(natives, unorderedEquals(bindings.keys));
+    expect(File(p.join(_packageRoot, 'lib', declared)).existsSync(), isFalse);
+
+    for (final entry in bindings.entries) {
+      final source = File(
+        p.join(_packageRoot, 'lib', entry.key),
+      ).readAsStringSync();
+      final annotations = RegExp(
+        r'@Native<[\s\S]+?>\(([\s\S]+?)\)\s*external',
+      ).allMatches(source).toList();
+      expect(annotations, hasLength(entry.value.length), reason: entry.key);
+      final symbols = <String>[];
+      for (final annotation in annotations) {
+        final arguments = annotation.group(1)!;
+        final assetId = RegExp(
+          r"assetId:\s*'([^']+)'",
+        ).firstMatch(arguments)?.group(1);
+        expect(
+          assetId,
+          'package:apple_developer_kit/$declared',
+          reason: entry.key,
+        );
+        final symbol = RegExp(
+          r"symbol:\s*'([^']+)'",
+        ).firstMatch(arguments)?.group(1);
+        expect(symbol, isNotNull, reason: entry.key);
+        symbols.add(symbol!);
+      }
+      expect(symbols, unorderedEquals(entry.value), reason: entry.key);
+    }
   });
 }

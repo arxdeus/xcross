@@ -2,7 +2,7 @@ import 'dart:io';
 
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
-import 'package:xcross/src/update/internal/archive_entry_path.dart';
+import 'package:xcross/src/shared/update/internal/archive_entry_path.dart';
 
 void main() {
   group('sanitize', () {

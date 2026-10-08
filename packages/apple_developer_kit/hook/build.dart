@@ -3,12 +3,10 @@ import 'dart:io';
 import 'package:code_assets/code_assets.dart';
 import 'package:hooks/hooks.dart';
 import 'package:logging/logging.dart';
+import 'package:meta/meta.dart';
 import 'package:native_toolchain_c/native_toolchain_c.dart';
 
-/// Asset id of the code asset, which must stay equal to the path of the
-/// library holding the `@Native` externals: that is the id those lookups
-/// default to, and a mismatch only shows up at runtime as "no asset with id".
-const _assetName = 'src/adi/loader/internal/sysv_abi_bridge.dart';
+const _assetName = 'src/host/shared/adi/loader/internal/sysv_abi_bridge.dart';
 
 void main(List<String> args) async {
   await build(args, (input, output) async {
@@ -16,7 +14,7 @@ void main(List<String> args) async {
 
     final logger = Logger('')
       ..level = Level.INFO
-      ..onRecord.listen((record) => print(record.message));
+      ..onRecord.listen((record) => stderr.writeln(record.message));
 
     // On Linux, PATH often puts swiftly's `clang` shim first. native_toolchain_c
     // resolveSymbolicLinks that shim to the `swiftly` binary and then invokes
@@ -27,15 +25,37 @@ void main(List<String> args) async {
       final cBuilder = CBuilder.library(
         name: 'sysv_abi_bridge',
         assetName: _assetName,
-        sources: const ['src/sysv_abi_bridge.c'],
+        sources: windowsBridgeSources(input.config.code.targetArchitecture),
       );
       await cBuilder.run(input: input, output: output, logger: logger);
+      output.dependencies.add(
+        input.packageRoot.resolve(
+          'src/host/windows/adi/windows_arm64_abi_bridge.h',
+        ),
+      );
       return;
     }
 
     await _buildWithSystemCc(input: input, output: output, logger: logger);
   });
 }
+
+@internal
+List<String> windowsBridgeSources(Architecture architecture) {
+  if (architecture != Architecture.x64 && architecture != Architecture.arm64) {
+    throw UnsupportedError('Windows ADI requires x64 or ARM64.');
+  }
+  return const ['src/host/windows/adi/windows_abi_bridge.c'];
+}
+
+/// The host-specific errno, open-flag and stat timestamp mapping compiled into
+/// the shared POSIX bridge.
+@internal
+String posixHostMappingHeader(OS targetOS) => switch (targetOS) {
+  OS.macOS => 'src/host/macos/adi/adi_posix_host_mapping.h',
+  OS.linux => 'src/host/linux/adi/adi_posix_host_mapping.h',
+  _ => throw UnsupportedError('No POSIX ADI host mapping for $targetOS.'),
+};
 
 Future<void> _buildWithSystemCc({
   required BuildInput input,
@@ -46,16 +66,30 @@ Future<void> _buildWithSystemCc({
   final outDir = Directory.fromUri(input.outputDirectory)
     ..createSync(recursive: true);
   final outFile = outDir.uri.resolve(os.dylibFileName('sysv_abi_bridge'));
-  final source = input.packageRoot.resolve('src/sysv_abi_bridge.c');
-  final cc = _resolveSystemCc();
+  final posixSource = input.packageRoot.resolve(
+    'src/host/shared/adi/posix_bridge.c',
+  );
+  final hostMapping = input.packageRoot.resolve(posixHostMappingHeader(os));
+  final targetFlags = systemCompilerFlags(
+    targetOS: os,
+    targetArchitecture: input.config.code.targetArchitecture,
+    hostOS: OS.current,
+    hostArchitecture: Architecture.current,
+  );
+  final macOSCompiler = os == OS.macOS ? await resolveMacOSCompiler() : null;
+  final cc = macOSCompiler?.executable ?? _resolveSystemCc();
 
   final args = <String>[
+    ...targetFlags,
+    if (macOSCompiler != null) ...macOSCompiler.flags,
+    '-I',
+    hostMapping.resolve('.').toFilePath(),
     '-shared',
     '-fPIC',
     '-O2',
     '-o',
     outFile.toFilePath(),
-    source.toFilePath(),
+    posixSource.toFilePath(),
   ];
   logger.info('Running `$cc ${args.join(' ')}`.');
   final result = await Process.run(cc, args);
@@ -82,7 +116,53 @@ Future<void> _buildWithSystemCc({
       file: outFile,
     ),
   );
-  output.dependencies.add(source);
+  output.dependencies.add(posixSource);
+  output.dependencies.add(hostMapping);
+}
+
+@internal
+Future<({String executable, List<String> flags})> resolveMacOSCompiler({
+  Map<String, String>? environment,
+  Future<ProcessResult> Function(
+        String,
+        List<String>, {
+        required bool includeParentEnvironment,
+        Map<String, String>? environment,
+      })
+      runProcess =
+      Process.run,
+}) async {
+  final nativeEnvironment = Map<String, String>.of(
+    environment ?? Platform.environment,
+  )..remove('SDKROOT');
+  Future<String> resolve(List<String> arguments) async {
+    final args = ['--sdk', 'macosx', ...arguments];
+    final result = await runProcess(
+      '/usr/bin/xcrun',
+      args,
+      environment: nativeEnvironment,
+      includeParentEnvironment: false,
+    );
+    if (result.exitCode != 0) {
+      throw ProcessException(
+        '/usr/bin/xcrun',
+        args,
+        result.stderr.toString(),
+        result.exitCode,
+      );
+    }
+    final path = result.stdout.toString().trim();
+    if (path.isEmpty) throw StateError('xcrun returned an empty native path.');
+    return path;
+  }
+
+  return (
+    executable: await resolve(['--find', 'clang']),
+    flags: [
+      '-isysroot',
+      await resolve(['--show-sdk-path']),
+    ],
+  );
 }
 
 /// Prefer absolute system compilers that are not swiftly shims.
@@ -91,7 +171,7 @@ String _resolveSystemCc() {
   // has no /usr/bin at all), so search PATH generically instead, filtering
   // out the swiftly clang shim by the same symlink check as before.
   final pathEnv = Platform.environment['PATH'] ?? '';
-  final dirs = pathEnv.split(Platform.isWindows ? ';' : ':');
+  final dirs = pathEnv.split(':');
 
   for (final name in const ['cc', 'gcc', 'clang']) {
     for (final dir in dirs) {
@@ -107,4 +187,35 @@ String _resolveSystemCc() {
     'No usable system C compiler found (cc|gcc|clang) on PATH. '
     "Install build-essential, or remove swiftly's clang shim from PATH.",
   );
+}
+
+@internal
+List<String> systemCompilerFlags({
+  required OS targetOS,
+  required Architecture targetArchitecture,
+  required OS hostOS,
+  required Architecture hostArchitecture,
+}) {
+  if (targetOS != hostOS || (targetOS != OS.macOS && targetOS != OS.linux)) {
+    throw UnsupportedError(
+      'ADI native bridge requires a matching Linux or macOS build host.',
+    );
+  }
+  if (targetArchitecture != Architecture.x64 &&
+      targetArchitecture != Architecture.arm64) {
+    throw UnsupportedError(
+      'Unsupported ADI target architecture: $targetArchitecture',
+    );
+  }
+  if (targetOS == OS.linux && targetArchitecture != hostArchitecture) {
+    throw UnsupportedError(
+      'ADI Linux cross-compilation requires a target toolchain.',
+    );
+  }
+  return [
+    if (targetOS == OS.macOS) ...[
+      '-arch',
+      if (targetArchitecture == Architecture.arm64) 'arm64' else 'x86_64',
+    ],
+  ];
 }

@@ -1,12 +1,19 @@
 import 'dart:io';
 
+import 'package:darwin_sdk_kit/target/iphone/iphone_build_platform.dart';
+import 'package:darwin_sdk_kit/target/simulator/simulator_build_platform.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
-import 'package:xcross/src/device/internal/embedded_extension.dart';
-import 'package:xcross/src/flutter/build/app_extension_builder.dart';
-import 'package:xcross/src/flutter/build/ios_app_extensions.dart';
-import 'package:xcross/src/flutter/build/ios_bundle_versions.dart';
-import 'package:xcross/src/flutter/build/ios_deployment_target.dart';
+import 'package:xcross/src/shared/artifact/embedded_extension.dart';
+import 'package:xcross/src/shared/flutter/build/app_extension_builder.dart';
+import 'package:xcross/src/shared/flutter/build/ios_app_extensions.dart';
+import 'package:xcross/src/shared/flutter/build/ios_bundle_versions.dart';
+import 'package:xcross/src/shared/flutter/build/ios_deployment_target.dart';
+import 'package:xcross/src/shared/flutter/extensions/app_extension_plist.dart';
+import 'package:xcross/src/shared/flutter/extensions/app_extension_resources.dart';
+
+import '../flutter_test_runtime.dart';
 
 IosAppExtension _extension({
   String name = 'Share Extension',
@@ -29,6 +36,35 @@ IosAppExtension _extension({
 );
 
 void main() {
+  test(
+    'compiles extension for ARM64 simulator with simulator linker platform',
+    () {
+      final args = AppExtensionBuilder.compileArguments(
+        iosSdk: '/sim-sdk',
+        resourceDir: '/swift',
+        sources: ['/Extension.swift'],
+        outputPath: '/Extension',
+        deploymentTarget: const IosDeploymentTarget(
+          '16.0',
+          platform: SimulatorBuildPlatform(),
+        ),
+        flutterSlice: '/simulator',
+        moduleCache: '/cache',
+        ld64lld: '/ld64.lld',
+        sdkVersion: '26.5',
+        moduleName: 'Extension',
+      );
+      expect(
+        args,
+        containsAllInOrder(['-target', 'arm64-apple-ios16.0-simulator']),
+      );
+      expect(
+        args,
+        containsAllInOrder(['-platform_version', '-Xlinker', 'ios-simulator']),
+      );
+    },
+  );
+
   group('compileArguments', () {
     List<String> argumentsWith({
       String? pluginsLibrary,
@@ -39,7 +75,10 @@ void main() {
       resourceDir: '/sdk/toolchain/usr/lib/swift',
       sources: const ['/ios/Share Extension/ShareViewController.swift'],
       outputPath: '/out/Share Extension.appex/Share Extension',
-      deploymentTarget: const IosDeploymentTarget('15.0'),
+      deploymentTarget: const IosDeploymentTarget(
+        '15.0',
+        platform: IPhoneBuildPlatform(),
+      ),
       flutterSlice: '/engine/Flutter.xcframework/ios-arm64',
       moduleCache: '/out/.module-cache',
       moduleName: moduleName,
@@ -143,7 +182,7 @@ void main() {
 
   group('expandExtensionVars', () {
     test('substitutes the app group into CUSTOM_GROUP_ID', () {
-      final xml = AppExtensionBuilder.expandExtensionVars(
+      final xml = AppExtensionPlist.expandExtensionVars(
         r'<key>AppGroupId</key><string>$(CUSTOM_GROUP_ID)</string>',
         extension: _extension(appGroups: const ['group.com.example.Shared']),
       );
@@ -152,7 +191,7 @@ void main() {
     });
 
     test('substitutes the bundle identifier', () {
-      final xml = AppExtensionBuilder.expandExtensionVars(
+      final xml = AppExtensionPlist.expandExtensionVars(
         r'<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>',
         extension: _extension(),
       );
@@ -164,10 +203,7 @@ void main() {
       const source = r'<string>$(CUSTOM_GROUP_ID)</string>';
 
       expect(
-        AppExtensionBuilder.expandExtensionVars(
-          source,
-          extension: _extension(),
-        ),
+        AppExtensionPlist.expandExtensionVars(source, extension: _extension()),
         source,
       );
     });
@@ -175,7 +211,7 @@ void main() {
 
   group('replaceStoryboardWithPrincipalClass', () {
     test('swaps the storyboard for the module-qualified principal class', () {
-      final xml = AppExtensionBuilder.replaceStoryboardWithPrincipalClass(
+      final xml = testExtensionResources().replaceStoryboardWithPrincipalClass(
         '<dict>\n'
         '\t\t<key>NSExtensionMainStoryboard</key>\n'
         '\t\t<string>MainInterface</string>\n'
@@ -197,7 +233,7 @@ void main() {
           '<string>Custom.Controller</string></dict>';
 
       expect(
-        AppExtensionBuilder.replaceStoryboardWithPrincipalClass(
+        testExtensionResources().replaceStoryboardWithPrincipalClass(
           source,
           extension: _extension(),
         ),
@@ -211,7 +247,7 @@ void main() {
           '<string>MainInterface</string></dict>';
 
       expect(
-        AppExtensionBuilder.replaceStoryboardWithPrincipalClass(
+        testExtensionResources().replaceStoryboardWithPrincipalClass(
           source,
           extension: _extension(sources: const ['/ios/Helpers.swift']),
         ),
@@ -223,12 +259,15 @@ void main() {
   group('buildAll', () {
     test('skips a non-Swift extension instead of failing the app', () async {
       // An Objective-C extension target must not sink the whole app build.
-      final built = await AppExtensionBuilder.buildAll(
+      final built = await testExtensionBuilder().buildAll(
         projectRoot: '/project',
         extensions: [
           _extension(sources: const ['/ios/Share Extension/View.m']),
         ],
-        deploymentTarget: const IosDeploymentTarget('15.0'),
+        deploymentTarget: const IosDeploymentTarget(
+          '15.0',
+          platform: IPhoneBuildPlatform(),
+        ),
         outputDir: '/out',
         flutterXcframework: '/engine/Flutter.xcframework',
         versions: IosBundleVersions.fallback,
@@ -239,10 +278,13 @@ void main() {
 
     test('does nothing for a project with no extensions', () async {
       expect(
-        await AppExtensionBuilder.buildAll(
+        await testExtensionBuilder().buildAll(
           projectRoot: '/project',
           extensions: const [],
-          deploymentTarget: const IosDeploymentTarget('15.0'),
+          deploymentTarget: const IosDeploymentTarget(
+            '15.0',
+            platform: IPhoneBuildPlatform(),
+          ),
           outputDir: '/out',
           flutterXcframework: '/engine/Flutter.xcframework',
           versions: IosBundleVersions.fallback,
@@ -264,10 +306,13 @@ void main() {
       await File(p.join(dir.path, 'Info.plist')).writeAsString(xml);
 
       // The sign/install stage recovers the groups without the Xcode project.
-      expect(AppExtensionEntitlements.appGroupsOf(dir.path), [
-        'group.com.example.Shared',
-        'group.com.example.Other',
-      ]);
+      expect(
+        AppExtensionEntitlements(
+          fileSystem: testIPhoneRuntime().host.fileSystem,
+          paths: testIPhoneRuntime().host.paths,
+        ).appGroupsOf(dir.path),
+        ['group.com.example.Shared', 'group.com.example.Other'],
+      );
     });
 
     test('leaves the plist untouched when there are no groups', () {
@@ -361,7 +406,7 @@ void main() {
         '"key" = "german";',
       );
 
-      await AppExtensionBuilder.copyResources(
+      await testExtensionResources().copyResources(
         extension: _extension(resources: [english, german]),
         bundleDir: bundle.path,
       );
@@ -385,7 +430,7 @@ void main() {
     test('copies unlocalized resources to the bundle root', () async {
       final resource = await writeResource('config.json', '{}');
 
-      await AppExtensionBuilder.copyResources(
+      await testExtensionResources().copyResources(
         extension: _extension(resources: [resource]),
         bundleDir: bundle.path,
       );
@@ -404,7 +449,7 @@ void main() {
       await compiled.create(recursive: true);
       await File(p.join(compiled.path, 'Info.plist')).writeAsString('<plist/>');
 
-      await AppExtensionBuilder.copyResources(
+      await testExtensionResources().copyResources(
         extension: _extension(resources: [storyboard]),
         bundleDir: bundle.path,
       );
@@ -428,7 +473,7 @@ void main() {
         '<document/>',
       );
 
-      await AppExtensionBuilder.copyResources(
+      await testExtensionResources().copyResources(
         extension: _extension(resources: [storyboard]),
         bundleDir: bundle.path,
       );
@@ -439,4 +484,25 @@ void main() {
       );
     });
   });
+}
+
+@internal
+AppExtensionResources testExtensionResources() {
+  final runtime = testIPhoneRuntime();
+  return AppExtensionResources(
+    fileSystem: runtime.host.fileSystem,
+    log: runtime.runner.log,
+  );
+}
+
+@internal
+AppExtensionBuilder testExtensionBuilder() {
+  final runtime = testIPhoneRuntime();
+  return AppExtensionBuilder(
+    runtime,
+    AppExtensionResources(
+      fileSystem: runtime.host.fileSystem,
+      log: runtime.runner.log,
+    ),
+  );
 }

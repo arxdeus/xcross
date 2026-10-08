@@ -1,14 +1,24 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit.dart';
+import 'package:cli_kit/host/linux/linux_host.dart';
+import 'package:cli_kit/host/macos/macos_host.dart';
+import 'package:cli_kit/host/windows/windows_host.dart';
+import 'package:cli_kit/shared/download/download.dart';
+import 'package:cli_kit/shared/process/process_models.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
-import 'package:xcross/src/errors.dart';
-import 'package:xcross/src/update/install_layout.dart';
-import 'package:xcross/src/update/self_update.dart';
-import 'package:xcross/src/update/update_check.dart';
-import 'package:xcross/src/update/update_progress.dart';
+import 'package:xcross/src/host/linux/update/linux_update_policy.dart';
+import 'package:xcross/src/host/macos/update/macos_update_policy.dart';
+import 'package:xcross/src/host/windows/update/windows_update_policy.dart';
+import 'package:xcross/src/shared/errors/errors.dart';
+import 'package:xcross/src/shared/update/install_layout.dart';
+import 'package:xcross/src/shared/update/self_update.dart';
+import 'package:xcross/src/shared/update/update_check.dart';
+import 'package:xcross/src/shared/update/update_progress.dart';
+
+import '../host_operations_fixtures.dart';
+import 'file_swap_fixtures.dart';
 
 String _exeName() => Platform.isWindows ? 'xcross.exe' : 'xcross';
 
@@ -17,7 +27,7 @@ Future<List<String>> _captureAsync(Future<void> Function() body) async {
   await runZoned(
     body,
     zoneSpecification: ZoneSpecification(
-      print: (_, __, ___, line) => lines.add(line),
+      print: (_, _, _, line) => lines.add(line),
     ),
   );
   return lines;
@@ -31,6 +41,61 @@ typedef _RunRequest = ({
 });
 
 void main() {
+  test('release matrix preserves Linux and Windows x64 and arm64', () {
+    for (final architecture in ['x64', 'arm64']) {
+      final host = LinuxHost(architecture: architecture);
+      expect(
+        LinuxUpdatePolicy(
+          host,
+          fixtureRunner(host, log: fixtureLog()),
+          FixturePrivileges(),
+        ).releaseAsset(),
+        'xcross-linux-$architecture.tar.gz',
+      );
+      expect(
+        WindowsUpdatePolicy(
+          WindowsHost(architecture: architecture),
+          FixturePrivileges(),
+        ).releaseAsset(),
+        'xcross-windows-$architecture.zip',
+      );
+    }
+    for (final architecture in ['ia32', 'arm', 'unknown']) {
+      expect(
+        () => WindowsUpdatePolicy(
+          WindowsHost(architecture: architecture),
+          FixturePrivileges(),
+        ).releaseAsset(),
+        throwsA(
+          isA<XcrossError>().having(
+            (error) => error.toString(),
+            'message',
+            contains('windows/$architecture'),
+          ),
+        ),
+      );
+    }
+    final mac = MacOSHost(architecture: 'arm64');
+    expect(
+      () => MacOSUpdatePolicy(
+        mac,
+        fixtureRunner(mac, log: fixtureLog()),
+        FixturePrivileges(),
+      ).releaseAsset(),
+      throwsA(isA<XcrossError>()),
+    );
+    final linux = LinuxHost();
+    expect(
+      () => LinuxUpdatePolicy(
+        linux,
+        fixtureRunner(linux, log: fixtureLog()),
+        FixturePrivileges(),
+      ).releaseAsset(),
+      throwsA(isA<XcrossError>()),
+    );
+  });
+
+  late SelfUpdate updater;
   late Directory root;
   late Directory prefix;
   late Directory bundle;
@@ -59,12 +124,24 @@ void main() {
         ..writeAsStringSync(contents);
 
   setUp(() {
+    final host = LinuxHost();
+    final runner = fixtureRunner(host, log: fixtureLog());
+    updater = SelfUpdate(
+      host: host,
+      runner: runner,
+      downloader: Downloader(
+        createClient: () => throw StateError('unexpected download'),
+        log: runner.log,
+      ),
+      policy: LinuxUpdatePolicy(host, runner, FixturePrivileges()),
+    );
     root = Directory.systemTemp.createTempSync('xcross-self-update-');
     prefix = Directory(p.join(root.path, 'install'));
     Directory(p.join(prefix.path, 'bin')).createSync(recursive: true);
     Directory(p.join(prefix.path, 'lib')).createSync(recursive: true);
     bundle = Directory(p.join(root.path, 'bundle'))..createSync();
     layout = InstallLayout(
+      host: host,
       binaryPath: p.join(prefix.path, 'bin', _exeName()),
       binDir: p.join(prefix.path, 'bin'),
       libDir: p.join(prefix.path, 'lib'),
@@ -90,11 +167,66 @@ void main() {
     return result;
   }
 
+  test(
+    'verification failure restores remapped installed executable and libraries',
+    () async {
+      final mapped = FixtureRemappedOperations(root);
+      mapped.file('/logical/bin/xcross').writeAsStringSync('old xcross');
+      mapped.file('/logical/bin/xcrun').writeAsStringSync('old xcrun');
+      mapped.file('/logical/lib/fixture.so').writeAsStringSync('old library');
+      bundleBin('new xcross');
+      bundleLib('fixture.so', 'new library');
+      final host = LinuxHost(fileSystem: FixtureMappedFileSystem(root));
+      final runner = fixtureRunner(host, log: fixtureLog());
+      final updater = SelfUpdate(
+        host: host,
+        runner: runner,
+        policy: LinuxUpdatePolicy(host, runner, FixturePrivileges()),
+        downloader: Downloader(
+          createClient: () => throw StateError('unexpected download'),
+          log: runner.log,
+        ),
+      );
+      final layout = InstallLayout(
+        host: host,
+        binaryPath: '/logical/bin/xcross',
+        binDir: '/logical/bin',
+        libDir: '/logical/lib',
+      );
+      await expectLater(
+        _installBundle(
+          updater,
+          bundleRoot: bundle,
+          layout: layout,
+          label: 'fixture',
+          runProcess:
+              ({
+                required executable,
+                required arguments,
+                required environment,
+                required timeout,
+              }) async =>
+                  const CapturedProcess(37, '', 'fixture verification denied'),
+        ),
+        throwsA(isA<XcrossError>()),
+      );
+      expect(
+        mapped.file('/logical/bin/xcross').readAsStringSync(),
+        'old xcross',
+      );
+      expect(mapped.file('/logical/bin/xcrun').readAsStringSync(), 'old xcrun');
+      expect(
+        mapped.file('/logical/lib/fixture.so').readAsStringSync(),
+        'old library',
+      );
+    },
+  );
+
   test('consumes the final source install and verify phases', () async {
     bundleBin('new-bin');
     bundleLib('libkeep.so', 'new-lib');
 
-    final progress = UpdateProgress('Source', 7);
+    final progress = UpdateProgress('Source', 7, log: fixtureLog());
     for (final action in const [
       'Clone repository',
       'Fetch commit',
@@ -106,7 +238,8 @@ void main() {
     }
 
     final lines = await _captureAsync(() async {
-      await SelfUpdate.installBundle(
+      await _installBundle(
+        updater,
         bundleRoot: bundle,
         layout: layout,
         label: 'xcross main',
@@ -147,7 +280,8 @@ void main() {
     bundleBin('new-bin');
     bundleLib('libkeep.so', 'new-lib');
 
-    await SelfUpdate.installBundle(
+    await _installBundle(
+      updater,
       bundleRoot: bundle,
       layout: layout,
       label: 'source build',
@@ -197,7 +331,8 @@ void main() {
     bundleLib('libnew.so', 'fresh-lib');
 
     await expectLater(
-      SelfUpdate.installBundle(
+      _installBundle(
+        updater,
         bundleRoot: bundle,
         layout: layout,
         label: 'source build',
@@ -236,7 +371,8 @@ void main() {
     bundleBin('new-bin');
     bundleLib('libkeep.so', 'new-lib');
 
-    await SelfUpdate.installBundle(
+    await _installBundle(
+      updater,
       bundleRoot: bundle,
       layout: layout,
       label: 'source build',
@@ -278,7 +414,8 @@ void main() {
     'release verification still requires the exact expected identity',
     () async {
       await expectLater(
-        SelfUpdate.verifyInstalledBinary(
+        _verifyInstalledBinary(
+          updater,
           layout: layout,
           label: 'xcross 1.2.3',
           expectedIdentity: 'v1.2.3',
@@ -307,7 +444,8 @@ void main() {
   );
 
   test('release verification normalizes a v-prefixed tag', () async {
-    await SelfUpdate.verifyInstalledBinary(
+    await _verifyInstalledBinary(
+      updater,
       layout: layout,
       label: 'xcross v1.2.3',
       expectedIdentity: 'v1.2.3',
@@ -331,7 +469,8 @@ void main() {
   });
 
   test('source verification requires the exact arbitrary identity', () async {
-    await SelfUpdate.verifyInstalledBinary(
+    await _verifyInstalledBinary(
+      updater,
       layout: layout,
       label: 'xcross main',
       expectedIdentity: 'main',
@@ -348,7 +487,8 @@ void main() {
 
   test('source verification rejects a mismatched arbitrary identity', () async {
     await expectLater(
-      SelfUpdate.verifyInstalledBinary(
+      _verifyInstalledBinary(
+        updater,
         layout: layout,
         label: 'xcross main',
         expectedIdentity: 'main',
@@ -370,7 +510,8 @@ void main() {
 
   test('source verification rejects a released marker mismatch', () async {
     await expectLater(
-      SelfUpdate.verifyInstalledBinary(
+      _verifyInstalledBinary(
+        updater,
         layout: layout,
         label: 'xcross 1.2.3',
         expectedIdentity: '1.2.3',
@@ -399,7 +540,8 @@ void main() {
     bundleLib('libnew.so', 'fresh-lib');
 
     await expectLater(
-      SelfUpdate.installBundle(
+      _installBundle(
+        updater,
         bundleRoot: bundle,
         layout: layout,
         label: 'xcross main',
@@ -440,7 +582,8 @@ void main() {
     bundleLib('libkeep.so', 'new-lib');
 
     await expectLater(
-      SelfUpdate.installBundle(
+      _installBundle(
+        updater,
         bundleRoot: bundle,
         layout: layout,
         label: 'xcross 1.2.3',
@@ -474,3 +617,48 @@ void main() {
     );
   });
 }
+
+SelfUpdate _configuredUpdater(
+  SelfUpdate updater,
+  UpdateVerificationProcess? verifyProcess,
+) => SelfUpdate(
+  host: updater.host,
+  runner: updater.runner,
+  policy: updater.policy,
+  downloader: updater.downloader,
+  verifyProcess: verifyProcess,
+);
+
+Future<CapturedProcess> _verifyInstalledBinary(
+  SelfUpdate updater, {
+  required InstallLayout layout,
+  required String label,
+  String? expectedIdentity,
+  bool expectedReleased = false,
+  UpdateProgress? progress,
+  UpdateVerificationProcess? runProcess,
+}) => _configuredUpdater(updater, runProcess).verifyInstalledBinary(
+  layout: layout,
+  label: label,
+  expectedIdentity: expectedIdentity,
+  expectedReleased: expectedReleased,
+  progress: progress,
+);
+
+Future<void> _installBundle(
+  SelfUpdate updater, {
+  required Directory bundleRoot,
+  required InstallLayout layout,
+  required String label,
+  String? expectedIdentity,
+  bool expectedReleased = false,
+  UpdateProgress? progress,
+  UpdateVerificationProcess? runProcess,
+}) => _configuredUpdater(updater, runProcess).installBundle(
+  bundleRoot: bundleRoot,
+  layout: layout,
+  label: label,
+  expectedIdentity: expectedIdentity,
+  expectedReleased: expectedReleased,
+  progress: progress,
+);

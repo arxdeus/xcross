@@ -1,16 +1,22 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:apple_developer_kit/src/secure/local_cipher.dart';
+import 'package:apple_developer_kit/shared/secure/local_cipher.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
+
+import '../support/host_services.dart';
 
 void main() {
   late Directory tempDir;
   late String keyPath;
 
   LocalCipher cipher({String machineId = 'machine-a', String? keyFilePath}) =>
-      LocalCipher(keyFilePath: keyFilePath ?? keyPath, machineId: machineId);
+      LocalCipher(
+        keyFilePath: keyFilePath ?? keyPath,
+        machineId: machineId,
+        hostServices: testHostServices,
+      );
 
   setUp(() {
     tempDir = Directory.systemTemp.createTempSync('xcross_local_cipher');

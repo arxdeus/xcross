@@ -1,0 +1,21 @@
+name: repo_analyzer
+description: >-
+  Internal analyzer plugin that enforces the xcross workspace architecture
+  (platform composition, layering, dependency injection, and visibility).
+version: 0.1.0
+publish_to: none
+
+environment:
+  sdk: ^3.10.0
+
+resolution: workspace
+
+dependencies:
+  analysis_server_plugin: 0.3.18
+  analyzer: 13.3.0
+
+dev_dependencies:
+  analyzer_testing: 0.3.2
+  arxdeus_lints: ^1.0.1
+  test: ^1.25.0
+  test_reflective_loader: ^0.2.0

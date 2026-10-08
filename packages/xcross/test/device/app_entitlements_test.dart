@@ -1,12 +1,22 @@
 import 'dart:io';
 
+import 'package:cli_kit/host/macos/macos_host.dart';
 import 'package:path/path.dart' as p;
 import 'package:propertylistserialization/propertylistserialization.dart';
 import 'package:test/test.dart';
-import 'package:xcross/src/device/internal/app_capabilities.dart';
-import 'package:xcross/src/device/internal/app_entitlements.dart';
+import 'package:xcross/src/shared/artifact/app_capabilities.dart';
+import 'package:xcross/src/shared/artifact/app_entitlements.dart';
 
 void main() {
+  final host = MacOSHost();
+  final entitlements = AppEntitlements(
+    fileSystem: host.fileSystem,
+    paths: host.paths,
+  );
+  final capabilities = AppCapabilities(
+    fileSystem: host.fileSystem,
+    paths: host.paths,
+  );
   late Directory temporaryDirectory;
 
   setUp(() {
@@ -41,7 +51,7 @@ void main() {
         }),
       );
 
-      expect(AppEntitlements.of(app), {
+      expect(entitlements.of(app), {
         'com.apple.developer.associated-domains': [
           'webcredentials:example.com',
         ],
@@ -61,7 +71,7 @@ void main() {
         data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes),
       );
 
-      expect(AppEntitlements.of(app.path), isEmpty);
+      expect(entitlements.of(app.path), isEmpty);
     });
 
     test('returns nothing for a plist without an XML declaration', () {
@@ -74,20 +84,20 @@ void main() {
         '</plist>\n',
       );
 
-      expect(AppEntitlements.of(app), isEmpty);
+      expect(entitlements.of(app), isEmpty);
     });
 
     test('returns nothing for an unparseable plist that names the key', () {
       final app = appWith('this is not a plist $AppEntitlements');
 
-      expect(AppEntitlements.of(app), isEmpty);
+      expect(entitlements.of(app), isEmpty);
     });
 
     test('returns nothing when there is no Info.plist at all', () {
       final app = Directory(p.join(temporaryDirectory.path, 'Empty.app'))
         ..createSync(recursive: true);
 
-      expect(AppEntitlements.of(app.path), isEmpty);
+      expect(entitlements.of(app.path), isEmpty);
     });
   });
 
@@ -100,7 +110,7 @@ void main() {
         }),
       );
 
-      expect(AppCapabilities.of(app), ['APPLE_ID_AUTH', 'ASSOCIATED_DOMAINS']);
+      expect(capabilities.of(app), ['APPLE_ID_AUTH', 'ASSOCIATED_DOMAINS']);
     });
 
     test('returns nothing for a bundle that has no such key', () {
@@ -110,7 +120,7 @@ void main() {
         }),
       );
 
-      expect(AppCapabilities.of(app), isEmpty);
+      expect(capabilities.of(app), isEmpty);
     });
   });
 }

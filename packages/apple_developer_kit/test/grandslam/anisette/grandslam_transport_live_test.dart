@@ -2,18 +2,24 @@
 // Never loads account credentials, ADI libraries or persisted Anisette state.
 import 'dart:io';
 
-import 'package:apple_developer_kit/apple_developer_kit.dart';
-import 'package:apple_developer_kit/src/grandslam/anisette/anisette_headers.dart';
+import 'package:apple_developer_kit/shared/grandslam/anisette/anisette_state.dart';
+import 'package:apple_developer_kit/shared/grandslam/anisette/grandslam_endpoints.dart';
+import 'package:apple_developer_kit/shared/http/apple_http_client.dart';
+import 'package:apple_developer_kit/src/shared/grandslam/anisette/anisette_headers.dart';
+import 'package:meta/meta.dart';
 import 'package:test/test.dart';
 
 void main() {
   test(
     'real GrandSlam lookup uses a fresh TLS connection for each request',
     () async {
-      final connections = _CountingConnections();
+      final connections = CountingConnections();
       await HttpOverrides.runWithHttpOverrides(() async {
         // Same client factory and request sender used by xcross auth.
-        final client = AppleHttp.createAppleHttpClient();
+        final client = AppleHttpClientFactory(
+          createSecurityContext: () => SecurityContext(withTrustedRoots: true),
+          createHttpClient: (context) => HttpClient(context: context),
+        ).createClient();
         addTearDown(client.close);
         for (var i = 0; i < 2; i++) {
           final endpoints = await GrandSlamEndpoints.fetchGrandSlamEndpoints(
@@ -22,6 +28,7 @@ void main() {
               const AnisetteState(
                 localUserUid: '9A9023E0-923A-4A84-A76D-41EB56C3F1B2',
               ),
+              localeName: 'en_US',
             ),
           );
           expect(Uri.parse(endpoints.gsService).scheme, 'https');
@@ -41,7 +48,8 @@ void main() {
   );
 }
 
-final class _CountingConnections extends HttpOverrides {
+@internal
+final class CountingConnections extends HttpOverrides {
   int opened = 0;
 
   @override

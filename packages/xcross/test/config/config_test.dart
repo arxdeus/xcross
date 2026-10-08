@@ -1,8 +1,17 @@
 import 'dart:io';
 
+import 'package:cli_kit/composition/native_host.dart';
+import 'package:cli_kit/host/linux/linux_host.dart';
+import 'package:cli_kit/host/windows/windows_host.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
-import 'package:xcross/xcross.dart';
+import 'package:xcross/src/host/shared/config/posix_config_host.dart';
+import 'package:xcross/src/host/windows/config/windows_config_host.dart';
+import 'package:xcross/src/shared/config/config.dart';
+import 'package:xcross/src/shared/config/config_decoder.dart';
+import 'package:xcross/src/shared/config/config_store.dart';
+
+import '../cli/auth_fixture.dart';
 
 void main() {
   late Directory temporary;
@@ -43,7 +52,8 @@ environment:
     final config = XcrossConfig.parse(
       valid,
       environment: const {'HOME': '/home/test'},
-      windows: false,
+      host: LinuxHost(),
+      policy: const PosixConfigHost(),
     );
 
     expect(config.roots.flutterSdk, '/home/test/flutter');
@@ -88,7 +98,8 @@ environment:
         XcrossConfig.parse(
           '{}',
           environment: const {},
-          windows: false,
+          host: LinuxHost(),
+          policy: const PosixConfigHost(),
         ).roots.toMap(),
         isEmpty,
       );
@@ -96,7 +107,8 @@ environment:
         XcrossConfig.parse(
           'roots:\n  flutterSdk: /opt/flutter\n',
           environment: const {},
-          windows: false,
+          host: LinuxHost(),
+          policy: const PosixConfigHost(),
         ).roots.flutterSdk,
         '/opt/flutter',
       );
@@ -117,8 +129,12 @@ environment:
         'environment:\n  TMPDIR: /tmp\n',
       ]) {
         expect(
-          () =>
-              XcrossConfig.parse(source, environment: const {}, windows: false),
+          () => XcrossConfig.parse(
+            source,
+            environment: const {},
+            host: LinuxHost(),
+            policy: const PosixConfigHost(),
+          ),
           throwsA(isA<XcrossConfigException>()),
           reason: source,
         );
@@ -135,7 +151,8 @@ environment:
           'ROOT': r'$HOME/root',
           'JAVA_HOME': '/j',
         },
-        windows: false,
+        host: LinuxHost(),
+        policy: const PosixConfigHost(),
       ),
       '/h/sdk//h/root//j/%APPDATA%',
     );
@@ -143,7 +160,8 @@ environment:
       expandNativeEnvironment(
         r'C:\%USERPROFILE%\$HOME',
         environment: const {'USERPROFILE': r'C:\Users\me'},
-        windows: true,
+        host: WindowsHost(),
+        policy: const WindowsConfigHost(),
       ),
       r'C:\C:\Users\me\$HOME',
     );
@@ -151,7 +169,8 @@ environment:
       () => expandNativeEnvironment(
         r'$A',
         environment: const {'A': r'$B', 'B': r'$A'},
-        windows: false,
+        host: LinuxHost(),
+        policy: const PosixConfigHost(),
       ),
       throwsA(isA<XcrossConfigException>()),
     );
@@ -159,7 +178,8 @@ environment:
       () => expandNativeEnvironment(
         r'$MISSING',
         environment: const {},
-        windows: false,
+        host: LinuxHost(),
+        policy: const PosixConfigHost(),
       ),
       throwsA(isA<XcrossConfigException>()),
     );
@@ -183,7 +203,8 @@ environment:
       () => XcrossConfig.parse(
         'environment:\n  HOME: /home/child\n',
         environment: const {},
-        windows: false,
+        host: LinuxHost(),
+        policy: const PosixConfigHost(),
       ),
       throwsA(isA<XcrossConfigException>()),
     );
@@ -203,7 +224,12 @@ environment:
       'setup: relative/setup.sh\n',
     ]) {
       expect(
-        () => XcrossConfig.parse(source, environment: const {}, windows: false),
+        () => XcrossConfig.parse(
+          source,
+          environment: const {},
+          host: LinuxHost(),
+          policy: const PosixConfigHost(),
+        ),
         throwsA(isA<XcrossConfigException>()),
         reason: source,
       );
@@ -213,14 +239,27 @@ environment:
   test(
     'validate requires absolute roots but permits absent root directories',
     () {
-      XcrossConfig(
-        roots: const XcrossConfigRoots(flutterSdk: '/missing/flutter'),
-      ).validate(windows: false);
+      XcrossConfigValidator(
+        fileSystem: LinuxHost().fileSystem,
+        pathContext: LinuxHost().paths.context,
+        policy: const PosixConfigHost(),
+      ).validate(
+        XcrossConfig(
+          roots: const XcrossConfigRoots(flutterSdk: '/missing/flutter'),
+        ),
+      );
 
       expect(
-        () => XcrossConfig(
-          roots: const XcrossConfigRoots(flutterSdk: 'relative/flutter'),
-        ).validate(windows: false),
+        () =>
+            XcrossConfigValidator(
+              fileSystem: LinuxHost().fileSystem,
+              pathContext: LinuxHost().paths.context,
+              policy: const PosixConfigHost(),
+            ).validate(
+              XcrossConfig(
+                roots: const XcrossConfigRoots(flutterSdk: 'relative/flutter'),
+              ),
+            ),
         throwsA(isA<XcrossConfigException>()),
       );
     },
@@ -231,7 +270,8 @@ environment:
       XcrossConfig.parse(
         'toolchains:\n  llvm: /opt/llvm/bin\n',
         environment: const {},
-        windows: false,
+        host: LinuxHost(),
+        policy: const PosixConfigHost(),
       ).toolchains.llvm,
       ['/opt/llvm/bin'],
     );
@@ -241,11 +281,41 @@ environment:
       'toolchains:\n  llvm: 42\n',
     ]) {
       expect(
-        () => XcrossConfig.parse(source, environment: const {}, windows: false),
+        () => XcrossConfig.parse(
+          source,
+          environment: const {},
+          host: LinuxHost(),
+          policy: const PosixConfigHost(),
+        ),
         throwsA(isA<XcrossConfigException>()),
       );
     }
   });
+
+  for (final style in [p.Style.posix, p.Style.windows]) {
+    test('tool validation acquires selected file stat on $style', () {
+      final fixture = AuthNamespaceFixture(style: style);
+      addTearDown(fixture.dispose);
+      final tool = fixture.path('tool.exe');
+      fixture.fileSystem.file(tool).writeAsStringSync('fixture');
+      final decoder = XcrossConfigDecoder(
+        document: {
+          'tools': {'tool': tool},
+        },
+        sourcePath: null,
+        environment: const {},
+        host: fixture.host,
+        policy: const WindowsConfigHost(),
+      );
+      fixture.fileSystem.acquisitions.clear();
+      expect(decoder.decode().tool('tool'), tool);
+      expect(fixture.fileSystem.acquisitions, [tool]);
+      fixture.fileSystem.file(tool).deleteSync();
+      expect(decoder.decode, throwsA(isA<XcrossConfigException>()));
+      fixture.fileSystem.directory(tool).createSync();
+      expect(decoder.decode, throwsA(isA<XcrossConfigException>()));
+    });
+  }
 
   test('validate requires tools to be regular executable files', () {
     final executable = File(
@@ -254,52 +324,140 @@ environment:
     if (!Platform.isWindows) {
       Process.runSync('chmod', ['755', executable.path]);
     }
-    XcrossConfig(
-      tools: {'tool': executable.path},
-    ).validate(windows: Platform.isWindows);
+    XcrossConfigValidator(
+      fileSystem: detectPlatformHost().fileSystem,
+      pathContext: detectPlatformHost().paths.context,
+      policy: const PosixConfigHost(),
+    ).validate(XcrossConfig(tools: {'tool': executable.path}));
 
     final plain = File(p.join(temporary.path, 'plain'))
       ..writeAsStringSync('plain');
     expect(
-      () => XcrossConfig(tools: {'plain': plain.path}).validate(windows: false),
+      () => XcrossConfigValidator(
+        fileSystem: LinuxHost().fileSystem,
+        pathContext: LinuxHost().paths.context,
+        policy: const PosixConfigHost(),
+      ).validate(XcrossConfig(tools: {'plain': plain.path})),
       throwsA(isA<XcrossConfigException>()),
     );
     expect(
-      () => XcrossConfig(
-        tools: {'missing': p.join(temporary.path, 'missing')},
-      ).validate(),
+      () =>
+          XcrossConfigValidator(
+            fileSystem: detectPlatformHost().fileSystem,
+            pathContext: detectPlatformHost().paths.context,
+            policy: const PosixConfigHost(),
+          ).validate(
+            XcrossConfig(tools: {'missing': p.join(temporary.path, 'missing')}),
+          ),
       throwsA(isA<XcrossConfigException>()),
     );
   });
 
-  test('normalizes tool names and rejects collisions', () {
-    final tool = File(
-      p.join(temporary.path, Platform.isWindows ? 'clang.exe' : 'clang'),
-    )..writeAsStringSync('tool');
-    if (!Platform.isWindows) Process.runSync('chmod', ['755', tool.path]);
-    final source = 'tools:\n  CLANG.EXE: ${tool.path}\n';
+  test('model preserves literal tool keys and immutable copies', () {
+    final tools = {'clang': '/one', 'CLANG.EXE': '/two'};
+    final config = XcrossConfig(tools: tools);
+    tools.clear();
+    expect(config.tool('clang'), '/one');
+    expect(config.tool('CLANG.EXE'), '/two');
+    expect(config.tool('clang.exe'), isNull);
+    expect(config.copyWith().tools, config.tools);
+    expect(config.copyWith().toYaml(), config.toYaml());
+    expect(() => config.tools['clang'] = '/other', throwsUnsupportedError);
+    for (final name in ['', '  ', 'bad\nname', 'bad\u0000name']) {
+      expect(
+        () => XcrossConfig(tools: {name: '/tool'}),
+        throwsA(isA<XcrossConfigException>()),
+      );
+    }
+  });
+
+  test('POSIX decoding preserves case and suffixes through YAML roundtrip', () {
+    final host = LinuxHost();
+    final tool = File(p.join(temporary.path, 'tool'))
+      ..writeAsStringSync('tool');
+    host.fileSystem.makeExecutable(tool.path);
     final config = XcrossConfig.parse(
-      source,
+      'tools:\n  clang: ${tool.path}\n  " CLANG.EXE ": ${tool.path}\n',
       environment: const {},
-      windows: Platform.isWindows,
+      host: host,
+      policy: const PosixConfigHost(),
     );
-    expect(config.tool('clang'), tool.path);
-    expect(config.tool('CLANG.EXE'), tool.path);
+    expect(config.tools, {'clang': tool.path, 'CLANG.EXE': tool.path});
+    expect(config.tool('clang.exe'), isNull);
+    expect(
+      XcrossConfig.parse(
+        config.copyWith().toYaml(),
+        environment: const {},
+        host: host,
+        policy: const PosixConfigHost(),
+      ).tools,
+      config.tools,
+    );
     expect(
       () => XcrossConfig.parse(
-        'tools:\n  clang: /one\n  clang.exe: /two\n',
+        'tools:\n  clang: ${tool.path}\n  " clang ": ${tool.path}\n',
         environment: const {},
-        windows: false,
+        host: host,
+        policy: const PosixConfigHost(),
       ),
-      throwsA(isA<XcrossConfigException>()),
+      throwsA(
+        isA<XcrossConfigException>().having(
+          (error) => error.message,
+          'message',
+          contains('Duplicate tool after host normalization'),
+        ),
+      ),
     );
   });
+
+  for (final suffix in ['.EXE', '.CMD', '.BAT', '.COM']) {
+    test('Windows decoding normalizes mixed case and $suffix on POSIX', () {
+      final fixture = AuthNamespaceFixture(style: p.Style.windows);
+      addTearDown(fixture.dispose);
+      final tool = fixture.path('clang.exe');
+      fixture.fileSystem.file(tool).writeAsStringSync('tool');
+      final host = WindowsHost(fileSystem: fixture.fileSystem);
+      final config = XcrossConfig.parse(
+        'tools:\n  " ClAnG$suffix ": $tool\n',
+        environment: const {},
+        host: host,
+        policy: const WindowsConfigHost(),
+      );
+      expect(config.tools, {'clang': tool});
+      expect(config.tool('clang'), tool);
+      expect(
+        XcrossConfig.parse(
+          config.copyWith().toYaml(),
+          environment: const {},
+          host: host,
+          policy: const WindowsConfigHost(),
+        ).tools,
+        config.tools,
+      );
+      expect(
+        () => XcrossConfig.parse(
+          'tools:\n  clang: $tool\n  ClAnG$suffix: $tool\n',
+          environment: const {},
+          host: host,
+          policy: const WindowsConfigHost(),
+        ),
+        throwsA(
+          isA<XcrossConfigException>().having(
+            (error) => error.message,
+            'message',
+            contains('Duplicate tool after host normalization'),
+          ),
+        ),
+      );
+    });
+  }
 
   test('serializes canonical YAML and round trips PATH as a list', () {
     final config = XcrossConfig.parse(
       valid,
       environment: const {'HOME': '/home/test'},
-      windows: false,
+      host: LinuxHost(),
+      policy: const PosixConfigHost(),
     );
     final yaml = config.toYaml();
 
@@ -314,7 +472,12 @@ environment:
       lessThan(yaml.indexOf('\n  PATH:')),
     );
     expect(
-      XcrossConfig.parse(yaml, environment: const {}, windows: false).toYaml(),
+      XcrossConfig.parse(
+        yaml,
+        environment: const {},
+        host: LinuxHost(),
+        policy: const PosixConfigHost(),
+      ).toYaml(),
       yaml,
     );
   });
@@ -325,9 +488,10 @@ environment:
       final yaml = File(p.join(temporary.path, 'config.yml'))
         ..writeAsStringSync(valid);
       final store = XcrossConfigStore(
+        LinuxHost(environment: const {'HOME': '/home/me'}),
         directory: temporary.path,
+        policy: const PosixConfigHost(),
         environment: const {'HOME': '/home/test'},
-        windows: false,
       );
       expect(store.selectedFile()!.path, yaml.path);
       expect((await store.load())!.roots.flutterSdk, '/home/test/flutter');
@@ -347,9 +511,10 @@ environment:
 
   test('store defaults to config.yaml when no file is selected', () async {
     final store = XcrossConfigStore(
+      LinuxHost(environment: const {'HOME': '/home/me'}),
       directory: temporary.path,
+      policy: const PosixConfigHost(),
       environment: const {},
-      windows: false,
     );
     final target = await store.save(XcrossConfig());
     expect(p.basename(target.path), 'config.yaml');
@@ -359,14 +524,16 @@ environment:
     'selector for absent file fails and defaults use injected environment',
     () async {
       final store = XcrossConfigStore(
+        LinuxHost(environment: const {'HOME': '/home/me'}),
         environment: {'XCROSS_CONFIG': p.join(temporary.path, 'missing.yaml')},
-        windows: false,
+        policy: const PosixConfigHost(),
       );
       await expectLater(store.load(), throwsA(isA<XcrossConfigException>()));
       expect(
-        const XcrossConfigStore(
+        XcrossConfigStore(
+          LinuxHost(environment: const {'HOME': '/home/me'}),
           environment: {'HOME': '/home/me'},
-          windows: false,
+          policy: const PosixConfigHost(),
         ).defaultDirectory,
         '/home/me/.config/xcross',
       );

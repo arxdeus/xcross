@@ -1,30 +1,205 @@
+import 'dart:convert';
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit.dart';
-import 'package:darwin_sdk_kit/src/darwin_sdk.dart';
-import 'package:darwin_sdk_kit/src/errors.dart';
+import 'package:cli_kit/host/macos/macos_host.dart';
+import 'package:cli_kit/shared/logging/logging.dart';
+import 'package:darwin_sdk_kit/shared/errors/errors.dart';
+import 'package:darwin_sdk_kit/shared/sdk/darwin_sdk.dart';
+import 'package:darwin_sdk_kit/shared/sdk/darwin_sdk_repository.dart';
+import 'package:darwin_sdk_kit/target/iphone/iphone_build_platform.dart';
+import 'package:darwin_sdk_kit/target/shared/ios_build_platform.dart';
+import 'package:darwin_sdk_kit/target/simulator/simulator_build_platform.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
+import 'sdk_log_test_support.dart';
+
 void main() {
   late Directory tmp;
-
+  late MacOSHost host;
+  late Log log;
   setUp(() async {
-    tmp = await Directory.systemTemp.createTemp('xcross_darwin_sdk-');
+    tmp = await Directory.systemTemp.createTemp('xcross-sdk-fixture-');
+    host = MacOSHost(temporaryDirectory: tmp.path);
+    log = sdkTestLog();
   });
-
   tearDown(() => tmp.delete(recursive: true));
-
-  String sdksDir(String bundle) => p.join(
+  String sdksDir(
+    String bundle, {
+    IosBuildPlatformInterface target = const IPhoneBuildPlatform(),
+  }) => p.join(
     bundle,
     'Developer',
     'Platforms',
-    'iPhoneOS.platform',
+    '${target.platformName}.platform',
     'Developer',
     'SDKs',
   );
 
   group('native bundle', () {
+    const swift = 'Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift';
+
+    void writeFile(String bundle, String relative, String contents) {
+      File(p.joinAll([bundle, ...relative.split('/')]))
+        ..createSync(recursive: true)
+        ..writeAsStringSync(contents);
+    }
+
+    void createDeviceBundle(String bundle) {
+      for (final name in ['info.json', 'swift-sdk.json', 'toolset.json']) {
+        writeFile(bundle, name, '{}');
+      }
+      Directory(
+        p.join(
+          sdksDir(bundle),
+          'iPhoneOS26.5.sdk',
+          'System/Library/Frameworks',
+        ),
+      ).createSync(recursive: true);
+      writeFile(bundle, '$swift/iphoneos/layouts-arm64.yaml', 'layout');
+      writeFile(
+        bundle,
+        'Developer/Runtimes/XcodeDefault.xctoolchain/usr/bin/layouts-arm64.yaml',
+        'layout',
+      );
+    }
+
+    void createSimulatorSlice(String bundle) {
+      final simulator = p.join(
+        sdksDir(bundle, target: const SimulatorBuildPlatform()),
+        'iPhoneSimulator26.5.sdk',
+      );
+      writeFile(
+        simulator,
+        'System/Library/Frameworks/Foundation.framework/Foundation.tbd',
+        'stub',
+      );
+      writeFile(
+        bundle,
+        '$swift/iphonesimulator/libswiftCompatibility50.a',
+        'resource',
+      );
+    }
+
+    void advertiseSimulator(String bundle, [Map<String, String>? properties]) {
+      writeFile(
+        bundle,
+        'swift-sdk.json',
+        jsonEncode({
+          'targetTriples': {
+            const SimulatorBuildPlatform().swiftSdkTriple:
+                properties ?? <String, String>{},
+          },
+        }),
+      );
+    }
+
+    test(
+      'keeps device-only legacy bundles valid with shared Swift resources',
+      () {
+        createDeviceBundle(tmp.path);
+        writeFile(
+          tmp.path,
+          '$swift/iphonesimulator/libswiftCompatibility50.a',
+          'resource',
+        );
+        expect(
+          DarwinSdkRepository(host, log: log).isValidBundle(tmp.path),
+          isTrue,
+        );
+      },
+    );
+
+    test('accepts a populated simulator without an ARM64 simulator layout', () {
+      createDeviceBundle(tmp.path);
+      createSimulatorSlice(tmp.path);
+      advertiseSimulator(tmp.path);
+      expect(
+        DarwinSdkRepository(host, log: log).isValidBundle(tmp.path),
+        isTrue,
+      );
+      expect(
+        File(
+          p.join(tmp.path, swift, 'iphonesimulator/layouts-arm64.yaml'),
+        ).existsSync(),
+        isFalse,
+      );
+    });
+
+    test('rejects an empty versioned simulator SDK leaf', () {
+      createDeviceBundle(tmp.path);
+      Directory(
+        p.join(
+          sdksDir(tmp.path, target: const SimulatorBuildPlatform()),
+          'iPhoneSimulator26.5.sdk',
+        ),
+      ).createSync(recursive: true);
+      expect(
+        DarwinSdkRepository(host, log: log).isValidBundle(tmp.path),
+        isFalse,
+      );
+    });
+
+    for (final missing in ['frameworks', 'resources']) {
+      for (final empty in [false, true]) {
+        test('rejects ${empty ? 'empty' : 'missing'} simulator $missing', () {
+          createDeviceBundle(tmp.path);
+          createSimulatorSlice(tmp.path);
+          final directory = Directory(
+            missing == 'frameworks'
+                ? p.join(
+                    sdksDir(tmp.path, target: const SimulatorBuildPlatform()),
+                    'iPhoneSimulator26.5.sdk/System/Library/Frameworks',
+                  )
+                : p.join(tmp.path, swift, 'iphonesimulator'),
+          );
+          directory.deleteSync(recursive: true);
+          if (empty) directory.createSync();
+          expect(
+            DarwinSdkRepository(host, log: log).isValidBundle(tmp.path),
+            isFalse,
+          );
+        });
+      }
+    }
+
+    test('rejects an advertised simulator target with no slice', () {
+      createDeviceBundle(tmp.path);
+      advertiseSimulator(tmp.path);
+      expect(
+        DarwinSdkRepository(host, log: log).isValidBundle(tmp.path),
+        isFalse,
+      );
+    });
+
+    for (final property in ['sdkRootPath', 'swiftResourcesPath']) {
+      test(
+        'rejects missing simulator metadata $property with a present slice',
+        () {
+          createDeviceBundle(tmp.path);
+          createSimulatorSlice(tmp.path);
+          advertiseSimulator(tmp.path, {property: 'missing'});
+          expect(
+            DarwinSdkRepository(host, log: log).isValidBundle(tmp.path),
+            isFalse,
+          );
+        },
+      );
+    }
+
+    test('rejects a partial simulator platform with no SDKs directory', () {
+      createDeviceBundle(tmp.path);
+      writeFile(
+        tmp.path,
+        'Developer/Platforms/iPhoneSimulator.platform/Info.plist',
+        'descriptor',
+      );
+      expect(
+        DarwinSdkRepository(host, log: log).isValidBundle(tmp.path),
+        isFalse,
+      );
+    });
+
     test('uses xcross artifact-bundle storage', () {
       final expected = p.join(
         tmp.path,
@@ -32,17 +207,29 @@ void main() {
         'swift-sdks',
         'xcross-darwin.artifactbundle',
       );
-      expect(DarwinSdk.nativeInstallDir(configDir: tmp.path), expected);
+      expect(
+        DarwinSdkRepository(
+          MacOSHost(environment: {'XDG_CONFIG_HOME': tmp.path}),
+          log: log,
+        ).installBundle,
+        expected,
+      );
       expect(DarwinSdk(expected).swiftSdkPath, expected);
     });
 
-    test('configured bundle overrides the native install location', () {
-      final bundle = p.join(tmp.path, 'configured.artifactbundle');
-      addTearDown(DarwinSdk.resetInstallBundleOverride);
-
-      DarwinSdk.configureInstallBundleOverride(bundle);
-
-      expect(DarwinSdk.nativeInstallDir(), bundle);
+    test('repositories keep independent immutable install paths', () {
+      final first = DarwinSdkRepository(
+        host,
+        log: log,
+        installBundle: p.join(tmp.path, 'first'),
+      );
+      final second = DarwinSdkRepository(
+        host,
+        log: log,
+        installBundle: p.join(tmp.path, 'second'),
+      );
+      expect(first.installBundle, p.join(tmp.path, 'first'));
+      expect(second.installBundle, p.join(tmp.path, 'second'));
     });
 
     test('current accepts only a complete bundle', () async {
@@ -82,25 +269,48 @@ void main() {
       await canonicalLayout.parent.create(recursive: true);
       await canonicalLayout.writeAsString('layout');
 
-      expect(DarwinSdk.current(bundle: bundle), isNull);
+      expect(
+        DarwinSdkRepository(host, log: log, installBundle: bundle).current(),
+        isNull,
+      );
       await File(p.join(bundle, 'info.json')).writeAsString('{}');
-      expect(DarwinSdk.current(bundle: bundle), isNull);
+      expect(
+        DarwinSdkRepository(host, log: log, installBundle: bundle).current(),
+        isNull,
+      );
       await File(p.join(bundle, 'swift-sdk.json')).writeAsString('{}');
-      expect(DarwinSdk.current(bundle: bundle), isNull);
+      expect(
+        DarwinSdkRepository(host, log: log, installBundle: bundle).current(),
+        isNull,
+      );
       await File(p.join(bundle, 'toolset.json')).writeAsString('{}');
 
-      final sdk = DarwinSdk.current(bundle: bundle);
+      final sdk = DarwinSdkRepository(
+        host,
+        log: log,
+        installBundle: bundle,
+      ).current();
       expect(sdk, isNotNull);
       expect(sdk!.bundle, bundle);
       expect(runtimeLayout.readAsStringSync(), 'layout');
 
       await Directory(bundle).rename('$bundle.previous');
-      expect(DarwinSdk.current(bundle: bundle)?.bundle, bundle);
+      expect(
+        DarwinSdkRepository(
+          host,
+          log: log,
+          installBundle: bundle,
+        ).current()?.bundle,
+        bundle,
+      );
       expect(Directory('$bundle.previous').existsSync(), isFalse);
       expect(Directory(bundle).existsSync(), isTrue);
 
       await runtimeLayout.delete();
-      expect(DarwinSdk.isValidBundle(bundle), isFalse);
+      expect(
+        DarwinSdkRepository(host, log: log).isValidBundle(bundle),
+        isFalse,
+      );
     });
 
     test('rejects metadata with an empty SDK directory', () async {
@@ -111,7 +321,10 @@ void main() {
       await File(p.join(bundle, 'info.json')).writeAsString('{}');
       await File(p.join(bundle, 'swift-sdk.json')).writeAsString('{}');
 
-      expect(DarwinSdk.isValidBundle(bundle), isFalse);
+      expect(
+        DarwinSdkRepository(host, log: log).isValidBundle(bundle),
+        isFalse,
+      );
     });
   });
 
@@ -122,7 +335,13 @@ void main() {
       await Directory(p.join(dir, 'iPhoneOS17.5.sdk')).create(recursive: true);
 
       final sdk = DarwinSdk(tmp.path);
-      expect(sdk.iPhoneOSSdk(), p.join(dir, 'iPhoneOS17.5.sdk'));
+      expect(
+        DarwinSdkRepository(
+          host,
+          log: log,
+        ).iosSdk(sdk, target: const IPhoneBuildPlatform()),
+        p.join(dir, 'iPhoneOS17.5.sdk'),
+      );
     });
 
     test(
@@ -132,7 +351,13 @@ void main() {
         await Directory(p.join(dir, 'iPhoneOS26.sdk')).create(recursive: true);
 
         final sdk = DarwinSdk(tmp.path);
-        expect(sdk.iPhoneOSSdk(), p.join(dir, 'iPhoneOS26.sdk'));
+        expect(
+          DarwinSdkRepository(
+            host,
+            log: log,
+          ).iosSdk(sdk, target: const IPhoneBuildPlatform()),
+          p.join(dir, 'iPhoneOS26.sdk'),
+        );
       },
     );
 
@@ -141,7 +366,13 @@ void main() {
       await Directory(p.join(dir, 'iPhoneOS.sdk')).create(recursive: true);
 
       final sdk = DarwinSdk(tmp.path);
-      expect(sdk.iPhoneOSSdk(), p.join(dir, 'iPhoneOS.sdk'));
+      expect(
+        DarwinSdkRepository(
+          host,
+          log: log,
+        ).iosSdk(sdk, target: const IPhoneBuildPlatform()),
+        p.join(dir, 'iPhoneOS.sdk'),
+      );
     });
 
     test(
@@ -151,7 +382,10 @@ void main() {
 
         final sdk = DarwinSdk(tmp.path);
         expect(
-          sdk.iPhoneOSSdk,
+          () => DarwinSdkRepository(
+            host,
+            log: log,
+          ).iosSdk(sdk, target: const IPhoneBuildPlatform()),
           throwsA(
             isA<DarwinSdkError>().having(
               (error) => error.message,
@@ -166,7 +400,10 @@ void main() {
     test('throws DarwinSdkError when the SDKs dir does not exist', () {
       final sdk = DarwinSdk(tmp.path);
       expect(
-        sdk.iPhoneOSSdk,
+        () => DarwinSdkRepository(
+          host,
+          log: log,
+        ).iosSdk(sdk, target: const IPhoneBuildPlatform()),
         throwsA(
           isA<DarwinSdkError>().having(
             (error) => error.message,
@@ -178,299 +415,125 @@ void main() {
     });
   });
 
-  group('probeDarwinDriver', () {
-    test('accepts a driver that only misses its input file', () async {
-      final failure = await DarwinSdk.probeDarwinDriver(
-        p.join(tmp.path, 'good-clang'),
-        sysroot: tmp.path,
-        runProcess: (executable, arguments) async => const CapturedProcess(
-          1,
-          '',
-          "clang: error: no such file or directory: 'probe.c'",
-        ),
-      );
-      expect(failure, isNull);
-    });
-
-    test('rejects a driver that fast-fails on the sysroot', () async {
-      final failure = await DarwinSdk.probeDarwinDriver(
-        p.join(tmp.path, 'swift-clang'),
-        sysroot: tmp.path,
-        runProcess: (executable, arguments) async =>
-            const CapturedProcess(-1073740791, '', ''),
-      );
-      expect(failure, allOf(contains('crashed'), contains('0xC0000409')));
-    });
-
-    test('drives the probe without running any subcommand', () async {
-      late List<String> seen;
-      await DarwinSdk.probeDarwinDriver(
-        p.join(tmp.path, 'recorded-clang'),
-        sysroot: p.join(tmp.path, 'iPhoneOS26.5.sdk'),
-        runProcess: (executable, arguments) async {
-          seen = arguments;
-          return const CapturedProcess(1, '', 'no such file');
-        },
-      );
-      expect(seen.first, '-###');
-      expect(
-        seen,
-        containsAllInOrder(['-isysroot', p.join(tmp.path, 'iPhoneOS26.5.sdk')]),
-      );
-    });
-  });
-
-  group('clang version vs SDK libc++', () {
-    test('derives the minimum clang from the SDK libc++ version', () {
-      final include = Directory(p.join(tmp.path, 'usr', 'include', 'c++', 'v1'))
-        ..createSync(recursive: true);
-      File(
-        p.join(include.path, '__config'),
-      ).writeAsStringSync('#  define _LIBCPP_VERSION 210106\n');
-      expect(DarwinSdk.minimumClangForSdk(tmp.path), 19);
-    });
-
-    test('has no minimum without libc++ headers', () {
-      expect(DarwinSdk.minimumClangForSdk(tmp.path), isNull);
-    });
-
-    test('flags an LLVM clang older than the minimum', () async {
-      final reason = await DarwinSdk.clangTooOldForSdk(
-        p.join(tmp.path, 'clang-18'),
-        minimum: 19,
-        runProcess: (_, _) async => const CapturedProcess(
-          0,
-          'Ubuntu clang version 18.1.3 (1ubuntu1)\n',
-          '',
-        ),
-      );
-      expect(reason, allOf(contains('clang 18'), contains('clang 19')));
-    });
-
-    test('accepts a new enough clang and Apple clang', () async {
-      expect(
-        await DarwinSdk.clangTooOldForSdk(
-          p.join(tmp.path, 'clang-21'),
-          minimum: 19,
-          runProcess: (_, _) async =>
-              const CapturedProcess(0, 'clang version 21.0.0 (swift)\n', ''),
-        ),
-        isNull,
-      );
-      expect(
-        await DarwinSdk.clangTooOldForSdk(
-          p.join(tmp.path, 'apple-clang'),
-          minimum: 19,
-          runProcess: (_, _) async => const CapturedProcess(
-            0,
-            'Apple clang version 17.0.0 (clang-1700.0.13.3)\n',
-            '',
-          ),
-        ),
-        isNull,
-      );
-    });
-  });
-
-  group('llvmToolDirs', () {
-    test('covers both Windows LLVM installer layouts', () {
-      final dirs = DarwinSdk.llvmToolDirs(
-        windows: true,
-        environment: {
-          'ProgramFiles': r'C:\Program Files',
-          'LOCALAPPDATA': r'C:\Users\Mind\AppData\Local',
-        },
-      );
-      expect(dirs, [
-        r'C:\Program Files\LLVM\bin',
-        r'C:\Users\Mind\AppData\Local\Programs\LLVM\bin',
-      ]);
-    });
-
-    test('skips roots the environment does not define', () {
-      expect(
-        DarwinSdk.llvmToolDirs(windows: true, environment: const {}),
-        isEmpty,
-      );
-    });
-
-    test('covers Homebrew lld and llvm prefixes', () {
-      expect(
-        DarwinSdk.llvmToolDirs(windows: false),
-        containsAll([
-          '/opt/homebrew/opt/lld/bin',
-          '/opt/homebrew/opt/llvm/bin',
-          '/usr/local/opt/lld/bin',
-          '/usr/local/opt/llvm/bin',
-        ]),
-      );
-    });
-  });
-
-  group('probeIosSupport', () {
-    test('accepts a linker that only misses its input file', () async {
-      final failure = await DarwinSdk.probeIosSupport(
-        p.join(tmp.path, 'good-ld64.lld'),
-        runProcess: (executable, arguments) async => const CapturedProcess(
-          1,
-          '',
-          'ld64.lld: error: cannot open xcross-ld64-probe.o: No such file',
-        ),
-      );
-      expect(failure, isNull);
-    });
-
-    test('rejects a linker that refuses the iOS platform', () async {
-      final failure = await DarwinSdk.probeIosSupport(
-        p.join(tmp.path, 'swift-ld64.lld'),
-        runProcess: (executable, arguments) async => const CapturedProcess(
-          1,
-          '',
-          'ld64.lld: error: This version of lld does not support linking for '
-              'platform iOS',
-        ),
-      );
-      expect(failure, contains('does not support linking for platform iOS'));
-    });
-
-    test('rejects a linker without ARM64 Mach-O support', () async {
-      final failure = await DarwinSdk.probeIosSupport(
-        p.join(tmp.path, 'unsupported-arch-ld64.lld'),
-        runProcess: (executable, arguments) async => const CapturedProcess(
-          1,
-          '',
-          'ld64.lld: error: missing or unsupported -arch arm64',
-        ),
-      );
-      expect(failure, contains('missing or unsupported -arch arm64'));
-    });
-
-    test('rejects a linker that dies without saying anything', () async {
-      final failure = await DarwinSdk.probeIosSupport(
-        p.join(tmp.path, 'crashing-ld64.lld'),
-        runProcess: (executable, arguments) async =>
-            const CapturedProcess(-1073740791, '', ''),
-      );
-      expect(failure, allOf(contains('crashed'), contains('0xC0000409')));
-    });
-
-    test('probes each linker once', () async {
-      var runs = 0;
-      final linker = p.join(tmp.path, 'counted-ld64.lld');
-      Future<CapturedProcess> run(String executable, List<String> arguments) {
-        runs++;
-        return Future.value(
-          const CapturedProcess(1, '', 'ld64.lld: error: cannot open'),
-        );
+  group('iosSdk', () {
+    test('keeps device default and selects simulator independently', () async {
+      for (final target in const <IosBuildPlatformInterface>[
+        IPhoneBuildPlatform(),
+        SimulatorBuildPlatform(),
+      ]) {
+        final dir = sdksDir(tmp.path, target: target);
+        await Directory(
+          p.join(dir, '${target.platformName}.sdk'),
+        ).create(recursive: true);
+        await Directory(
+          p.join(dir, '${target.platformName}18.2.sdk'),
+        ).create(recursive: true);
       }
-
-      await DarwinSdk.probeIosSupport(linker, runProcess: run);
-      await DarwinSdk.probeIosSupport(linker, runProcess: run);
-      expect(runs, 1);
-    });
-
-    test('asks the linker for an iOS dylib', () async {
-      late List<String> seen;
-      await DarwinSdk.probeIosSupport(
-        p.join(tmp.path, 'recorded-ld64.lld'),
-        runProcess: (executable, arguments) async {
-          seen = arguments;
-          return const CapturedProcess(1, '', 'cannot open');
-        },
+      final sdk = DarwinSdk(tmp.path);
+      expect(
+        DarwinSdkRepository(
+          host,
+          log: log,
+        ).iosSdk(sdk, target: const IPhoneBuildPlatform()),
+        DarwinSdkRepository(
+          host,
+          log: log,
+        ).iosSdk(sdk, target: const IPhoneBuildPlatform()),
       );
       expect(
-        seen,
-        containsAllInOrder(['-platform_version', 'ios', '13.0', '13.0']),
+        DarwinSdkRepository(
+          host,
+          log: log,
+        ).iosSdk(sdk, target: const SimulatorBuildPlatform()),
+        p.join(
+          sdksDir(tmp.path, target: const SimulatorBuildPlatform()),
+          'iPhoneSimulator18.2.sdk',
+        ),
       );
-      expect(seen, contains('-dylib'));
-    });
-  });
-
-  group('selectorStubDefect', () {
-    Future<CapturedProcess> Function(String, List<String>) version(
-      String banner,
-    ) => (executable, arguments) async {
-      expect(arguments, ['--version']);
-      return CapturedProcess(0, banner, '');
-    };
-
-    test('parses distribution-prefixed and plain banners', () async {
       expect(
-        await DarwinSdk.ld64LldVersion(
-          p.join(tmp.path, 'ubuntu-ld64.lld'),
-          runProcess: version(
-            'Ubuntu LLD 18.1.3 (compatible with Apple linkers)\n',
+        DarwinSdkRepository(
+          host,
+          log: log,
+        ).iosSdk(sdk, target: const SimulatorBuildPlatform()),
+        DarwinSdkRepository(
+          host,
+          log: log,
+        ).iosSdk(sdk, target: const SimulatorBuildPlatform()),
+      );
+    });
+
+    test('allows a device-only bundle without a simulator fallback', () async {
+      final device = p.join(sdksDir(tmp.path), 'iPhoneOS18.2.sdk');
+      await Directory(device).create(recursive: true);
+      final sdk = DarwinSdk(tmp.path);
+      expect(
+        DarwinSdkRepository(
+          host,
+          log: log,
+        ).iosSdk(sdk, target: const IPhoneBuildPlatform()),
+        device,
+      );
+      expect(
+        () => DarwinSdkRepository(
+          host,
+          log: log,
+        ).iosSdk(sdk, target: const SimulatorBuildPlatform()),
+        throwsA(
+          isA<DarwinSdkError>().having(
+            (error) => error.message,
+            'message',
+            allOf(
+              contains('Could not find an iPhoneSimulator SDK'),
+              contains('xcross sdk install'),
+            ),
           ),
         ),
-        (18, 1),
-      );
-      expect(
-        await DarwinSdk.ld64LldVersion(
-          p.join(tmp.path, 'brew-ld64.lld'),
-          runProcess: version('Homebrew LLD 22.1.8\n'),
-        ),
-        (22, 1),
-      );
-      expect(
-        await DarwinSdk.ld64LldVersion(
-          p.join(tmp.path, 'swift-ld64.lld'),
-          runProcess: version(
-            'LLD 21.0.0 (https://github.com/swiftlang/llvm-project.git abc)\n',
-          ),
-        ),
-        (21, 0),
       );
     });
 
-    test('flags lld 18 and accepts lld 19', () async {
-      expect(
-        await DarwinSdk.selectorStubDefect(
-          p.join(tmp.path, 'lld18'),
-          runProcess: version(
-            'Ubuntu LLD 18.1.3 (compatible with Apple linkers)',
-          ),
-        ),
-        allOf(contains('18.1'), contains('selector stubs')),
+    test('falls back to an unversioned simulator SDK', () async {
+      final simulator = p.join(
+        sdksDir(tmp.path, target: const SimulatorBuildPlatform()),
+        'iPhoneSimulator.sdk',
       );
+      await Directory(simulator).create(recursive: true);
       expect(
-        await DarwinSdk.selectorStubDefect(
-          p.join(tmp.path, 'lld19'),
-          runProcess: version(
-            'Ubuntu LLD 19.1.1 (compatible with Apple linkers)',
-          ),
-        ),
-        isNull,
+        DarwinSdkRepository(
+          host,
+          log: log,
+        ).iosSdk(DarwinSdk(tmp.path), target: const SimulatorBuildPlatform()),
+        simulator,
       );
     });
 
-    test('does not hold an unreadable version against a linker', () async {
+    test('rejects a simulator SDK directory without matching SDKs', () async {
+      final dir = sdksDir(tmp.path, target: const SimulatorBuildPlatform());
+      await Directory(p.join(dir, 'iPhoneOS18.2.sdk')).create(recursive: true);
+      await File(p.join(dir, 'iPhoneSimulator18.2.sdk')).writeAsString('file');
       expect(
-        await DarwinSdk.selectorStubDefect(
-          p.join(tmp.path, 'silent'),
-          runProcess: version(''),
-        ),
-        isNull,
-      );
-      expect(
-        await DarwinSdk.selectorStubDefect(
-          p.join(tmp.path, 'broken'),
-          runProcess: (executable, arguments) => throw StateError('no'),
-        ),
-        isNull,
+        () => DarwinSdkRepository(
+          host,
+          log: log,
+        ).iosSdk(DarwinSdk(tmp.path), target: const SimulatorBuildPlatform()),
+        throwsA(isA<DarwinSdkError>()),
       );
     });
 
-    test('asks each linker for its version once', () async {
-      var runs = 0;
-      final linker = p.join(tmp.path, 'counted');
-      Future<CapturedProcess> run(String executable, List<String> arguments) {
-        runs++;
-        return Future.value(const CapturedProcess(0, 'LLD 20.1.0', ''));
-      }
-
-      await DarwinSdk.selectorStubDefect(linker, runProcess: run);
-      await DarwinSdk.selectorStubDefect(linker, runProcess: run);
-      expect(runs, 1);
-    });
+    test('resolves versioned simulator SDK aliases', () async {
+      final dir = sdksDir(tmp.path, target: const SimulatorBuildPlatform());
+      await Directory(
+        p.join(dir, 'iPhoneSimulator.sdk'),
+      ).create(recursive: true);
+      await Link(
+        p.join(dir, 'iPhoneSimulator18.2.sdk'),
+      ).create('iPhoneSimulator.sdk');
+      expect(
+        DarwinSdkRepository(
+          host,
+          log: log,
+        ).iosSdk(DarwinSdk(tmp.path), target: const SimulatorBuildPlatform()),
+        p.join(dir, 'iPhoneSimulator18.2.sdk'),
+      );
+    }, skip: Platform.isWindows);
   });
 }

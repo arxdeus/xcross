@@ -26,40 +26,83 @@ dart pub add apple_developer_kit
 
 ## Usage
 
+These illustrative functions take caller-selected host services and native loader.
+Choose the explicit Linux, macOS, or Windows composition functions in
+`composition/apple_host.dart` and `composition/native_library_loader.dart`
+for the intended host. Client factories must return fresh HTTP clients, which
+these functions close. A supplied `AnisetteProvider` remains caller-owned.
+
 ### Fetch ADI libraries and produce Anisette headers
 
 ```dart
-import 'package:apple_developer_kit/apple_developer_kit.dart';
+import 'package:apple_developer_kit/host/shared/adi/loader/loader.dart';
+import 'package:apple_developer_kit/host/shared/apple_host_services.dart';
+import 'package:apple_developer_kit/shared/adi/apk_fetch.dart';
+import 'package:apple_developer_kit/shared/grandslam/anisette/anisette_data_provider.dart';
+import 'package:http/http.dart' as http;
 
-final libs = AdiLibraryFetcher();
-final (coreAdi, storeServices, _) = await libs.ensureLibraries();
-// Both .so files land in libs.cacheDir (x86_64 slice from Apple Music APK).
-
-final anisette = AnisetteDataProvider(libs.cacheDir.path);
-final headers = await anisette.fetchAnisetteHeaders();
-final endpoints = await anisette.resolveGrandSlamEndpoints();
-anisette.close();
+Future<Map<String, String>> anisetteHeaders({
+  required AppleHostServices hostServices,
+  required NativeLibraryLoader loader,
+  required String cacheDir,
+  required http.Client Function() createClient,
+}) async {
+  final libs = AdiLibraryFetcher(
+    cacheDir: cacheDir,
+    hostServices: hostServices,
+    abi: hostServices.abi,
+    createClient: createClient,
+  );
+  await libs.ensureLibraries();
+  final anisette = AnisetteDataProvider(
+    cacheDir,
+    hostServices: hostServices,
+    loader: loader,
+    httpClient: createClient(),
+  );
+  try {
+    return await anisette.fetchAnisetteHeaders();
+  } finally {
+    anisette.close();
+  }
+}
 ```
 
 ### Apple ID (GrandSlam) login
 
 ```dart
-final client = GrandSlamClient(
-  endpoints: endpoints,
-  fetchAnisetteHeaders: anisette.fetchAnisetteHeaders,
-);
+import 'package:apple_developer_kit/shared/grandslam/anisette/anisette_provider.dart';
+import 'package:apple_developer_kit/shared/grandslam/grandslam_login.dart';
+import 'package:apple_developer_kit/shared/grandslam/grandslam_login_data.dart';
+import 'package:apple_developer_kit/shared/grandslam/grandslam_two_factor.dart';
+import 'package:http/http.dart' as http;
 
-final login = await client.login(
-  username: 'you@example.com',
-  password: password,
-  fetchTwoFactorCode: (mode) async {
-    // Prompt for the 6-digit code (mode is sms / trustedDevice / …).
-    // Return null to cancel.
-    return code;
-  },
-);
-client.close();
+Future<GrandSlamLoginData> login({
+  required AnisetteProvider anisette,
+  required http.Client Function() createClient,
+  required String username,
+  required String password,
+  required FetchTwoFactorCode fetchTwoFactorCode,
+}) async {
+  final client = GrandSlamClient(
+    endpoints: await anisette.resolveGrandSlamEndpoints(),
+    fetchAnisetteHeaders: anisette.fetchAnisetteHeaders,
+    httpClient: createClient(),
+  );
+  try {
+    return await client.login(
+      username: username,
+      password: password,
+      fetchTwoFactorCode: fetchTwoFactorCode,
+    );
+  } finally {
+    client.close();
+  }
+}
 ```
+
+Supply a 2FA callback that prompts for the requested mode and returns null to
+cancel. Keep credentials and returned login data out of logs.
 
 ### Troubleshooting Apple ID login
 
@@ -85,7 +128,7 @@ client.close();
   Requests are not automatically replayed. Wait at least the stated duration.
   If Apple provides no usable duration, stop repeated attempts and try later.
   Changing client-info does not remove an existing server-side cooldown.
-- Do not run `xcross auth clear`, delete ADI/Anisette state, or reset your password
+- Do not run `xcross auth clean`, delete ADI/Anisette state, or reset your password
   to address a 429. Keep the existing machine identity and saved session. If it
   persists, report the failing operation and HTTP status, not passwords, tokens,
   Anisette headers, or session files.
@@ -100,34 +143,62 @@ saved state, and does not prove that a particular account can sign in.
 ### App Store Connect development provisioning
 
 ```dart
-final credentials = AscCredentials(
-  issuerId: issuerId,
-  keyId: keyId,
-  privateKeyPath: '/path/to/AuthKey_<keyId>.p8',
-);
-// Or: await AscCredentials.fromFile();
+import 'package:apple_developer_kit/host/shared/apple_host_services.dart';
+import 'package:apple_developer_kit/shared/appstoreconnect/appstoreconnect.dart';
+import 'package:apple_developer_kit/shared/appstoreconnect/asc_client.dart';
+import 'package:apple_developer_kit/shared/appstoreconnect/asc_config.dart';
+import 'package:http/http.dart' as http;
 
-final asc = AscClient(credentials);
-final paths = await AscProvisioning.provisionDevelopmentIdentity(
-  client: asc,
-  bundleId: 'com.example.app',
-  deviceUdids: [udid],
-  outputDir: outputDir,
-);
-asc.close();
-// paths.certificatePemPath / privateKeyPemPath / profilePath
+Future<DevelopmentIdentityPaths> provision({
+  required AppleHostServices hostServices,
+  required http.Client Function() createClient,
+  required String issuerId,
+  required String keyId,
+  required String privateKeyPath,
+  required String bundleId,
+  required List<String> deviceUdids,
+  required String outputDir,
+}) async {
+  final credentials = AscCredentials(
+    hostServices: hostServices,
+    issuerId: issuerId,
+    keyId: keyId,
+    privateKeyPath: privateKeyPath,
+  );
+  final asc = AscClient(credentials, httpClient: createClient());
+  try {
+    return await AscProvisioning(hostServices: hostServices, client: asc)
+        .provisionDevelopmentIdentity(
+      bundleId: bundleId,
+      deviceUdids: deviceUdids,
+      outputDir: outputDir,
+    );
+  } finally {
+    asc.close();
+  }
+}
 ```
 
 ### Sign an `.app` bundle
 
 ```dart
-final asset = await SigningAsset.load(
-  privateKeyPemPath: paths.privateKeyPemPath,
-  certificatePemPath: paths.certificatePemPath,
-  provisioningProfilePath: paths.profilePath,
-);
+import 'package:apple_developer_kit/host/shared/apple_host_services.dart';
+import 'package:apple_developer_kit/shared/appstoreconnect/appstoreconnect.dart';
+import 'package:apple_developer_kit/shared/signing/bundle_signer.dart';
+import 'package:apple_developer_kit/shared/signing/signing_asset.dart';
 
-await BundleSigner(asset).signApp('/path/to/Runner.app');
+Future<void> signApp(
+  AppleHostServices hostServices,
+  DevelopmentIdentityPaths paths,
+  String appPath,
+) async {
+  final asset = await SigningAssetLoader(hostServices: hostServices).load(
+    privateKeyPemPath: paths.privateKeyPemPath,
+    certificatePemPath: paths.certificatePemPath,
+    provisioningProfilePath: paths.profilePath,
+  );
+  await BundleSigner(asset, hostServices: hostServices).signApp(appPath);
+}
 ```
 
 ## Scope / limits

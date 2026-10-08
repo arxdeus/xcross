@@ -1,149 +1,209 @@
 import 'dart:convert';
-
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:cli_kit/host/linux/linux_host.dart';
+import 'package:cli_kit/shared/process/process.dart';
+import 'package:cli_kit/shared/process/process_models.dart';
+import 'package:darwin_sdk_kit/host/linux/linux_darwin_toolchain_locations.dart';
+import 'package:darwin_sdk_kit/shared/sdk/darwin_sdk_repository.dart';
+import 'package:darwin_sdk_kit/shared/toolchain/darwin_toolchain_resolver.dart';
+import 'package:darwin_sdk_kit/target/iphone/iphone_target.dart';
+import 'package:darwin_sdk_kit/target/shared/ios_target.dart';
+import 'package:darwin_sdk_kit/target/simulator/simulator_build_platform.dart';
+import 'package:darwin_sdk_kit/target/simulator/simulator_target.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
-import 'package:xcross/src/flutter/build/internal/apple_tool_shim_templates.dart';
-import 'package:xcross/src/flutter/build/internal/apple_tool_shims.dart';
-import 'package:xcross/src/flutter/build/internal/flutter_tool_workspace.dart';
-import 'package:xcross/src/flutter/build/internal/native_asset_frameworks.dart';
-import 'package:xcross/src/flutter/build/internal/native_assets_hook_discovery.dart';
-import 'package:xcross/src/flutter/build/ios_engine_cache.dart';
-import 'package:xcross/src/flutter/errors.dart';
+import 'package:xcross/src/host/linux/flutter/native_host_tools.dart';
+import 'package:xcross/src/host/shared/flutter/apple_tool_shim_renderer_posix.dart';
+import 'package:xcross/src/shared/flutter/build/internal/apple_tool_shims.dart';
+import 'package:xcross/src/shared/flutter/build/internal/native_asset_frameworks.dart';
+import 'package:xcross/src/shared/flutter/build/internal/native_assets_hook_discovery.dart';
+import 'package:xcross/src/shared/flutter/build/ios_deployment_target.dart';
+import 'package:xcross/src/shared/flutter/build/ios_engine_cache.dart';
+import 'package:xcross/src/shared/flutter/build/ios_native_assets.dart';
+import 'package:xcross/src/shared/flutter/errors.dart';
+import 'package:xcross/src/shared/packages/package_config_resolver.dart';
+import 'package:xcross/src/target/simulator/flutter/simulator_flutter_target.dart';
+
+import '../../host_operations_fixtures.dart';
+import 'macho_linkedit_aligner_test.dart';
+import 'support/native_asset_framework_fixtures.dart';
+import 'support/native_flutter_fixtures.dart';
 
 void main() {
-  test(
-    'creates a writable Flutter tool workspace without changing SDK',
-    () async {
-      if (Platform.isWindows) return;
-      final tmp = await Directory.systemTemp.createTemp(
-        'flutter_workspace_test-',
-      );
-      try {
-        final flutterRoot = p.join(tmp.path, 'flutter');
-        final cacheRoot = p.join(tmp.path, 'cache');
-        final sdkCache = Directory(p.join(flutterRoot, 'bin', 'cache'))
-          ..createSync(recursive: true);
-        Directory(p.join(flutterRoot, 'packages')).createSync();
-        File(
-          p.join(flutterRoot, 'bin', 'flutter'),
-        ).writeAsStringSync('flutter');
-        File(p.join(flutterRoot, 'bin', 'internal', 'engine.version'))
-          ..createSync(recursive: true)
-          ..writeAsStringSync('engine-hash\n');
-        File(
-          p.join(sdkCache.path, 'flutter_tools.snapshot'),
-        ).writeAsStringSync('snapshot');
-        Directory(p.join(sdkCache.path, 'dart-sdk')).createSync();
-        final engineCache = IosEngineCache(
-          flutterRoot: flutterRoot,
-          cacheRoot: cacheRoot,
-        );
-        Directory(engineCache.flutterXcframework).createSync(recursive: true);
-        final before = await _tree(flutterRoot);
-
-        final workspace = await FlutterToolWorkspace.create(
-          flutterRoot: flutterRoot,
-          engineCache: engineCache,
-        );
-
-        expect(workspace.flutterRoot, isNot(flutterRoot));
-        expect(
-          await Directory(
-            p.join(workspace.flutterRoot, 'packages'),
-          ).resolveSymbolicLinks(),
-          await Directory(
-            p.join(flutterRoot, 'packages'),
-          ).resolveSymbolicLinks(),
-        );
-        expect(
-          File(
-            p.join(workspace.flutterRoot, 'bin', 'internal', 'engine.version'),
-          ).readAsStringSync(),
-          'engine-hash\n',
-        );
-        expect(
-          Directory(
-            p.join(
-              workspace.flutterRoot,
-              'bin',
-              'cache',
-              'artifacts',
-              'engine',
-              'ios',
-              'Flutter.xcframework',
-            ),
-          ).existsSync(),
-          isTrue,
-        );
-        expect(await _tree(flutterRoot), before);
-      } finally {
-        await tmp.delete(recursive: true);
-      }
-    },
+  final fixtureHost = LinuxHost();
+  final frameworks = nativeFrameworkService(
+    fixtureRunner(fixtureHost, log: fixtureLog()),
   );
 
-  test('reuses one workspace path across builds', () async {
-    // `flutter assemble` records the absolute path of every input it read in
-    // its dependency stamps, and this workspace supplies the Dart SDK and
-    // engine artifacts it reads. A path that changes per build therefore
-    // guarantees a stale stamp on the next run, and Flutter re-runs the whole
-    // native-assets pipeline, build hooks included, every time.
-    // Unlike the overlay test above, this asserts only on the chosen path, so
-    // it runs on Windows too: the per-build path bug this guards was a Windows
-    // build-time regression.
-    final tmp = await Directory.systemTemp.createTemp('flutter_workspace_id-');
-    try {
-      final flutterRoot = p.join(tmp.path, 'flutter');
-      final sdkCache = Directory(p.join(flutterRoot, 'bin', 'cache'))
-        ..createSync(recursive: true);
-      Directory(p.join(flutterRoot, 'packages')).createSync();
-      File(p.join(flutterRoot, 'bin', 'internal', 'engine.version'))
-        ..createSync(recursive: true)
-        ..writeAsStringSync('engine-hash\n');
-      File(
-        p.join(sdkCache.path, 'flutter_tools.snapshot'),
-      ).writeAsStringSync('snapshot');
-      Directory(p.join(sdkCache.path, 'dart-sdk')).createSync();
-      final engineCache = IosEngineCache(
-        flutterRoot: flutterRoot,
-        cacheRoot: p.join(tmp.path, 'cache'),
-      );
-      Directory(engineCache.flutterXcframework).createSync(recursive: true);
-      // The workspace links the host vm-snapshot and patched-SDK directories
-      // too, and on Windows linking a missing target fails outright.
-      Directory(
-        p.dirname(engineCache.vmSnapshotData),
-      ).createSync(recursive: true);
-      Directory(engineCache.patchedSdkRoot).createSync(recursive: true);
+  test('native hook assembly preserves target, manifest and flavor inputs', () {
+    final host = LinuxHost(architecture: 'arm64');
+    final runner = ProcessRunner(
+      host,
+      log: nativeTestLog(),
+      stdinStream: const Stream<List<int>>.empty(),
+      stdoutSink: nativeTestSink(),
+      stderrSink: nativeTestSink(),
+    );
+    final hostTools = LinuxNativeHostTools(host, runner);
+    final target = SimulatorTarget(host);
+    final cache = IosEngineCache(
+      targetPolicy: SimulatorFlutterTarget(target),
+      hostTools: hostTools,
+      flutterRoot: '/flutter',
+      log: nativeTestLog(),
+      downloader: nativeTestDownloader(),
+    );
+    final builder = IosNativeAssetsBuilder(
+      nativeAssetFrameworks: nativeFrameworkService(runner),
+      hooks: NativeAssetsHookDiscovery(
+        fileSystem: host.fileSystem,
+        paths: host.paths.context,
+        packageConfigs: PackageConfigResolver(
+          fileSystem: host.fileSystem,
+          paths: host.paths.context,
+        ),
+      ),
+      engineCache: cache,
+      renderer: PosixAppleToolShimRenderer(host),
+      runner: runner,
+      tools: AppleToolShimResolver(
+        target,
+        runner,
+        DarwinSdkRepository(host, log: nativeTestLog()),
+        DarwinToolchainResolver(runner, LinuxDarwinToolchainLocations(host)),
+        hostTools: hostTools,
+        executable: '/xcross',
+      ),
+      projectRoot: '/project',
+      flutterRoot: '/flutter',
+      deploymentTarget: const IosDeploymentTarget(
+        '15.0',
+        platform: SimulatorBuildPlatform(),
+      ),
+      entrypoint: 'lib/flavored.dart',
+      dartDefines: const ['CUSTOM=value'],
+      flavor: 'development',
+    );
+    final arguments = builder.assembleArguments(
+      output: '/output',
+      iosSdk: '/simulator-sdk',
+    );
+    expect(
+      arguments,
+      containsAll([
+        '-dTargetPlatform=ios',
+        '-dBuildMode=debug',
+        '-dIosArchs=arm64',
+        '-dSdkRoot=/simulator-sdk',
+        '-dTargetFile=lib/flavored.dart',
+        '-dIosDeploymentTarget=15.0',
+        'debug_ios_bundle_flutter_assets',
+      ]),
+    );
+    final defines = arguments
+        .singleWhere((arg) => arg.startsWith('-dDartDefines='))
+        .substring('-dDartDefines='.length)
+        .split(',')
+        .map((value) => utf8.decode(base64.decode(value)));
+    expect(
+      defines,
+      containsAll(['CUSTOM=value', 'FLUTTER_APP_FLAVOR=development']),
+    );
+    expect(
+      builder.assembleArguments(output: '/bundle').last,
+      'copy_flutter_bundle',
+    );
+    expect(
+      cache.targetPolicy.buildDirectory('/project', 'xcross-native-assets'),
+      p.join(
+        '/project',
+        'build',
+        'xcross-ios-simulator',
+        'xcross-native-assets',
+      ),
+    );
+  });
 
-      final first = await FlutterToolWorkspace.create(
-        flutterRoot: flutterRoot,
-        engineCache: engineCache,
-      );
-      await first.dispose();
-      final second = await FlutterToolWorkspace.create(
-        flutterRoot: flutterRoot,
-        engineCache: engineCache,
-      );
-
-      expect(second.flutterRoot, first.flutterRoot);
-      expect(
-        Directory(first.flutterRoot).existsSync(),
-        isTrue,
-        reason: 'dispose must not remove the reusable workspace',
-      );
-      expect(
-        File(
-          p.join(second.flutterRoot, 'bin', 'internal', 'engine.version'),
-        ).readAsStringSync(),
-        'engine-hash\n',
-      );
-    } finally {
-      await tmp.delete(recursive: true);
-    }
+  test('native builder rejects mixed target, host and SDK contexts', () {
+    final host = LinuxHost(architecture: 'arm64');
+    final otherHost = LinuxHost(architecture: 'arm64');
+    final runner = ProcessRunner(
+      host,
+      log: nativeTestLog(),
+      stdinStream: const Stream<List<int>>.empty(),
+      stdoutSink: nativeTestSink(),
+      stderrSink: nativeTestSink(),
+    );
+    final otherRunner = ProcessRunner(
+      otherHost,
+      log: nativeTestLog(),
+      stdinStream: const Stream<List<int>>.empty(),
+      stdoutSink: nativeTestSink(),
+      stderrSink: nativeTestSink(),
+    );
+    final hostTools = LinuxNativeHostTools(host, runner);
+    final target = SimulatorTarget(host);
+    final cache = IosEngineCache(
+      targetPolicy: SimulatorFlutterTarget(target),
+      hostTools: hostTools,
+      flutterRoot: '/flutter',
+      log: nativeTestLog(),
+      downloader: nativeTestDownloader(),
+    );
+    AppleToolShimResolver<LinuxHost> resolver(IosTarget<LinuxHost> selected) =>
+        AppleToolShimResolver(
+          selected,
+          runner,
+          DarwinSdkRepository(host, log: nativeTestLog()),
+          DarwinToolchainResolver(runner, LinuxDarwinToolchainLocations(host)),
+          hostTools: hostTools,
+          executable: '/xcross',
+        );
+    IosNativeAssetsBuilder<LinuxHost> create({
+      IosTarget<LinuxHost>? selected,
+      LinuxHost? renderHost,
+      ProcessRunner<LinuxHost>? processRunner,
+      String flutterRoot = '/flutter',
+      NativeAssetFrameworks<LinuxHost>? frameworkService,
+    }) => IosNativeAssetsBuilder(
+      nativeAssetFrameworks: frameworkService ?? nativeFrameworkService(runner),
+      hooks: NativeAssetsHookDiscovery(
+        fileSystem: host.fileSystem,
+        paths: host.paths.context,
+        packageConfigs: PackageConfigResolver(
+          fileSystem: host.fileSystem,
+          paths: host.paths.context,
+        ),
+      ),
+      engineCache: cache,
+      renderer: PosixAppleToolShimRenderer(renderHost ?? host),
+      runner: processRunner ?? runner,
+      tools: resolver(selected ?? target),
+      projectRoot: '/project',
+      flutterRoot: flutterRoot,
+      deploymentTarget: const IosDeploymentTarget(
+        '15.0',
+        platform: SimulatorBuildPlatform(),
+      ),
+    );
+    expect(() => create(selected: IPhoneTarget(host)), throwsArgumentError);
+    expect(() => create(renderHost: otherHost), throwsArgumentError);
+    expect(() => create(processRunner: otherRunner), throwsArgumentError);
+    expect(() => create(flutterRoot: '/different-sdk'), throwsArgumentError);
+    expect(
+      () => create(frameworkService: nativeFrameworkService(otherRunner)),
+      throwsArgumentError,
+    );
+    final sameHostRunner = fixtureRunner(host, log: fixtureLog());
+    expect(
+      () => create(frameworkService: nativeFrameworkService(sameHostRunner)),
+      throwsArgumentError,
+    );
+    expect(() => LinuxNativeHostTools(host, otherRunner), throwsArgumentError);
+    expect(create, returnsNormally);
   });
 
   test('detects build hooks through package_config root URIs', () async {
@@ -158,9 +218,15 @@ void main() {
 {"configVersion":2,"packages":[{"name":"dependency","rootUri":"../../dependency","packageUri":"lib/"}]}
 ''');
 
-      expect(await hasNativeAssetsBuildHooks(p.join(tmp.path, 'app')), isTrue);
+      expect(
+        await nativeHookDiscovery().hasBuildHooks(p.join(tmp.path, 'app')),
+        isTrue,
+      );
       File(p.join(package.path, 'hook', 'build.dart')).deleteSync();
-      expect(await hasNativeAssetsBuildHooks(p.join(tmp.path, 'app')), isFalse);
+      expect(
+        await nativeHookDiscovery().hasBuildHooks(p.join(tmp.path, 'app')),
+        isFalse,
+      );
     } finally {
       await tmp.delete(recursive: true);
     }
@@ -174,7 +240,7 @@ void main() {
       File(p.join(dartTool.path, 'package_config.json')).writeAsStringSync('{');
 
       await expectLater(
-        hasNativeAssetsBuildHooks(tmp.path),
+        nativeHookDiscovery().hasBuildHooks(tmp.path),
         throwsA(
           isA<FlutterBuildError>().having(
             (error) => error.message,
@@ -211,16 +277,15 @@ void main() {
         }),
       );
 
-      expect(await hasNativeAssetsBuildHooks(app.path), isTrue);
+      expect(await nativeHookDiscovery().hasBuildHooks(app.path), isTrue);
       hook.deleteSync();
-      expect(await hasNativeAssetsBuildHooks(app.path), isFalse);
+      expect(await nativeHookDiscovery().hasBuildHooks(app.path), isFalse);
 
-      // A local config takes precedence over the ancestor's hook packages.
       hook.createSync();
       File(p.join(app.path, '.dart_tool', 'package_config.json'))
         ..createSync(recursive: true)
         ..writeAsStringSync('{"configVersion":2,"packages":[]}');
-      expect(await hasNativeAssetsBuildHooks(app.path), isFalse);
+      expect(await nativeHookDiscovery().hasBuildHooks(app.path), isFalse);
     } finally {
       await tmp.delete(recursive: true);
     }
@@ -246,7 +311,7 @@ void main() {
         p.join(dependency.path, 'Dependency'),
       ).writeAsBytesSync(dependencyBytes);
 
-      await normalizeNativeAssetInstallNames([asset.path, dependency.path]);
+      await frameworks.normalize([asset.path, dependency.path]);
 
       expect(_dylibNames(File(p.join(asset.path, 'Asset')).readAsBytesSync()), [
         '@rpath/Asset.framework/Asset',
@@ -263,6 +328,266 @@ void main() {
     }
   });
 
+  test(
+    'mapped collection staging normalization and alignment preserve source outputs',
+    () async {
+      final root = Directory.systemTemp.createTempSync(
+        'mapped-native-frameworks-',
+      );
+      addTearDown(() => root.deleteSync(recursive: true));
+      final mapped = FixtureMappedFileSystem(root);
+      final host = LinuxHost(fileSystem: mapped);
+      final service = nativeFrameworkService(
+        fixtureRunner(host, log: fixtureLog()),
+      );
+      const output = '/xcross-native-framework-fixture/assemble';
+      const project = '/xcross-native-framework-fixture/project';
+      final paths = host.paths.context;
+      final asset = paths.join(output, 'native_assets', 'Asset.framework');
+      final table = paths.join(
+        project,
+        'build',
+        'native_assets',
+        'ios',
+        'Table.framework',
+      );
+      final assetBinary = mapped.file(paths.join(asset, 'Asset'))
+        ..createSync(recursive: true);
+      final tableBinary = mapped.file(paths.join(table, 'Table'))
+        ..createSync(recursive: true);
+      final assetBytes = _dylibMachO([
+        '/very/long/native/assets/path/libAsset.dylib',
+      ]);
+      final tableBytes = buildMachO(
+        indirectCount: 3,
+        strings: stringTable('_hello', padding: 8),
+      );
+      assetBinary.writeAsBytesSync(assetBytes);
+      tableBinary.writeAsBytesSync(tableBytes);
+      final stale =
+          mapped.file(
+              paths.join(
+                project,
+                'build',
+                'native_assets',
+                'ios',
+                'Asset.framework',
+                'Asset',
+              ),
+            )
+            ..createSync(recursive: true)
+            ..writeAsStringSync('stale');
+      final selected = service.collect(
+        jsonEncode({
+          'native-assets': {
+            'ios_arm64': {
+              'asset': ['relative', 'Asset.framework/Asset'],
+              'table': ['relative', 'Table.framework/Table'],
+            },
+          },
+        }),
+        output,
+        projectRoot: project,
+      );
+      expect(selected, [asset, table]);
+      final staged = await service.stage(selected, output);
+      expect(staged, [
+        paths.join(output, 'xcross_staged_frameworks', 'Asset.framework'),
+        paths.join(output, 'xcross_staged_frameworks', 'Table.framework'),
+      ]);
+      await service.normalize(staged);
+      await service.align(staged);
+      expect(Directory(output).existsSync(), isFalse);
+      await expectLater(
+        File(paths.join(staged[0], 'Asset')).readAsBytes(),
+        throwsA(isA<FileSystemException>()),
+      );
+      final stagedAsset = mapped.file(paths.join(staged[0], 'Asset'));
+      final stagedTable = mapped.file(paths.join(staged[1], 'Table'));
+      expect(_dylibNames(stagedAsset.readAsBytesSync()), [
+        '@rpath/Asset.framework/Asset',
+      ]);
+      expect(readSymtab(stagedTable.readAsBytesSync()).offset % 8, 0);
+      expect(stagedTable.lengthSync(), tableBytes.length);
+      expect(assetBinary.readAsBytesSync(), assetBytes);
+      expect(tableBinary.readAsBytesSync(), tableBytes);
+      expect(stale.readAsStringSync(), 'stale');
+      final unchangedTime = DateTime.utc(2000);
+      stagedAsset.setLastModifiedSync(unchangedTime);
+      stagedTable.setLastModifiedSync(unchangedTime);
+      await service.normalize(staged);
+      await service.align(staged);
+      expect(stagedAsset.lastModifiedSync().toUtc(), unchangedTime);
+      expect(stagedTable.lastModifiedSync().toUtc(), unchangedTime);
+      expect(
+        mapped.touched,
+        containsAll([
+          paths.join(staged[0], 'Asset'),
+          paths.join(staged[1], 'Table'),
+        ]),
+      );
+      expect(
+        service.collect(
+          jsonEncode({
+            'native-assets': {'ios_arm64': <String, Object?>{}},
+          }),
+          output,
+        ),
+        isEmpty,
+      );
+      final collision = mapped.directory(
+        '/xcross-native-framework-fixture/other/Asset.framework',
+      )..createSync(recursive: true);
+      expect(
+        () => service.collect(
+          jsonEncode({
+            'native-assets': {
+              'ios_arm64': {
+                'first': ['absolute', paths.join(asset, 'Asset')],
+                'second': [
+                  'absolute',
+                  paths.join(
+                    '/xcross-native-framework-fixture/other/Asset.framework',
+                    'Asset',
+                  ),
+                ],
+              },
+            },
+          }),
+          output,
+        ),
+        throwsA(
+          isA<FlutterBuildError>().having(
+            (e) => e.message,
+            'message',
+            contains('name collision'),
+          ),
+        ),
+      );
+      expect(collision.existsSync(), isTrue);
+    },
+  );
+
+  for (final outcome in [
+    'success',
+    'nonzero-exit',
+    'missing-output',
+    'start-failure',
+  ]) {
+    test(
+      'mapped thinning preserves hooks and cleans scratch on $outcome',
+      () async {
+        final root = Directory.systemTemp.createTempSync(
+          'mapped-native-thinning-',
+        );
+        addTearDown(() => root.deleteSync(recursive: true));
+        final mapped = FixtureMappedFileSystem(root);
+        final processes = FrameworkLipoProcesses(fileSystem: mapped);
+        final startFailure = Exception('lipo fixture start failure');
+        if (outcome == 'nonzero-exit') processes.code = 23;
+        if (outcome == 'missing-output') processes.produceOutput = false;
+        if (outcome == 'start-failure') processes.startFailure = startFailure;
+        final host = LinuxHost(fileSystem: mapped, processes: processes);
+        final runner = fixtureRunner(
+          host,
+          log: fixtureLog(),
+          configuration: ProcessConfiguration(
+            normalizedTools: const {'lipo': '/configured/llvm-lipo'},
+            effectiveChildEnvironment: const {'SELECTED_ENV': 'fixture'},
+          ),
+        );
+        final service = nativeFrameworkService(runner);
+        const output = '/xcross-native-thin-fixture/assemble';
+        const source = '$output/native_assets/Fat.framework';
+        final original = mapped.file('$source/Fat')
+          ..createSync(recursive: true);
+        final fat = <int>[0xca, 0xfe, 0xba, 0xbe, 1, 2, 3, 4];
+        original.writeAsBytesSync(fat);
+        final staged = await service.stage([source], output);
+        final binary = '${staged.single}/Fat';
+        final result = service.thin(staged, lipo: 'lipo');
+        if (outcome == 'success') {
+          await result;
+          expect(mapped.file(binary).readAsBytesSync(), processes.output);
+          await service.thin(staged, lipo: 'lipo');
+          expect(processes.calls, hasLength(1));
+        } else {
+          await expectLater(
+            result,
+            outcome == 'start-failure'
+                ? throwsA(same(startFailure))
+                : throwsA(isA<Exception>()),
+          );
+          expect(mapped.file(binary).readAsBytesSync(), fat);
+        }
+        expect(processes.calls.single.$1, '/configured/llvm-lipo');
+        expect(processes.calls.single.$2, [
+          '-thin',
+          'arm64',
+          binary,
+          '-output',
+          '$binary.xcross-thin',
+        ]);
+        expect(processes.calls.single.$3?['SELECTED_ENV'], 'fixture');
+        expect(mapped.file('$binary.xcross-thin').existsSync(), isFalse);
+        expect(original.readAsBytesSync(), fat);
+        expect(mapped.touched, containsAll([binary, '$binary.xcross-thin']));
+      },
+    );
+  }
+
+  test('embedded frameworks are thinned only when universal', () async {
+    final root = Directory.systemTemp.createTempSync('embedded-thinning-');
+    addTearDown(() => root.deleteSync(recursive: true));
+    final mapped = FixtureMappedFileSystem(root);
+    final processes = FrameworkLipoProcesses(fileSystem: mapped);
+    final host = LinuxHost(fileSystem: mapped, processes: processes);
+    final runner = fixtureRunner(
+      host,
+      log: fixtureLog(),
+      configuration: ProcessConfiguration(
+        normalizedTools: const {'lipo': '/configured/llvm-lipo'},
+        effectiveChildEnvironment: const {},
+      ),
+    );
+    final service = nativeFrameworkService(runner);
+    const frameworks = '/xcross-embedded-thin-fixture/Frameworks';
+    final universal = mapped.file('$frameworks/Universal.framework/Universal')
+      ..createSync(recursive: true)
+      ..writeAsBytesSync([0xca, 0xfe, 0xba, 0xbe, 1, 2, 3, 4]);
+    final single = mapped.file('$frameworks/Single.framework/Single')
+      ..createSync(recursive: true)
+      ..writeAsBytesSync([0xcf, 0xfa, 0xed, 0xfe, 7]);
+    var lookups = 0;
+
+    await service.thinEmbedded(
+      ['$frameworks/Single.framework'],
+      lipo: () async {
+        lookups++;
+        return 'lipo';
+      },
+    );
+    expect(lookups, 0);
+    expect(processes.calls, isEmpty);
+
+    await service.thinEmbedded(
+      ['$frameworks/Universal.framework', '$frameworks/Single.framework'],
+      lipo: () async {
+        lookups++;
+        return 'lipo';
+      },
+    );
+    expect(lookups, 1);
+    expect(processes.calls, hasLength(1));
+    expect(processes.calls.single.$2.take(3).toList(), [
+      '-thin',
+      'arm64',
+      '$frameworks/Universal.framework/Universal',
+    ]);
+    expect(universal.readAsBytesSync(), processes.output);
+    expect(single.readAsBytesSync(), [0xcf, 0xfa, 0xed, 0xfe, 7]);
+  });
+
   test('detects all FAT Mach-O binaries', () async {
     final tmp = await Directory.systemTemp.createTemp('fat_macho_test-');
     try {
@@ -274,359 +599,15 @@ void main() {
       ]) {
         final fat = File(p.join(tmp.path, 'fat-${magic.first}'))
           ..writeAsBytesSync(magic);
-        expect(await isFatMachO(fat.path), isTrue);
+        expect(await frameworks.isFat(fat.path), isTrue);
       }
       final thin = File(p.join(tmp.path, 'thin'))
         ..writeAsBytesSync([0xcf, 0xfa, 0xed, 0xfe]);
-      expect(await isFatMachO(thin.path), isFalse);
+      expect(await frameworks.isFat(thin.path), isFalse);
     } finally {
       await tmp.delete(recursive: true);
     }
   });
-
-  test('falls back from llvm-otool to llvm-objdump', () async {
-    final requested = <String>[];
-    final result = await resolveOtool(
-      find: (name) async {
-        requested.add(name);
-        return name == 'llvm-objdump' ? '/llvm/llvm-objdump' : null;
-      },
-    );
-
-    expect(requested, ['llvm-otool', 'llvm-objdump']);
-    expect(result?.executable, '/llvm/llvm-objdump');
-    expect(result?.usesObjdump, isTrue);
-  });
-
-  test('translates otool options for llvm-objdump', () {
-    final unix = renderUnixOtoolShim(tool: '/llvm/objdump', usesObjdump: true);
-    final windows = renderPowerShellOtoolShim(
-      tool: r'C:\LLVM\llvm-objdump.exe',
-      usesObjdump: true,
-    );
-
-    for (final translation in [
-      '--macho --dylibs-used',
-      '--macho --dylib-id',
-      '--macho --private-headers',
-    ]) {
-      expect(unix, contains(translation));
-    }
-    for (final translation in [
-      "@('--macho', '--dylibs-used')",
-      "@('--macho', '--dylib-id')",
-      "@('--macho', '--private-headers')",
-    ]) {
-      expect(windows, contains(translation));
-    }
-  });
-
-  test('Windows uses the resolved clang as its host C compiler', () async {
-    expect(
-      await resolveHostCompiler(
-        r'C:\Program Files\LLVM\bin\clang.exe',
-        windows: true,
-      ),
-      r'C:\Program Files\LLVM\bin\clang.exe',
-    );
-  });
-
-  test('Windows resolves xcross as the tool forwarder', () async {
-    expect(
-      await resolveNativeAssetToolForwarder(
-        r'C:\bundle\xcross.exe',
-        windows: true,
-        findInstalled: () async => fail('must not search'),
-      ),
-      r'C:\bundle\xcross.exe',
-    );
-    expect(
-      await resolveNativeAssetToolForwarder(
-        r'C:\flutter\bin\cache\dart-sdk\bin\dart.exe',
-        windows: true,
-        findInstalled: () async => r'C:\installed\xcross.exe',
-      ),
-      r'C:\installed\xcross.exe',
-    );
-    expect(
-      await resolveNativeAssetToolForwarder(
-        r'C:\flutter\bin\cache\dart-sdk\bin\dartaotruntime',
-        windows: true,
-        findInstalled: () async => null,
-      ),
-      isNull,
-    );
-  });
-
-  test('Windows prefers a configured native xcross launcher', () async {
-    final tmp = await Directory.systemTemp.createTemp('apple_shims_fwd-');
-    try {
-      final launcher = File(p.join(tmp.path, 'xcross.exe'))
-        ..writeAsStringSync('');
-      expect(
-        await resolveNativeAssetToolForwarder(
-          r'C:\flutter\bin\cache\dart-sdk\bin\dart.exe',
-          windows: true,
-          launcher: launcher.path,
-          findInstalled: () async => fail('must not search'),
-        ),
-        launcher.path,
-      );
-      expect(
-        await resolveNativeAssetToolForwarder(
-          r'C:\flutter\bin\cache\dart-sdk\bin\dart.exe',
-          windows: true,
-          launcher: p.join(tmp.path, 'xcross.bat'),
-          findInstalled: () async => null,
-        ),
-        isNull,
-      );
-    } finally {
-      await tmp.delete(recursive: true);
-    }
-  });
-
-  test('Windows refuses batch compiler shims without a forwarder', () async {
-    final tmp = await Directory.systemTemp.createTemp('apple_shims_test-');
-    try {
-      await expectLater(
-        installAppleToolShims(
-          tmp.path,
-          const AppleToolShimConfig(
-            iosSdk: r'C:\SDK\iPhoneOS.sdk',
-            clang: r'C:\LLVM\clang.exe',
-            hostCompiler: r'C:\LLVM\clang.exe',
-            archiver: r'C:\LLVM\llvm-ar.exe',
-            linker: r'C:\LLVM\ld64.lld.exe',
-            deploymentTarget: '13.0',
-            lipo: r'C:\LLVM\llvm-lipo.exe',
-            otool: null,
-            installNameTool: null,
-            xcrun: r'C:\xcross\xcrun.exe',
-          ),
-          windows: true,
-        ),
-        throwsA(
-          isA<FlutterBuildError>().having(
-            (e) => e.toString(),
-            'message',
-            contains('clang.exe'),
-          ),
-        ),
-      );
-      expect(File(p.join(tmp.path, 'clang.bat')).existsSync(), isFalse);
-    } finally {
-      await tmp.delete(recursive: true);
-    }
-  });
-
-  test('resolves xcrun beside an overridden launcher', () async {
-    final tmp = await Directory.systemTemp.createTemp('apple_shims_launcher-');
-    try {
-      final launcher = File(p.join(tmp.path, 'xcross'))..writeAsStringSync('');
-      final xcrun = File(
-        p.join(tmp.path, Platform.isWindows ? 'xcrun.exe' : 'xcrun'),
-      )..writeAsStringSync('');
-      expect(await resolveXcrun(launcher: launcher.path), xcrun.path);
-    } finally {
-      await tmp.delete(recursive: true);
-    }
-  });
-
-  test(
-    'declarative xcrun prefers configured tool over launcher sibling',
-    () async {
-      final tmp = await Directory.systemTemp.createTemp('apple_shims_config-');
-      try {
-        addTearDown(resetAppleToolShimLauncherOverride);
-        final launcher = File(p.join(tmp.path, 'xcross'))
-          ..writeAsStringSync('');
-        File(p.join(tmp.path, 'xcrun')).writeAsStringSync('');
-        configureAppleToolShimResolution(
-          launcher: launcher.path,
-          xcrun: '/configured/xcrun',
-          declarative: true,
-        );
-        expect(await resolveXcrun(), '/configured/xcrun');
-      } finally {
-        await tmp.delete(recursive: true);
-      }
-    },
-  );
-
-  test('declarative xcrun only checks a configured launcher sibling', () async {
-    addTearDown(resetAppleToolShimLauncherOverride);
-    configureAppleToolShimResolution(declarative: true);
-    await expectLater(resolveXcrun(), throwsA(isA<FlutterBuildError>()));
-  });
-
-  test('Windows exposes a recognizable clang executable forwarder', () async {
-    final tmp = await Directory.systemTemp.createTemp('apple_shims_test-');
-    try {
-      final forwarder = File(p.join(tmp.path, 'xcross.exe'))
-        ..writeAsStringSync('forwarder');
-      final xcrun = File(p.join(tmp.path, 'source-xcrun.exe'))
-        ..writeAsStringSync('xcrun');
-      final shims = Directory(p.join(tmp.path, 'shims'));
-
-      await installAppleToolShims(
-        shims.path,
-        AppleToolShimConfig(
-          iosSdk: r'C:\SDK\iPhoneOS.sdk',
-          clang: r'C:\LLVM\clang.exe',
-          hostCompiler: r'C:\LLVM\clang.exe',
-          archiver: r'C:\LLVM\llvm-ar.exe',
-          linker: r'C:\LLVM\ld64.lld.exe',
-          deploymentTarget: '13.0',
-          lipo: r'C:\LLVM\llvm-lipo.exe',
-          otool: null,
-          installNameTool: null,
-          xcrun: xcrun.path,
-        ),
-        toolForwarderExecutable: forwarder.path,
-        windows: true,
-      );
-
-      final clang = File(p.join(shims.path, 'clang.exe'));
-      expect(
-        File(p.join(shims.path, 'xcrun.exe.sdk')).readAsStringSync(),
-        r'C:\SDK\iPhoneOS.sdk',
-      );
-      expect(clang.existsSync(), isTrue);
-      expect(File(p.join(shims.path, 'cc.exe')).existsSync(), isTrue);
-      expect(File(p.join(shims.path, 'clang.bat')).existsSync(), isFalse);
-      expect(File(p.join(shims.path, 'clang.ps1')).existsSync(), isFalse);
-      expect(
-        File('${clang.path}.path').readAsStringSync(),
-        r'C:\LLVM\clang.exe',
-      );
-      final arguments = jsonDecode(
-        File('${clang.path}.args').readAsStringSync(),
-      );
-      expect(arguments, contains('--target=arm64-apple-ios13.0'));
-      expect(arguments, contains(r'--ld-path=C:\LLVM\ld64.lld.exe'));
-    } finally {
-      await tmp.delete(recursive: true);
-    }
-  });
-
-  test('Apple tool shims expose configured tools including xcrun', () async {
-    if (Platform.isWindows) return;
-    final tmp = await Directory.systemTemp.createTemp('apple_shims_test-');
-    try {
-      await installAppleToolShims(
-        tmp.path,
-        const AppleToolShimConfig(
-          iosSdk: '/sdk/iPhoneOS.sdk',
-          clang: '/bin/echo',
-          hostCompiler: '/bin/echo',
-          archiver: '/toolchain/llvm-ar',
-          linker: '/toolchain/ld64.lld',
-          deploymentTarget: '15.6',
-          lipo: '/bin/echo',
-          otool: OtoolConfig('/bin/echo', usesObjdump: false),
-          installNameTool: '/bin/echo',
-          xcrun: '/bin/echo',
-        ),
-        toolForwarderExecutable: Platform.resolvedExecutable,
-      );
-      expect(File(p.join(tmp.path, 'xcrun')).existsSync(), isTrue);
-      expect(File(p.join(tmp.path, 'plutil')).existsSync(), isTrue);
-      final xcrun = await Process.run(
-        'xcrun',
-        const ['--show-sdk-path'],
-        environment: {'PATH': tmp.path},
-        includeParentEnvironment: false,
-      );
-      expect(xcrun.exitCode, 0);
-      expect(xcrun.stdout.toString().trim(), '--show-sdk-path');
-
-      final version = await Process.run(
-        'xcrun',
-        const ['--version'],
-        environment: {'PATH': tmp.path},
-        includeParentEnvironment: false,
-      );
-      expect(version.exitCode, 0);
-      expect(version.stdout.toString(), contains('xcrun version'));
-      expect(
-        File(p.join(tmp.path, 'ar')).readAsStringSync(),
-        contains('/toolchain/llvm-ar'),
-      );
-
-      final hostCc = await Process.run(
-        'cc',
-        const ['-m64', '-Wl,--as-needed', 'host.c'],
-        environment: {'PATH': tmp.path},
-        includeParentEnvironment: false,
-      );
-      expect(hostCc.exitCode, 0);
-      expect(hostCc.stdout.toString().trim(), '-m64 -Wl,--as-needed host.c');
-
-      final plainCc = await Process.run(
-        'cc',
-        [
-          '-target',
-          'arm64-apple-ios15.6',
-          '-isysroot',
-          '/custom.sdk',
-          '--ld-path=/custom/ld',
-          'asset.c',
-        ],
-        // Rust build subprocesses sanitize the hook environment, retaining
-        // PATH but not xcross-specific variables. Plain cc must still resolve
-        // to the shim, whose cross configuration is embedded in the script.
-        environment: {'PATH': tmp.path},
-        includeParentEnvironment: false,
-      );
-      expect(plainCc.exitCode, 0);
-      expect(
-        plainCc.stdout.toString().trim(),
-        '-miphoneos-version-min=15.6 -fuse-ld=lld -target '
-        'arm64-apple-ios15.6 -isysroot /custom.sdk '
-        '--ld-path=/custom/ld asset.c',
-      );
-
-      expect(
-        (await Process.run(
-          p.join(tmp.path, 'otool'),
-          ['-L', 'asset.dylib'],
-          environment: const {},
-          includeParentEnvironment: false,
-        )).stdout.toString().trim(),
-        '-L asset.dylib',
-      );
-      expect(
-        (await Process.run(
-          p.join(tmp.path, 'install_name_tool'),
-          ['-id', '@rpath/asset.dylib', 'asset.dylib'],
-          environment: const {},
-          includeParentEnvironment: false,
-        )).stdout.toString().trim(),
-        '-id @rpath/asset.dylib asset.dylib',
-      );
-      expect(
-        (await Process.run(
-          p.join(tmp.path, 'codesign'),
-          const [],
-          environment: const {},
-          includeParentEnvironment: false,
-        )).exitCode,
-        0,
-      );
-    } finally {
-      await tmp.delete(recursive: true);
-    }
-  });
-}
-
-Future<List<String>> _tree(String root) async {
-  final entries = await Directory(root)
-      .list(recursive: true, followLinks: false)
-      .map((entity) => p.relative(entity.path, from: root))
-      .toList();
-  entries.sort();
-  return entries;
 }
 
 Uint8List _dylibMachO(List<String> names) {
@@ -670,4 +651,20 @@ List<String> _dylibNames(Uint8List bytes) {
     offset += size;
   }
   return names;
+}
+
+@internal
+NativeAssetsHookDiscovery nativeHookDiscovery() {
+  final host = LinuxHost(
+    currentDirectory: Directory.current.path,
+    temporaryDirectory: Directory.systemTemp.path,
+  );
+  return NativeAssetsHookDiscovery(
+    fileSystem: host.fileSystem,
+    paths: host.paths.context,
+    packageConfigs: PackageConfigResolver(
+      fileSystem: host.fileSystem,
+      paths: host.paths.context,
+    ),
+  );
 }

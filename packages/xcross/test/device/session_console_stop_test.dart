@@ -1,16 +1,27 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:dart_mobile_device/dart_mobile_device.dart';
+import 'package:dart_mobile_device/host/shared/network/native_device_sockets.dart';
+import 'package:dart_mobile_device/shared/device/gdb_remote_client.dart';
 import 'package:test/test.dart';
-import 'package:xcross/src/device/core_device_launcher.dart';
-import 'package:xcross/src/device/session_console.dart';
+import 'package:xcross/src/target/iphone/device/core_device_launcher.dart';
+import 'package:xcross/src/target/iphone/device/session_console.dart';
+
+import 'test_log_output.dart';
 
 void main() {
   test('failed initial resume stops and awaits the console', () async {
-    final gdb = GdbRemoteClient(host: '127.0.0.1', port: 1);
+    final gdb = GdbRemoteClient(
+      sockets: const NativeDeviceSockets(),
+      log: testLog(),
+      host: '127.0.0.1',
+      port: 1,
+    );
     addTearDown(gdb.close);
     final console = SessionConsole(
+      console: TestDeviceConsole(),
+      log: testLog(),
+      keyboardInput: const Stream<List<int>>.empty(),
       gdb: gdb,
       hotReload: null,
       listenForKeyboard: false,
@@ -36,10 +47,16 @@ void main() {
     final connected = Completer<Socket>();
     server.listen(connected.complete);
 
-    final gdb = GdbRemoteClient(host: '127.0.0.1', port: server.port);
+    final gdb = GdbRemoteClient(
+      sockets: const NativeDeviceSockets(),
+      log: testLog(),
+      host: '127.0.0.1',
+      port: server.port,
+    );
     await gdb.connect();
     addTearDown(gdb.close);
     final socket = await connected.future;
+    addTearDown(socket.destroy);
 
     final continued = Completer<void>();
     final stopSeen = Completer<void>();
@@ -55,6 +72,9 @@ void main() {
     });
 
     final console = SessionConsole(
+      console: TestDeviceConsole(),
+      log: testLog(),
+      keyboardInput: const Stream<List<int>>.empty(),
       gdb: gdb,
       hotReload: null,
       listenForKeyboard: false,
@@ -75,7 +95,12 @@ void main() {
     final server = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
     addTearDown(server.close);
     final accepted = server.first;
-    final gdb = GdbRemoteClient(host: '127.0.0.1', port: server.port);
+    final gdb = GdbRemoteClient(
+      sockets: const NativeDeviceSockets(),
+      log: testLog(),
+      host: '127.0.0.1',
+      port: server.port,
+    );
     await gdb.connect();
     addTearDown(gdb.close);
     final socket = await accepted;
@@ -83,6 +108,9 @@ void main() {
     final received = StringBuffer();
     socket.listen((bytes) => received.write(String.fromCharCodes(bytes)));
     final console = SessionConsole(
+      console: TestDeviceConsole(),
+      log: testLog(),
+      keyboardInput: const Stream<List<int>>.empty(),
       gdb: gdb,
       hotReload: null,
       listenForKeyboard: false,
@@ -110,12 +138,20 @@ void main() {
     ]) {
       final server = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
       final accepted = server.first;
-      final gdb = GdbRemoteClient(host: '127.0.0.1', port: server.port);
+      final gdb = GdbRemoteClient(
+        sockets: const NativeDeviceSockets(),
+        log: testLog(),
+        host: '127.0.0.1',
+        port: server.port,
+      );
       await gdb.connect();
       final socket = await accepted;
       final received = StringBuffer();
       socket.listen((bytes) => received.write(String.fromCharCodes(bytes)));
       final console = SessionConsole(
+        console: TestDeviceConsole(),
+        log: testLog(),
+        keyboardInput: const Stream<List<int>>.empty(),
         gdb: gdb,
         hotReload: null,
         listenForKeyboard: false,
@@ -138,7 +174,12 @@ void main() {
       final server = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
       addTearDown(server.close);
       final accepted = server.first;
-      final gdb = GdbRemoteClient(host: '127.0.0.1', port: server.port);
+      final gdb = GdbRemoteClient(
+        sockets: const NativeDeviceSockets(),
+        log: testLog(),
+        host: '127.0.0.1',
+        port: server.port,
+      );
       await gdb.connect();
       addTearDown(gdb.close);
       final socket = await accepted;
@@ -153,6 +194,9 @@ void main() {
         }
       });
       final console = SessionConsole(
+        console: TestDeviceConsole(),
+        log: testLog(),
+        keyboardInput: const Stream<List<int>>.empty(),
         gdb: gdb,
         hotReload: null,
         listenForKeyboard: false,
@@ -173,7 +217,12 @@ void main() {
     final server = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
     addTearDown(server.close);
     final accepted = server.first;
-    final gdb = GdbRemoteClient(host: '127.0.0.1', port: server.port);
+    final gdb = GdbRemoteClient(
+      sockets: const NativeDeviceSockets(),
+      log: testLog(),
+      host: '127.0.0.1',
+      port: server.port,
+    );
     await gdb.connect();
     addTearDown(gdb.close);
     final socket = await accepted;
@@ -188,6 +237,9 @@ void main() {
       }
     });
     final console = SessionConsole(
+      console: TestDeviceConsole(),
+      log: testLog(),
+      keyboardInput: const Stream<List<int>>.empty(),
       gdb: gdb,
       hotReload: null,
       listenForKeyboard: false,

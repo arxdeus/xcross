@@ -3,9 +3,13 @@ import 'dart:io';
 
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
-import 'package:xcross/src/flutter/build/ios_plugin_package.dart';
+import 'package:xcross/src/host/windows/flutter/swiftpm/windows_swift_plan_repair.dart';
+import 'swiftpm_test_context.dart';
 
 void main() {
+  final windows = testWindowsSwiftPmRuntime();
+  final posix = testSwiftPmRuntime();
+  final repairs = WindowsSwiftPlanRepair(windows.runner);
   String plan(String source, {String kind = 'directory'}) => jsonEncode({
     'copyCommands': {
       'framework-copy': {
@@ -25,8 +29,7 @@ void main() {
     () {
       final source = '${r'\\?\e:\'}${r'nested\' * 20}Example.framework';
       final original = plan(source);
-      final result =
-          GeneratedPluginsPackage.normalizeWindowsDirectoryCopyInputs(original);
+      final result = repairs.normalizeWindowsDirectoryCopyInputs(original);
       final decoded = jsonDecode(result) as Map<String, dynamic>;
       final commands = decoded['copyCommands'] as Map<String, dynamic>;
       final command = commands['framework-copy'] as Map<String, dynamic>;
@@ -39,20 +42,14 @@ void main() {
         'name': r'D:\build\Example.framework',
       });
       expect(decoded['unrelated'], source);
-      expect(
-        GeneratedPluginsPackage.normalizeWindowsDirectoryCopyInputs(result),
-        result,
-      );
+      expect(repairs.normalizeWindowsDirectoryCopyInputs(result), result);
     },
   );
 
   test('retains extended paths when the source exceeds MAX_PATH', () {
     final source = '${r'\\?\e:\'}${r'nested\' * 50}Example.framework';
     final original = plan(source);
-    expect(
-      GeneratedPluginsPackage.normalizeWindowsDirectoryCopyInputs(original),
-      original,
-    );
+    expect(repairs.normalizeWindowsDirectoryCopyInputs(original), original);
   });
 
   test(
@@ -80,12 +77,10 @@ void main() {
         await scratch.delete(recursive: true);
       });
       final original = plan(extendedSource);
-      final staged =
-          await GeneratedPluginsPackage.stageWindowsDirectoryCopyInputs(
-            original,
-            scratch.path,
-            windows: true,
-          );
+      final staged = await repairs.stageWindowsDirectoryCopyInputs(
+        original,
+        scratch.path,
+      );
       final decoded = jsonDecode(staged) as Map<String, dynamic>;
       final commands = decoded['copyCommands'] as Map<String, dynamic>;
       final command = commands['framework-copy'] as Map<String, dynamic>;
@@ -104,26 +99,17 @@ void main() {
       );
       expect(File(p.join(alias, 'Info.plist')).readAsStringSync(), 'framework');
       expect(
-        await GeneratedPluginsPackage.stageWindowsDirectoryCopyInputs(
-          staged,
-          scratch.path,
-          windows: true,
-        ),
+        await repairs.stageWindowsDirectoryCopyInputs(staged, scratch.path),
         staged,
       );
     },
     skip: !Platform.isWindows,
   );
 
-  test('long-path staging leaves non-Windows plans untouched', () async {
-    final original = plan(r'\\?\C:\very\long\Framework.framework');
+  test('long-path staging leaves POSIX plans untouched', () async {
     expect(
-      await GeneratedPluginsPackage.stageWindowsDirectoryCopyInputs(
-        original,
-        r'C:\scratch',
-        windows: false,
-      ),
-      original,
+      await posix.hostPolicy.repairBuildPlan(r'C:\scratch', r'C:\scratch'),
+      isFalse,
     );
   });
 
@@ -142,10 +128,9 @@ void main() {
     final sentinel = File(p.join(r'\\?\' + source, 'keep.txt'));
     await sentinel.writeAsString('keep');
 
-    await GeneratedPluginsPackage.stageWindowsDirectoryCopyInputs(
+    await repairs.stageWindowsDirectoryCopyInputs(
       plan(r'\\?\' + source),
       scratch.path,
-      windows: true,
     );
     await scratch.delete(recursive: true);
     expect(sentinel.readAsStringSync(), 'keep');
@@ -159,10 +144,7 @@ void main() {
       plan(r'\\?\C:\example.txt', kind: 'file'),
       '{ "swiftCommands": {} }',
     ]) {
-      expect(
-        GeneratedPluginsPackage.normalizeWindowsDirectoryCopyInputs(original),
-        original,
-      );
+      expect(repairs.normalizeWindowsDirectoryCopyInputs(original), original);
     }
   });
 
@@ -174,29 +156,51 @@ void main() {
     final original = plan(r'\\?\C:\vendor\Example.framework');
     await description.writeAsString(original);
     expect(
-      await GeneratedPluginsPackage.repairWindowsGeneratedBuildFiles(
-        scratch.path,
-        target.path,
-        windows: false,
-      ),
+      await posix.hostPolicy.repairBuildPlan(scratch.path, target.path),
       isFalse,
     );
     expect(await description.readAsString(), original);
     expect(
-      await GeneratedPluginsPackage.repairWindowsGeneratedBuildFiles(
-        scratch.path,
-        target.path,
-        windows: true,
-      ),
+      await repairs.repairWindowsGeneratedBuildFiles(scratch.path, target.path),
       isTrue,
     );
     expect(
-      await GeneratedPluginsPackage.repairWindowsGeneratedBuildFiles(
-        scratch.path,
-        target.path,
-        windows: true,
-      ),
+      await repairs.repairWindowsGeneratedBuildFiles(scratch.path, target.path),
       isFalse,
     );
   });
+
+  for (final (architecture, triple, other) in [
+    ('arm64', 'aarch64-unknown-windows-msvc', 'x86_64-unknown-windows-msvc'),
+    ('x64', 'x86_64-unknown-windows-msvc', 'aarch64-unknown-windows-msvc'),
+  ]) {
+    test('repairs the $architecture host plugin tools description', () async {
+      final scratch = await Directory.systemTemp.createTemp(
+        'xcross-plugin-tools-',
+      );
+      addTearDown(() => scratch.delete(recursive: true));
+      final target = await Directory(
+        p.join(scratch.path, 'arm64-apple-ios', 'debug'),
+      ).create(recursive: true);
+      const broken = r'{"path":"\\\\?\\C:\\?\\C:\\tools\\plugin.exe"}';
+      File description(String triple) => File(
+        p.join(scratch.path, triple, 'debug', 'plugin-tools-description.json'),
+      )..createSync(recursive: true);
+      final host = description(triple)..writeAsStringSync(broken);
+      final foreign = description(other)..writeAsStringSync(broken);
+      final repairs = WindowsSwiftPlanRepair(
+        testWindowsSwiftPmRuntime(architecture: architecture).runner,
+      );
+
+      expect(
+        await repairs.repairWindowsGeneratedBuildFiles(
+          scratch.path,
+          target.path,
+        ),
+        isTrue,
+      );
+      expect(host.readAsStringSync(), r'{"path":"C:\\tools\\plugin.exe"}');
+      expect(foreign.readAsStringSync(), broken);
+    });
+  }
 }

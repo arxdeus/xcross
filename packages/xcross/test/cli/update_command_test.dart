@@ -1,23 +1,24 @@
-import 'dart:async';
-
 import 'package:args/command_runner.dart';
 import 'package:test/test.dart';
-import 'package:xcross/src/cli/basic/update_command.dart';
-import 'package:xcross/src/errors.dart';
-import 'package:xcross/src/update/git_update_ref_resolver.dart';
-import 'package:xcross/src/update/install_layout.dart';
+import 'package:xcross/src/shared/cli/basic/update_command.dart';
+import 'package:xcross/src/shared/errors/errors.dart';
+import 'package:xcross/src/shared/update/git_update_ref_resolver.dart';
+import 'package:xcross/src/shared/update/install_layout.dart';
+
+import '../log_fixture.dart';
+import 'runtime_fixture.dart';
 
 void main() {
   group('UpdateCommand parser', () {
     test('supports --ref and no longer exposes --to', () {
-      final command = UpdateCommand();
+      final command = UpdateCommand(testRuntime());
 
       expect(command.argParser.options, contains('ref'));
       expect(command.argParser.options, isNot(contains('to')));
     });
 
     test('--ref help requires a full commit SHA', () {
-      final command = UpdateCommand();
+      final command = UpdateCommand(testRuntime());
 
       expect(
         command.argParser.options['ref']!.help,
@@ -28,14 +29,19 @@ void main() {
 
   group('UpdateCommand', () {
     test('latest release lookup runs inside a step', () async {
+      final runtime = testRuntime();
       final command = UpdateCommand.withSeams(
+        runtime,
         latestTagLookup: () async => '1.3.0',
         currentVersion: () => '1.2.0',
       );
 
-      final lines = await _captureAsync(() async {
-        await _run(command, ['update', '--check']);
-      });
+      final lines = await _captureAsync(
+        runtime.log.output as TestLogOutput,
+        () async {
+          await _run(command, ['update', '--check']);
+        },
+      );
 
       expect(
         lines.where((line) => line.contains('Checking latest release')),
@@ -44,7 +50,9 @@ void main() {
     });
 
     test('ref resolution runs inside a step', () async {
+      final runtime = testRuntime();
       final command = UpdateCommand.withSeams(
+        runtime,
         resolveRef: (ref) async => const GitUpdateRef(
           kind: GitUpdateRefKind.branch,
           displayName: 'main',
@@ -53,9 +61,12 @@ void main() {
         ),
       );
 
-      final lines = await _captureAsync(() async {
-        await _run(command, ['update', '--check', '--ref', 'main']);
-      });
+      final lines = await _captureAsync(
+        runtime.log.output as TestLogOutput,
+        () async {
+          await _run(command, ['update', '--check', '--ref', 'main']);
+        },
+      );
 
       expect(
         lines.where((line) => line.contains('Resolving ref main')),
@@ -71,6 +82,7 @@ void main() {
         var layoutResolves = 0;
         var assetNameCalls = 0;
         final command = UpdateCommand.withSeams(
+          testRuntime(),
           latestTagLookup: () async {
             latestLookups++;
             return '1.3.0';
@@ -105,6 +117,7 @@ void main() {
     test('refreshes configured setup script after release install', () async {
       final events = <String>[];
       final command = UpdateCommand.withSeams(
+        testRuntime(),
         latestTagLookup: () async => '1.3.0',
         currentVersion: () => '1.2.0',
         resolveInstallLayout: () => _layout,
@@ -126,6 +139,7 @@ void main() {
       final resolvedRefs = <String>[];
       final assetNameCalls = <String>[];
       final command = UpdateCommand.withSeams(
+        testRuntime(),
         resolveRef: (ref) async {
           resolvedRefs.add(ref);
           return const GitUpdateRef(
@@ -160,6 +174,7 @@ void main() {
       final sourceInstalls = <GitUpdateRef>[];
       var assetNameCalls = 0;
       final command = UpdateCommand.withSeams(
+        testRuntime(),
         resolveRef: (ref) async => const GitUpdateRef(
           kind: GitUpdateRefKind.branch,
           displayName: 'main',
@@ -190,6 +205,7 @@ void main() {
     test('routes explicit commit refs to source installs', () async {
       final sourceInstalls = <GitUpdateRef>[];
       final command = UpdateCommand.withSeams(
+        testRuntime(),
         resolveRef: (ref) async => const GitUpdateRef(
           kind: GitUpdateRefKind.commit,
           displayName: 'feature-head',
@@ -224,6 +240,7 @@ void main() {
         var sourceInstalls = 0;
         final reports = <({String requestedRef, GitUpdateRef resolvedRef})>[];
         final command = UpdateCommand.withSeams(
+          testRuntime(),
           resolveRef: (ref) async => const GitUpdateRef(
             kind: GitUpdateRefKind.branch,
             displayName: 'stable',
@@ -267,6 +284,7 @@ void main() {
       'rejects explicit tag refs whose display name is not a semver tag',
       () async {
         final command = UpdateCommand.withSeams(
+          testRuntime(),
           resolveRef: (ref) async => const GitUpdateRef(
             kind: GitUpdateRefKind.tag,
             displayName: 'nightly',
@@ -299,6 +317,7 @@ void main() {
       () async {
         final releaseTags = <String>[];
         final command = UpdateCommand.withSeams(
+          testRuntime(),
           resolveRef: (ref) async => const GitUpdateRef(
             kind: GitUpdateRefKind.tag,
             displayName: '1.2.0',
@@ -326,6 +345,7 @@ void main() {
       () async {
         final sourceInstalls = <GitUpdateRef>[];
         final command = UpdateCommand.withSeams(
+          testRuntime(),
           resolveRef: (ref) async => const GitUpdateRef(
             kind: GitUpdateRefKind.branch,
             displayName: 'main',
@@ -357,6 +377,7 @@ void main() {
       () async {
         final installed = <String>[];
         final command = UpdateCommand.withSeams(
+          testRuntime(),
           latestTagLookup: () async => '1.2.1',
           resolveInstallLayout: () => _layout,
           assetName: () => 'xcross-linux-x64.tar.gz',
@@ -380,6 +401,7 @@ void main() {
         var latestLookups = 0;
         var releaseInstalls = 0;
         final command = UpdateCommand.withSeams(
+          testRuntime(),
           latestTagLookup: () async {
             latestLookups++;
             return '1.2.0';
@@ -407,6 +429,7 @@ void main() {
       () async {
         final installed = <String>[];
         final command = UpdateCommand.withSeams(
+          testRuntime(),
           latestTagLookup: () async => '1.2.0',
           resolveInstallLayout: () => _layout,
           assetName: () => 'xcross-linux-x64.tar.gz',
@@ -432,7 +455,8 @@ Future<void> _run(UpdateCommand command, List<String> args) async {
   await runner.run(args);
 }
 
-const _layout = InstallLayout(
+final _layout = InstallLayout(
+  host: testRuntime().host,
   binaryPath: '/opt/xcross/bin/xcross',
   binDir: '/opt/xcross/bin',
   libDir: '/opt/xcross/lib',
@@ -442,13 +466,10 @@ const _shaA = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
 const _shaB = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
 const _shaC = 'cccccccccccccccccccccccccccccccccccccccc';
 
-Future<List<String>> _captureAsync(Future<void> Function() body) async {
-  final lines = <String>[];
-  await runZoned(
-    body,
-    zoneSpecification: ZoneSpecification(
-      print: (_, __, ___, line) => lines.add(line),
-    ),
-  );
-  return lines;
+Future<List<String>> _captureAsync(
+  TestLogOutput output,
+  Future<void> Function() body,
+) async {
+  await body();
+  return output.messages;
 }

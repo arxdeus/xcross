@@ -1,10 +1,10 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
-import 'package:apple_developer_kit/src/grandslam/anisette/grandslam_endpoints.dart';
-import 'package:apple_developer_kit/src/grandslam/app_token_exchange.dart';
-import 'package:apple_developer_kit/src/grandslam/grandslam_login_data.dart';
-import 'package:apple_developer_kit/src/grandslam/internal/grandslam_response_decoder.dart';
+import 'package:apple_developer_kit/shared/grandslam/anisette/grandslam_endpoints.dart';
+import 'package:apple_developer_kit/shared/grandslam/app_token_exchange.dart';
+import 'package:apple_developer_kit/shared/grandslam/grandslam_login_data.dart';
+import 'package:apple_developer_kit/src/shared/grandslam/internal/grandslam_response_decoder.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:pointycastle/export.dart' as pc;

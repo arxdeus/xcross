@@ -1,9 +1,13 @@
-import 'dart:io';
-
+import 'package:cli_kit/host/linux/linux_host.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
-import 'package:xcross/src/cli/basic/doctor_environment_checks.dart';
-import 'package:xcross/src/cli/basic/internal/xcode_swift_requirement.dart';
+import 'package:xcross/src/host/linux/sdk/linux_swift_toolchain_host.dart';
+import 'package:xcross/src/host/macos/sdk/macos_swift_toolchain_host.dart';
+import 'package:xcross/src/host/windows/sdk/windows_swift_toolchain_host.dart';
+import 'package:xcross/src/shared/cli/basic/doctor_models.dart';
+import 'package:xcross/src/shared/sdk/xcode_swift_requirement.dart';
+
+import 'doctor_environment_checks_test.dart';
 
 void main() {
   group('XcodeSwiftRequirement.xcodeMajorFromXipPath', () {
@@ -78,31 +82,25 @@ void main() {
   });
 
   group('DoctorEnvironmentChecks.swiftTooOldForSdk', () {
-    late Directory bundle;
+    late DoctorServiceFixture fixture;
 
-    setUp(() => bundle = Directory.systemTemp.createTempSync('xcross_xcsdk_'));
-    tearDown(() => bundle.deleteSync(recursive: true));
-
-    void sdkNamed(String name) => Directory(
-      p.join(
-        bundle.path,
-        'Developer',
-        'Platforms',
-        'iPhoneOS.platform',
-        'Developer',
-        'SDKs',
-        name,
+    setUp(
+      () => fixture = DoctorServiceFixture(
+        baseHost: LinuxHost(
+          currentDirectory: '/fixture',
+          environment: const {'HOME': '/fixture'},
+        ),
+        sdkInstalled: false,
       ),
-    ).createSync(recursive: true);
+    );
+    tearDown(() => fixture.dispose());
 
-    Future<String?> run(String version) =>
-        DoctorEnvironmentChecks.swiftTooOldForSdk(
-          bundle.path,
-          toolchainIdentity: () async => {
-            'swift': '/usr/bin/swift',
-            'version': version,
-          },
-        );
+    void sdkNamed(String name) => fixture.sdkNamed(name);
+
+    Future<String?> run(String version) {
+      fixture.swiftVersion = version;
+      return fixture.checks.swiftTooOldForSdk(fixture.bundle);
+    }
 
     test('fails an Xcode 27 SDK paired with Swift 6.3', () async {
       sdkNamed('iPhoneOS27.0.sdk');
@@ -124,6 +122,81 @@ void main() {
 
     test('says nothing when no SDK is installed', () async {
       expect(await run('Swift version 6.3'), isNull);
+    });
+
+    test(
+      'fails an Xcode 27 SDK with Xcode 26 paired Swift on any host',
+      () async {
+        sdkNamed('iPhoneOS27.0.sdk');
+        expect(
+          await run('Apple Swift version 6.2.4 (swiftlang-6.2.4.1.4)'),
+          allOf(contains('Xcode 27'), contains('6.4 or newer')),
+        );
+      },
+    );
+
+    test('passes an Xcode 26 SDK with its paired Swift', () async {
+      sdkNamed('iPhoneOS26.2.sdk');
+      expect(
+        await run('Apple Swift version 6.2.4 (swiftlang-6.2.4.1.4)'),
+        isNull,
+      );
+    });
+  });
+
+  group('DoctorEnvironmentChecks.swiftBelowHostMinimum', () {
+    DoctorServiceFixture fixtureWith((int, int)? minimum) {
+      final fixture = DoctorServiceFixture(
+        baseHost: LinuxHost(
+          currentDirectory: '/fixture',
+          environment: const {'HOME': '/fixture'},
+        ),
+        sdkInstalled: false,
+        minimumSwift: minimum,
+      );
+      addTearDown(fixture.dispose);
+      return fixture;
+    }
+
+    test('fails Swift 6.3 against a 6.4 host floor', () async {
+      final fixture = fixtureWith(const LinuxSwiftToolchainHost().minimumSwift)
+        ..swiftVersion = 'Swift version 6.3.3 (swift-6.3.3-RELEASE)';
+      expect(
+        await fixture.checks.swiftBelowHostMinimum(),
+        allOf(
+          contains('requires Swift 6.4 or newer'),
+          contains('is 6.3'),
+          contains('fixture installer'),
+        ),
+      );
+      final checks = await fixture.checks.flutterToolchain();
+      expect(
+        checks.where((check) => check.name == 'Swift version').single.status,
+        DoctorStatus.failure,
+      );
+    });
+
+    test('passes Swift 6.4 and newer against a 6.4 host floor', () async {
+      for (final version in [
+        'Swift version 6.4 (swift-6.4-RELEASE)',
+        'Swift version 7.0 (swift-7.0-RELEASE)',
+      ]) {
+        final fixture = fixtureWith(
+          const WindowsSwiftToolchainHost().minimumSwift,
+        )..swiftVersion = version;
+        expect(await fixture.checks.swiftBelowHostMinimum(), isNull);
+        expect(
+          (await fixture.checks.flutterToolchain()).map((check) => check.name),
+          isNot(contains('Swift version')),
+        );
+      }
+    });
+
+    test('has no floor for the Xcode-paired macOS Swift', () async {
+      final fixture = fixtureWith(const MacOSSwiftToolchainHost().minimumSwift)
+        ..swiftVersion = 'Apple Swift version 6.2.4 (swiftlang-6.2.4.1.4)';
+      expect(await fixture.checks.swiftBelowHostMinimum(), isNull);
+      expect(fixture.identityRequests, 0);
     });
   });
 }

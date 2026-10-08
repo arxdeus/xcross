@@ -3,12 +3,8 @@ import 'dart:io';
 
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
-import 'package:xcross/src/flutter/build/swiftpm_binary_artifact_preparer.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/artifact_transport.dart';
 
-/// These cover the failure that hung Windows CI for six hours: a binary
-/// artifact download that connects (or starts) and then never progresses.
-/// A bare `HttpClient` waits forever, so the build produced no further output
-/// and no error until the job limit killed it.
 void main() {
   late Directory temp;
 
@@ -27,7 +23,9 @@ void main() {
 
     final started = Stopwatch()..start();
     await expectLater(
-      SwiftPmBinaryArtifactPreparer.downloadArchive(
+      const HttpSwiftPmArchiveTransport(
+        createClient: HttpClient.new,
+      ).downloadArchive(
         Uri.parse('http://${server.address.host}:${server.port}/a.zip'),
         target('a.zip'),
         1 << 20,
@@ -51,7 +49,9 @@ void main() {
 
     final started = Stopwatch()..start();
     await expectLater(
-      SwiftPmBinaryArtifactPreparer.downloadArchive(
+      const HttpSwiftPmArchiveTransport(
+        createClient: HttpClient.new,
+      ).downloadArchive(
         Uri.parse('http://${server.address.host}:${server.port}/b.zip'),
         target('b.zip'),
         1 << 20,
@@ -72,7 +72,9 @@ void main() {
     });
 
     final destination = target('ok.zip');
-    await SwiftPmBinaryArtifactPreparer.downloadArchive(
+    await const HttpSwiftPmArchiveTransport(
+      createClient: HttpClient.new,
+    ).downloadArchive(
       Uri.parse('http://${server.address.host}:${server.port}/ok.zip'),
       destination,
       1 << 20,
@@ -83,15 +85,15 @@ void main() {
   test('production defaults are bounded, never infinite', () {
     // The regression was the absence of any bound at all.
     expect(
-      SwiftPmBinaryArtifactPreparer.downloadConnectTimeout,
+      HttpSwiftPmArchiveTransport.downloadConnectTimeout,
       lessThanOrEqualTo(const Duration(minutes: 2)),
     );
     expect(
-      SwiftPmBinaryArtifactPreparer.downloadStallTimeout,
+      HttpSwiftPmArchiveTransport.downloadStallTimeout,
       lessThanOrEqualTo(const Duration(minutes: 5)),
     );
     expect(
-      SwiftPmBinaryArtifactPreparer.downloadTotalTimeout,
+      HttpSwiftPmArchiveTransport.downloadTotalTimeout,
       lessThanOrEqualTo(const Duration(minutes: 30)),
     );
   });

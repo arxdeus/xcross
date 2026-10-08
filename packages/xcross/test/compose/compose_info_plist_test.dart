@@ -1,28 +1,44 @@
 import 'dart:io';
 import 'dart:isolate';
 
+import 'package:darwin_sdk_kit/target/iphone/iphone_build_platform.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:propertylistserialization/propertylistserialization.dart';
 import 'package:test/test.dart';
-import 'package:xcross/src/compose/compose.dart';
-import 'package:xcross/src/errors.dart';
-import 'package:xcross/src/flutter/constants.dart';
+import 'package:xcross/src/shared/compose/build/compose_info_plist.dart';
+import 'package:xcross/src/shared/compose/project/ios_app_config.dart';
+import 'package:xcross/src/shared/compose/project/kmp_project.dart';
+import 'package:xcross/src/shared/errors/errors.dart';
+import 'package:xcross/src/shared/flutter/constants.dart';
+
+import 'support/compose_platforms.dart';
 
 void main() {
+  late ComposeTestSession session;
+  setUp(() {
+    session = createComposeTestSession();
+  });
+  tearDown(() => session.dispose());
   test(
     'builds complete plist by preserving safe partials and forcing install keys',
     () {
-      final fixture = _Fixture.create()..writePartialPlist();
+      final fixture = ComposeFixture.create()..writePartialPlist();
       addTearDown(fixture.dispose);
 
-      final xml = ComposeInfoPlist.build(
-        project: fixture.project,
-        extras: {
-          'CADisableMinimumFrameDurationOnPhone': true,
-          'CustomList': ['one', 2, false],
-          'CustomDict': {'Nested': 'value'},
-        },
-      );
+      final xml =
+          ComposeInfoPlist(
+            session.fixtureRunner.host.fileSystem,
+            session.fixtureLog,
+          ).build(
+            project: fixture.project,
+            extras: {
+              'CADisableMinimumFrameDurationOnPhone': true,
+              'CustomList': ['one', 2, false],
+              'CustomDict': {'Nested': 'value'},
+            },
+            target: const IPhoneBuildPlatform(),
+          );
       final plist =
           PropertyListSerialization.propertyListWithString(xml) as Map;
 
@@ -52,12 +68,18 @@ void main() {
   test('adds CADisableMinimumFrameDurationOnPhone without being asked', () {
     // Compose UI's PlistSanityCheck throws at startup when this key is
     // absent, which crashed the app (SIGABRT) to a black screen on device.
-    final fixture = _Fixture.create();
+    final fixture = ComposeFixture.create();
     addTearDown(fixture.dispose);
 
     final plist =
         PropertyListSerialization.propertyListWithString(
-              ComposeInfoPlist.build(project: fixture.project),
+              ComposeInfoPlist(
+                session.fixtureRunner.host.fileSystem,
+                session.fixtureLog,
+              ).build(
+                project: fixture.project,
+                target: const IPhoneBuildPlatform(),
+              ),
             )
             as Map;
 
@@ -65,12 +87,16 @@ void main() {
   });
 
   test('lets the project opt out of the Compose plist defaults', () {
-    final fixture = _Fixture.create();
+    final fixture = ComposeFixture.create();
     addTearDown(fixture.dispose);
 
     final plist =
         PropertyListSerialization.propertyListWithString(
-              ComposeInfoPlist.build(
+              ComposeInfoPlist(
+                session.fixtureRunner.host.fileSystem,
+                session.fixtureLog,
+              ).build(
+                target: const IPhoneBuildPlatform(),
                 project: fixture.project,
                 extras: {'CADisableMinimumFrameDurationOnPhone': false},
               ),
@@ -81,7 +107,7 @@ void main() {
   });
 
   test('uses resolved project identity over xcconfig identity', () {
-    final fixture = _Fixture.create();
+    final fixture = ComposeFixture.create();
     addTearDown(fixture.dispose);
     final project = KmpProject(
       root: fixture.root,
@@ -99,7 +125,10 @@ void main() {
       ),
     );
 
-    final xml = ComposeInfoPlist.build(project: project);
+    final xml = ComposeInfoPlist(
+      session.fixtureRunner.host.fileSystem,
+      session.fixtureLog,
+    ).build(project: project, target: const IPhoneBuildPlatform());
     final plist = PropertyListSerialization.propertyListWithString(xml) as Map;
 
     expect(plist['CFBundleIdentifier'], 'dev.example.override');
@@ -112,11 +141,14 @@ void main() {
   test(
     'real Swift host example preserves safe partial plist keys and overrides required keys',
     () {
-      final project = KmpProject.detect(
+      final project = session.detectKmpProject(
         p.join(_repoRoot, 'examples', 'kmp_swift_app'),
       );
 
-      final xml = ComposeInfoPlist.build(project: project);
+      final xml = ComposeInfoPlist(
+        session.fixtureRunner.host.fileSystem,
+        session.fixtureLog,
+      ).build(project: project, target: const IPhoneBuildPlatform());
       final plist =
           PropertyListSerialization.propertyListWithString(xml) as Map;
 
@@ -131,14 +163,19 @@ void main() {
   );
 
   test('rejects unsafe extra and partial plist values', () {
-    final fixture = _Fixture.create();
+    final fixture = ComposeFixture.create();
     addTearDown(fixture.dispose);
 
     expect(
-      () => ComposeInfoPlist.build(
-        project: fixture.project,
-        extras: {'UnsafeDate': DateTime(2026)},
-      ),
+      () =>
+          ComposeInfoPlist(
+            session.fixtureRunner.host.fileSystem,
+            session.fixtureLog,
+          ).build(
+            project: fixture.project,
+            extras: {'UnsafeDate': DateTime(2026)},
+            target: const IPhoneBuildPlatform(),
+          ),
       throwsA(isA<XcrossError>()),
     );
 
@@ -150,20 +187,24 @@ void main() {
 <plist version="1.0"><dict><key>UnsafeData</key><data>AA==</data></dict></plist>
 ''');
     expect(
-      () => ComposeInfoPlist.build(project: fixture.project),
+      () => ComposeInfoPlist(
+        session.fixtureRunner.host.fileSystem,
+        session.fixtureLog,
+      ).build(project: fixture.project, target: const IPhoneBuildPlatform()),
       throwsA(isA<XcrossError>()),
     );
   });
 }
 
-final String _repoRoot = File.fromUri(
-  Isolate.resolvePackageUriSync(Uri.parse('package:xcross/xcross.dart'))!,
-).parent.parent.parent.parent.path;
+final String _repoRoot = Directory.fromUri(
+  Isolate.resolvePackageUriSync(Uri.parse('package:xcross/'))!,
+).parent.parent.parent.path;
 
-final class _Fixture {
-  _Fixture._(this.temp) : root = temp.path;
+@internal
+final class ComposeFixture {
+  ComposeFixture._(this.temp) : root = temp.path;
 
-  factory _Fixture.create() => _Fixture._(
+  factory ComposeFixture.create() => ComposeFixture._(
     Directory.systemTemp.createTempSync('xcross_info_plist_test_'),
   );
 

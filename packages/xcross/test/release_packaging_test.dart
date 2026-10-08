@@ -3,9 +3,9 @@ import 'dart:isolate';
 
 import 'package:test/test.dart';
 
-final String _repoRoot = File.fromUri(
-  Isolate.resolvePackageUriSync(Uri.parse('package:xcross/xcross.dart'))!,
-).parent.parent.parent.parent.path;
+final String _repoRoot = Directory.fromUri(
+  Isolate.resolvePackageUriSync(Uri.parse('package:xcross/'))!,
+).parent.parent.parent.path;
 
 void main() {
   test('installer installs xcross plus its required license notice', () {
@@ -42,6 +42,11 @@ void main() {
 
     for (final expected in [
       'xcross-windows-x64.zip',
+      'xcross-windows-arm64.zip',
+      'PROCESSOR_ARCHITEW6432',
+      'OSArchitecture',
+      r"$archSources -contains 'ARM64'",
+      r'$Asset = $Assets[$arch]',
       'LOCALAPPDATA',
       'sysv_abi_bridge.dll',
       r'bin\xcross.exe',
@@ -55,5 +60,41 @@ void main() {
     for (final removed in ['zsign.exe', 'XCROSS_ZSIGN_PATH']) {
       expect(installer, isNot(contains(removed)));
     }
+    expect(installer, isNot(contains("-ne 'AMD64'")));
+    expect(installer, isNot(contains('x64-only')));
+  });
+
+  test('release workflow builds, attests and publishes every archive', () {
+    final workflow = File(
+      '$_repoRoot/.github/workflows/release.yml',
+    ).readAsStringSync();
+
+    for (final expected in [
+      'runner: windows-2022',
+      'asset: xcross-windows-x64',
+      'cli-dir: windows_x64',
+      'runner: windows-11-arm',
+      'asset: xcross-windows-arm64',
+      'cli-dir: windows_arm64',
+      r'architecture: ${{ matrix.architecture }}',
+      r'MSVC_ARCHITECTURE: ${{ matrix.architecture }}',
+      'Microsoft.VisualStudio.Component.VC.Tools.ARM64',
+    ]) {
+      expect(workflow, contains(expected));
+    }
+    for (final asset in [
+      'xcross-linux-x64.tar.gz',
+      'xcross-linux-arm64.tar.gz',
+      'xcross-windows-x64.zip',
+      'xcross-windows-arm64.zip',
+    ]) {
+      expect(
+        RegExp(RegExp.escape(asset)).allMatches(workflow).length,
+        greaterThanOrEqualTo(3),
+        reason: '$asset must be attested, checksummed and uploaded',
+      );
+      expect(workflow, contains('dist/$asset'));
+    }
+    expect(workflow, isNot(contains('build/cli/windows_x64/bundle')));
   });
 }

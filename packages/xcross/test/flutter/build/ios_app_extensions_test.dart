@@ -2,7 +2,8 @@ import 'dart:io';
 
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
-import 'package:xcross/src/flutter/build/ios_app_extensions.dart';
+
+import '../flutter_test_runtime.dart';
 
 /// A realistic two-target project: a Runner app plus one share extension.
 const _pbxproj = r'''
@@ -137,7 +138,7 @@ void main() {
   }
 
   test('discovers only app-extension targets, never the application', () {
-    final extensions = IosAppExtensions.discover(tmp.path);
+    final extensions = testIPhoneRuntime().extensions.discover(tmp.path);
 
     expect(extensions, hasLength(1));
     expect(extensions.single.name, 'Share Extension');
@@ -145,7 +146,7 @@ void main() {
   });
 
   test('resolves build settings and group-relative file paths', () {
-    final extension = IosAppExtensions.discover(tmp.path).single;
+    final extension = testIPhoneRuntime().extensions.discover(tmp.path).single;
     final ios = p.join(tmp.path, 'ios');
 
     expect(extension.swiftVersion, '5.0');
@@ -164,14 +165,14 @@ void main() {
   });
 
   test('reports the bundle name and Xcode-style Swift module name', () {
-    final extension = IosAppExtensions.discover(tmp.path).single;
+    final extension = testIPhoneRuntime().extensions.discover(tmp.path).single;
 
     expect(extension.bundleName, 'Share Extension.appex');
     expect(extension.moduleName, 'Share_Extension');
   });
 
   test('computes the suffix under the host app id', () {
-    final extension = IosAppExtensions.discover(tmp.path).single;
+    final extension = testIPhoneRuntime().extensions.discover(tmp.path).single;
 
     expect(extension.suffixUnder('com.example.App'), '.Share-Extension');
     // An extension outside the app's id namespace is not installable.
@@ -191,7 +192,7 @@ void main() {
 </plist>
 ''');
 
-    expect(IosAppExtensions.discover(tmp.path).single.appGroups, [
+    expect(testIPhoneRuntime().extensions.discover(tmp.path).single.appGroups, [
       'group.com.example.Shared',
     ]);
   });
@@ -209,14 +210,17 @@ void main() {
 </plist>
 ''');
 
-    expect(IosAppExtensions.discover(tmp.path).single.appGroups, isEmpty);
+    expect(
+      testIPhoneRuntime().extensions.discover(tmp.path).single.appGroups,
+      isEmpty,
+    );
   });
 
   test('returns nothing for a project without an Xcode project', () async {
     final empty = await Directory.systemTemp.createTemp('xcross_no_ios-');
     addTearDown(() => empty.delete(recursive: true));
 
-    expect(IosAppExtensions.discover(empty.path), isEmpty);
+    expect(testIPhoneRuntime().extensions.discover(empty.path), isEmpty);
   });
 
   test('tolerates a malformed pbxproj instead of failing the build', () async {
@@ -224,11 +228,14 @@ void main() {
       p.join(tmp.path, 'ios', 'Runner.xcodeproj', 'project.pbxproj'),
     ).writeAsString('{ this is not a valid pbxproj');
 
-    expect(IosAppExtensions.discover(tmp.path), isEmpty);
+    expect(testIPhoneRuntime().extensions.discover(tmp.path), isEmpty);
   });
 
   test('finds the application target name', () {
-    expect(IosAppExtensions.applicationTargetName(tmp.path), 'Runner');
+    expect(
+      testIPhoneRuntime().extensions.applicationTargetName(tmp.path),
+      'Runner',
+    );
   });
 
   group('Xcode 16 synchronized folder groups', () {
@@ -309,7 +316,9 @@ $exceptions
     test('recovers sources from a synchronized folder group', () async {
       await writeSyncedProject();
 
-      final extension = IosAppExtensions.discover(tmp.path).single;
+      final extension = testIPhoneRuntime().extensions
+          .discover(tmp.path)
+          .single;
 
       expect(extension.sources, [
         p.join(synced.path, 'ShareViewController.swift'),
@@ -319,7 +328,9 @@ $exceptions
     test('classifies synchronized files as sources or resources', () async {
       await writeSyncedProject();
 
-      final extension = IosAppExtensions.discover(tmp.path).single;
+      final extension = testIPhoneRuntime().extensions
+          .discover(tmp.path)
+          .single;
 
       // Nested folders and arbitrary plists contribute, while the target's
       // Info.plist remains a build input that the builder writes itself.
@@ -352,7 +363,10 @@ $exceptions
 		SS01 = {'''),
       );
 
-      expect(IosAppExtensions.discover(tmp.path).single.sources, isEmpty);
+      expect(
+        testIPhoneRuntime().extensions.discover(tmp.path).single.sources,
+        isEmpty,
+      );
     });
 
     test('ignores exceptions belonging to a different target', () async {
@@ -377,14 +391,19 @@ $exceptions
 		SS01 = {'''),
       );
 
-      expect(IosAppExtensions.discover(tmp.path).single.sources, hasLength(1));
+      expect(
+        testIPhoneRuntime().extensions.discover(tmp.path).single.sources,
+        hasLength(1),
+      );
     });
 
     test('tolerates a synchronized group with no folder on disk', () async {
       await writeSyncedProject();
       await synced.delete(recursive: true);
 
-      final extension = IosAppExtensions.discover(tmp.path).single;
+      final extension = testIPhoneRuntime().extensions
+          .discover(tmp.path)
+          .single;
 
       expect(extension.sources, isEmpty);
       expect(extension.resources, isEmpty);

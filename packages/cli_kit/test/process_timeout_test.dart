@@ -1,9 +1,31 @@
 import 'dart:io';
 
-import 'package:cli_kit/cli_kit.dart';
+import 'package:cli_kit/composition/native_host.dart';
+import 'package:cli_kit/shared/errors/errors.dart';
+import 'package:cli_kit/shared/logging/logging.dart';
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:cli_kit/shared/process/process.dart';
 import 'package:test/test.dart';
 
+import 'support/test_log_output.dart';
+import 'support/test_process_io.dart';
+
 void main() {
+  final io = TestProcessIo();
+  tearDownAll(io.close);
+  final log = Log(output: TestLogOutput(emit: print));
+  final nativeHost = detectPlatformHost();
+  late ProcessRunner<PlatformHostInterface> runner;
+  setUp(
+    () => runner = ProcessRunner(
+      nativeHost,
+      log: log,
+      stdinStream: io.input,
+      stdoutSink: io.output,
+      stderrSink: io.error,
+    ),
+  );
+
   late Directory scripts;
 
   setUpAll(() => scripts = Directory.systemTemp.createTempSync('xc-timeout-'));
@@ -16,12 +38,12 @@ void main() {
     return [file.path];
   }
 
-  group('ProcessRunner.run timeout', () {
+  group('runner.run timeout', () {
     // The hang this guards against is a child that never exits and never
     // writes: a credential prompt reading a pipe nobody answers.
     test('kills a child that never exits and reports it', () async {
       final started = Stopwatch()..start();
-      final result = await ProcessRunner.run(
+      final result = await runner.run(
         Platform.resolvedExecutable,
         program(
           'hang',
@@ -45,7 +67,7 @@ void main() {
     });
 
     test('leaves a fast command untouched', () async {
-      final result = await ProcessRunner.run(
+      final result = await runner.run(
         Platform.resolvedExecutable,
         program('ok', 'void main() { print("ok"); }\n'),
         timeout: const Duration(minutes: 5),
@@ -57,7 +79,7 @@ void main() {
     });
 
     test('captures output of a command that exits non-zero', () async {
-      final result = await ProcessRunner.run(
+      final result = await runner.run(
         Platform.resolvedExecutable,
         program(
           'boom',
@@ -72,31 +94,33 @@ void main() {
       expect(result.stderr, contains('boom'));
     });
 
-    test('runChecked reports a timeout as a timeout, not a failed command',
-        () async {
-      await expectLater(
-        ProcessRunner.runChecked(
-          Platform.resolvedExecutable,
-          program(
-            'hang-checked',
-            'import "dart:io";\n'
-                'import "dart:async";\n'
-                'void main() {\n'
-                '  stdin.listen((_) {});\n'
-                '  Timer(const Duration(minutes: 10), () {});\n'
-                '}\n',
+    test(
+      'runChecked reports a timeout as a timeout, not a failed command',
+      () async {
+        await expectLater(
+          runner.runChecked(
+            Platform.resolvedExecutable,
+            program(
+              'hang-checked',
+              'import "dart:io";\n'
+                  'import "dart:async";\n'
+                  'void main() {\n'
+                  '  stdin.listen((_) {});\n'
+                  '  Timer(const Duration(minutes: 10), () {});\n'
+                  '}\n',
+            ),
+            timeout: const Duration(seconds: 10),
           ),
-          timeout: const Duration(seconds: 10),
-        ),
-        throwsA(
-          isA<CliError>().having(
-            (error) => error.toString(),
-            'message',
-            contains('timed out'),
+          throwsA(
+            isA<CliError>().having(
+              (error) => error.toString(),
+              'message',
+              contains('timed out'),
+            ),
           ),
-        ),
-      );
-    });
+        );
+      },
+    );
 
     // `--verbose` routes builds through the inherit-stdio path. That path
     // used to ignore `timeout` outright, so a stalled `swift package resolve`
@@ -104,7 +128,7 @@ void main() {
     test('applies to inheritStdio, which verbose builds use', () async {
       final started = Stopwatch()..start();
       await expectLater(
-        ProcessRunner.runChecked(
+        runner.runChecked(
           Platform.resolvedExecutable,
           program(
             'hang-inherit',

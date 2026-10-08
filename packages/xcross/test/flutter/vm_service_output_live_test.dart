@@ -2,8 +2,13 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:cli_kit/host/linux/linux_host.dart';
+import 'package:cli_kit/shared/http/local_http.dart';
 import 'package:test/test.dart';
-import 'package:xcross/src/flutter/hot_reload/dart_vm_service_client.dart';
+import 'package:xcross/src/shared/flutter/hot_reload/dart_vm_service_client.dart';
+import 'package:xcross/src/shared/flutter/vm_service_connector.dart';
+
+import 'flutter_test_log.dart';
 
 /// End-to-end check against a REAL Dart VM Service.
 ///
@@ -52,14 +57,20 @@ void main() {
     );
     final wsUri = httpUri.replace(scheme: 'ws', path: '${httpUri.path}ws');
 
-    final vm = DartVmServiceClient();
+    final vm = DartVmServiceClient(
+      log: testFlutterLog(),
+      connector: LocalVmServiceConnector(
+        LocalHttp(LinuxHost(), createClient: HttpClient.new),
+      ),
+    );
     await vm.connect(wsUri);
     addTearDown(vm.close);
 
     final seen = <String>{};
     final done = Completer<void>();
     vm.events.listen((event) {
-      if (event['streamId'] case final String id) seen.add(id);
+      final Object? streamId = event['streamId'];
+      if (streamId case final String id) seen.add(id);
       if (seen.containsAll(const {'Stdout', 'Stderr', 'Logging'}) &&
           !done.isCompleted) {
         done.complete();

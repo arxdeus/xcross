@@ -1,37 +1,88 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
-import 'package:xcross/src/flutter/build/ios_plugin_package.dart';
+import 'package:xcross/src/shared/cli/basic/doctor_models.dart';
+import 'package:xcross/src/shared/errors/errors.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/runtime.dart';
+import 'package:xcross/src/shared/sdk/swift_environment_host.dart';
+
+import 'swiftpm_test_context.dart';
+
+final _swiftPmRuntime = testSwiftPmRuntime();
+final _windowsRuntime = testWindowsSwiftPmRuntime();
 
 void main() {
   late Directory root;
   setUp(() => root = Directory.systemTemp.createTempSync('xcross-cross-host-'));
   tearDown(() => root.deleteSync(recursive: true));
 
-  test('prefers bundled xcrun using the Windows PATH list separator', () {
-    File(p.join(root.path, 'xcrun.exe')).writeAsStringSync('tool');
-    final executable = p.join(root.path, 'xcross.exe');
-    Map<String, String> environment(String path, {required bool windows}) =>
-        GeneratedPluginsPackage.swiftProcessEnvironment(
-          windows: windows,
-          executable: executable,
-          environment: {'PATH': path},
-        )!;
-    expect(
-      environment('other;tools', windows: true)['PATH'],
-      '${root.path};other;tools',
+  test('passes the resolved host Swift environment to SwiftPM', () async {
+    final environment = RecordingSwiftEnvironment(
+      () async => {'SDKROOT': r'C:\Swift\Windows.sdk'},
     );
-    expect(environment('', windows: true)['PATH'], root.path);
-    expect(environment('other:tools', windows: false), isNot(contains('PATH')));
-    File(p.join(root.path, 'xcrun.exe')).deleteSync();
-    expect(environment('other;tools', windows: true), isNot(contains('PATH')));
+    final runtime = testWindowsSwiftPmRuntime(swiftEnvironment: environment);
+    final resolved = await runtime.processPolicy.swiftProcessEnvironment();
+    expect(resolved['SDKROOT'], r'C:\Swift\Windows.sdk');
+    expect(resolved['EXPERIMENTAL_SPM_BUILDS'], '1');
+    expect(resolved['GIT_TERMINAL_PROMPT'], '0');
+    expect(runtime.processPolicy.sourceFallbackActive, isTrue);
+    expect(environment.calls, 1);
   });
 
-  for (final windows in [false, true]) {
+  test('stops before SwiftPM when the host Swift environment fails', () async {
+    final runtime = testWindowsSwiftPmRuntime(
+      swiftEnvironment: RecordingSwiftEnvironment(
+        () async => throw XcrossError('SDKROOT is not set'),
+      ),
+    );
+    await expectLater(
+      runtime.processPolicy.swiftProcessEnvironment(),
+      throwsA(
+        isA<XcrossError>().having(
+          (error) => error.message,
+          'message',
+          'SDKROOT is not set',
+        ),
+      ),
+    );
+  });
+
+  test('prefers bundled xcrun using the Windows PATH list separator', () async {
+    File(p.join(root.path, 'xcrun.exe')).writeAsStringSync('tool');
+    final executable = p.join(root.path, 'xcross.exe');
+    Future<Map<String, String>> environment(
+      String path,
+      SwiftPmRuntime runtime,
+    ) => runtime.processPolicy.swiftProcessEnvironment(
+      executable: executable,
+      environment: {'PATH': path},
+    );
+    expect(
+      (await environment('other;tools', _windowsRuntime))['PATH'],
+      '${root.path};other;tools',
+    );
+    expect((await environment('', _windowsRuntime))['PATH'], root.path);
+    expect(
+      await environment('other:tools', _swiftPmRuntime),
+      isNot(contains('PATH')),
+    );
+    File(p.join(root.path, 'xcrun.exe')).deleteSync();
+    expect(
+      await environment('other;tools', _windowsRuntime),
+      isNot(contains('PATH')),
+    );
+  });
+
+  for (final runtime in <SwiftPmRuntime<PlatformHostInterface>>[
+    _swiftPmRuntime,
+    _windowsRuntime,
+  ]) {
     test(
-      'recovers reachable internal headers after a failed aggregate ($windows)',
+      'recovers reachable internal headers after a failed aggregate (${runtime.host.name})',
       () async {
         final include = p.join(root.path, 'Internal.build', 'include');
         Directory(include).createSync(recursive: true);
@@ -56,22 +107,25 @@ void main() {
         );
         final events = <String>[];
         var attempts = 0;
-        await GeneratedPluginsPackage.buildWithInteropRecovery(
+        await testGenericInteropRecovery(
+          runtime,
+          RecordingSwiftPmInteropBuild(
+            build: () async {
+              events.add('build');
+              if (++attempts == 1) {
+                throw StateError("'Internal-Swift.h' file not found");
+              }
+            },
+            buildTarget: (target) async {
+              events.add(target);
+              File(
+                p.join(include, '$target-Swift.h'),
+              ).writeAsStringSync('// header');
+            },
+          ),
+        ).build(
           targetBuildDir: root.path,
           interopTargetCandidates: const {'Public'},
-          windows: windows,
-          build: () async {
-            events.add('build');
-            if (++attempts == 1) {
-              throw StateError("'Internal-Swift.h' file not found");
-            }
-          },
-          buildTarget: (target) async {
-            events.add(target);
-            File(
-              p.join(include, '$target-Swift.h'),
-            ).writeAsStringSync('// header');
-          },
         );
         expect(events, ['build', 'Internal', 'build']);
       },
@@ -96,18 +150,33 @@ void main() {
     final originalError = StateError("'Internal-Swift.h' file not found");
     var builds = 0;
     await expectLater(
-      GeneratedPluginsPackage.buildWithInteropRecovery(
-        targetBuildDir: root.path,
-        interopTargetCandidates: const {},
-        windows: true,
-        build: () {
-          builds++;
-          return Future<void>.error(originalError);
-        },
-        buildTarget: (_) async => throw targetError,
-      ),
+      testWindowsInteropRecovery(
+        _windowsRuntime,
+        RecordingSwiftPmInteropBuild(
+          build: () {
+            builds++;
+            return Future<void>.error(originalError);
+          },
+          buildTarget: (_) async => throw targetError,
+        ),
+      ).build(targetBuildDir: root.path, interopTargetCandidates: const {}),
       throwsA(same(originalError)),
     );
     expect(builds, 1);
   });
+}
+
+@internal
+final class RecordingSwiftEnvironment implements SwiftEnvironmentHostInterface {
+  RecordingSwiftEnvironment(this.resolve);
+  final Future<Map<String, String>> Function() resolve;
+  int calls = 0;
+  @override
+  Future<Map<String, String>> swiftEnvironment() {
+    calls++;
+    return resolve();
+  }
+
+  @override
+  Future<List<DoctorCheck>> doctorChecks() async => const [];
 }

@@ -1,18 +1,25 @@
 // Exercises the arm64e.x1 rewrite through the paths a real install takes:
-// a cpio stream into SdkInstall.writeSdkEntries, and DarwinSdk.current's
+// a cpio stream into installer.writeSdkEntries, and DarwinSdk.current's
 // repair of a bundle installed before the rewrite existed.
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:darwin_sdk_kit/darwin_sdk_kit.dart';
+import 'package:darwin_sdk_kit/shared/archive/cpio_reader.dart';
+import 'package:darwin_sdk_kit/shared/sdk/darwin_sdk_repository.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
-import 'package:xcross/src/cli/basic/sdk_command.dart';
+import 'package:xcross/src/host/windows/sdk/materialized_sdk_archive_links.dart';
 
 import '../../../darwin_sdk_kit/test/test_fixtures.dart';
+import 'sdk_test_support.dart';
 
 void main() {
+  final sdkContext = SdkTestContext();
+  final installer = sdkContext.installer();
+  final materializedInstaller = sdkContext.installer(
+    links: MaterializedSdkArchiveLinks(sdkContext.host),
+  );
   late Directory tmp;
 
   setUp(() async {
@@ -47,7 +54,7 @@ void main() {
   );
 
   test('rewrites text stubs as the SDK is extracted', () async {
-    final written = await SdkInstall.writeSdkEntries(
+    final written = await installer.writeSdkEntries(
       Stream.fromIterable([
         entry(
           'Xcode.app/Contents/$sdkRelative/usr/lib/libSystem.tbd',
@@ -78,7 +85,7 @@ void main() {
     // Only text stubs are rewritten; nothing else in the SDK is touched.
     expect(read('$sdkRelative/usr/include/notes.txt'), 'arm64e.x1-ios');
     // Stamped, so resolving the bundle later does not rescan it.
-    expect(TbdBundlePatch.isStamped(tmp.path), isTrue);
+    expect(sdkContext.repository.patch.isStamped(tmp.path), isTrue);
   });
 
   test('rewrites every member of a cpio hard-link group', () async {
@@ -106,7 +113,7 @@ void main() {
       )
       ..add(buildCpioTrailer());
 
-    await SdkInstall.writeSdkEntries(
+    await installer.writeSdkEntries(
       CpioReader.read(Stream.value(archive.takeBytes())),
       tmp.path,
     );
@@ -125,7 +132,7 @@ void main() {
   });
 
   test('materialized symlink copies inherit the rewrite', () async {
-    await SdkInstall.writeSdkEntries(
+    await materializedInstaller.writeSdkEntries(
       Stream.fromIterable([
         entry(
           'Xcode.app/Contents/$sdkRelative/usr/lib/libReal.tbd',
@@ -138,7 +145,6 @@ void main() {
         ),
       ]),
       tmp.path,
-      materializeLinks: true,
     );
 
     final alias = File(
@@ -177,19 +183,27 @@ void main() {
     await stubFile.create(recursive: true);
     await stubFile.writeAsString(stub('arm64e-ios, arm64e.x1-ios'));
 
-    expect(DarwinSdk.isValidBundle(bundle), isTrue);
-    expect(TbdBundlePatch.isStamped(bundle), isFalse);
+    expect(sdkContext.repository.isValidBundle(bundle), isTrue);
+    expect(sdkContext.repository.patch.isStamped(bundle), isFalse);
 
-    final sdk = DarwinSdk.current(bundle: bundle);
+    final sdk = DarwinSdkRepository(
+      sdkContext.host,
+      log: sdkContext.log,
+      installBundle: bundle,
+    ).current();
 
     expect(sdk, isNotNull);
     expect(stubFile.readAsStringSync(), isNot(contains('.x1')));
-    expect(TbdBundlePatch.isStamped(bundle), isTrue);
+    expect(sdkContext.repository.patch.isStamped(bundle), isTrue);
 
     // Second resolve is a stamp read, not another tree scan: re-adding an
     // unparsable stub must not be undone behind the user's back.
     await stubFile.writeAsString(stub('arm64e.x1-ios'));
-    DarwinSdk.current(bundle: bundle);
+    DarwinSdkRepository(
+      sdkContext.host,
+      log: sdkContext.log,
+      installBundle: bundle,
+    ).current();
     expect(stubFile.readAsStringSync(), contains('.x1'));
   });
 }

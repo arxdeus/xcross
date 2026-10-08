@@ -1,8 +1,9 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:darwin_sdk_kit/src/errors.dart';
-import 'package:darwin_sdk_kit/src/xcode_xip_extractor.dart';
+import 'package:cli_kit/host/macos/macos_host.dart';
+import 'package:darwin_sdk_kit/shared/archive/xcode_xip_extractor.dart';
+import 'package:darwin_sdk_kit/shared/errors/errors.dart';
 import 'package:test/test.dart';
 
 import 'test_fixtures.dart';
@@ -43,7 +44,9 @@ void main() {
         final path = '${tempDir.path}/Xcode.xip';
         await File(path).writeAsBytes(xarBytes);
 
-        final entries = await XcodeXipExtractor.extract(path).toList();
+        final entries = await XcodeXipExtractor(
+          MacOSHost(),
+        ).extract(path).toList();
 
         expect(entries, hasLength(2));
         expect(entries[0].name, 'a.txt');
@@ -59,7 +62,7 @@ void main() {
       await File(path).writeAsBytes(xarBytes);
 
       expect(
-        XcodeXipExtractor.extract(path).toList(),
+        XcodeXipExtractor(MacOSHost()).extract(path).toList(),
         throwsA(isA<DarwinSdkError>()),
       );
     });
@@ -82,7 +85,10 @@ void main() {
         path,
       ).writeAsBytes(buildXar({'Content': utf8.encode('payload')}));
 
-      await expectLater(XcodeXipExtractor.validate(path), completes);
+      await expectLater(
+        XcodeXipExtractor(MacOSHost()).validate(path),
+        completes,
+      );
     });
 
     test('rejects a file that is not a XAR archive at all', () async {
@@ -92,7 +98,7 @@ void main() {
       await File(path).writeAsString('<!DOCTYPE html>not your Xcode archive');
 
       await expectLater(
-        XcodeXipExtractor.validate(path),
+        XcodeXipExtractor(MacOSHost()).validate(path),
         throwsA(
           isA<DarwinSdkError>().having(
             (error) => error.toString(),
@@ -110,7 +116,7 @@ void main() {
       ).writeAsBytes(buildXar({'Metadata': utf8.encode('only metadata')}));
 
       await expectLater(
-        XcodeXipExtractor.validate(path),
+        XcodeXipExtractor(MacOSHost()).validate(path),
         throwsA(
           isA<DarwinSdkError>().having(
             (error) => error.toString(),

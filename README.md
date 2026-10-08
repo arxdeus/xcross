@@ -10,7 +10,7 @@
 [![GitHub stars](https://img.shields.io/github/stars/arxdeus/xcross?style=flat-square&label=stars)](https://github.com/arxdeus/xcross/stargazers)
 [![Open issues](https://img.shields.io/github/issues/arxdeus/xcross?style=flat-square)](https://github.com/arxdeus/xcross/issues)
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux-3C873A?style=flat-square)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square)](https://opensource.org/licenses/MIT)
+[![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg?style=flat-square)](https://www.gnu.org/licenses/agpl-3.0)
 
 **Build, run, and hot-reload Flutter iOS apps natively from Windows or Linux.**
 
@@ -44,7 +44,7 @@ Both platforms need the same five ingredients:
 | Requirement | Purpose |
 |---|---|
 | [Flutter](https://flutter.dev) | Your app's SDK; xcross reuses its engine artifacts |
-| [Swift toolchain](https://www.swift.org/install/) | Compiles SwiftPM plugins and runner glue code |
+| [Swift toolchain](https://www.swift.org/install/) 6.4 or newer (on macOS, the Swift paired with your Xcode) | Compiles SwiftPM plugins and runner glue code |
 | [LLVM](https://releases.llvm.org/) (`clang`, `clang++`, `llvm-ar`, `ld64.lld` on `PATH`) | Compiles and links the iOS Mach-O binaries |
 | Python 3 + [`pymobiledevice3`](https://github.com/doronz88/pymobiledevice3) | Device communication and the iOS 17+ RSD tunnel |
 | A complete `Xcode.xip` ([xcodereleases.com](https://xcodereleases.com/)) | Processed **once** by `xcross sdk install` into a private Darwin Swift SDK |
@@ -64,28 +64,36 @@ Both installers download the latest release, install it, **add xcross to your `P
 
 ### Windows (native)
 
-1. One-line install (PowerShell):
+1. One-line install (PowerShell). It picks the native x64 or ARM64 build, even when run from an emulated x64 PowerShell on Windows on ARM:
 
    ```powershell
    irm https://raw.githubusercontent.com/arxdeus/xcross/main/install.ps1 | iex
    ```
 
-2. Install Swift and LLVM from an **Administrator** PowerShell (the installer tells you if they're missing):
+2. Install [Flutter](https://docs.flutter.dev/get-started/install/windows), then let xcross install everything else:
 
    ```powershell
-   winget install --id Swift.Toolchain --exact
-   winget install --id LLVM.LLVM --exact
+   xcross setup
    ```
 
-3. Install Flutter, Python 3, and `pymobiledevice3`, then finish setup:
+   This runs the setup script for your package manager from the xcross release you installed: [`winget.ps1`](setup/winget.ps1), [`scoop.ps1`](setup/scoop.ps1), or [`choco.ps1`](setup/choco.ps1). If several are installed, xcross asks which one to use. If none is, it runs [`direct.ps1`](setup/direct.ps1), which downloads the vendor installers itself. Pick one explicitly with `xcross setup --manager winget|scoop|choco|direct`. xcross first prints the script's name, source URL, and SHA-256 and waits for `y`. The script then asks before each package: Visual Studio Build Tools (MSVC + Windows SDK, which Swift links against), Swift, LLVM (its `bin` goes on your `PATH`), and Python 3. Then it installs `pymobiledevice3`. Installers that need elevation raise their own UAC prompt. `xcross setup --yes` accepts every prompt.
+
+   | | `winget.ps1` | `scoop.ps1` | `choco.ps1` | `direct.ps1` |
+   |---|---|---|---|---|
+   | VS Build Tools | `Microsoft.VisualStudio.2022.BuildTools` | vendor installer¹ | `visualstudio2022buildtools` | vendor installer¹ |
+   | Swift | `Swift.Toolchain` | `main/swift` | vendor installer¹ | vendor installer¹ |
+   | LLVM | `LLVM.LLVM` | `main/llvm` | `llvm` | GitHub release² |
+   | Python | `Python.Python.3.13` | `main/python` | `python313` | python.org² |
+
+   ¹ Scoop's official buckets have no Build Tools, and Chocolatey has no Swift package. For those, the script downloads `aka.ms/vs/17/release/vs_BuildTools.exe` or the latest release from `download.swift.org` and runs it only with a valid Authenticode signature from Microsoft or Apple. ² The installer must also match the SHA-256 that GitHub or python.org publishes (and, for Python, the Python Software Foundation signature). `XCROSS_SWIFT_VERSION`, `XCROSS_LLVM_VERSION`, and `XCROSS_PYTHON_VERSION`, with optional `*_SHA256`, pin versions for `direct.ps1`. Chocolatey needs an Administrator PowerShell. Scoop expects a normal one.
+
+3. Open a new terminal so the new `PATH` applies, then build the Darwin SDK:
 
    ```powershell
-   py -m pip install -U pymobiledevice3
-   xcross setup
    xcross sdk install C:\Downloads\Xcode.xip   # once, takes a while
    ```
 
-   Open a new terminal after installing Swift so its `bin` directory is on `PATH`; both commands refuse to run without it. The SDK is tied to the Swift active here, so re-run `xcross sdk install` if you later switch Swift versions.
+   The SDK is tied to the Swift active here, so re-run `xcross sdk install` if you later switch Swift versions.
 
 ### Linux
 
@@ -114,6 +122,8 @@ Both installers download the latest release, install it, **add xcross to your `P
    `xcross setup` detects `apt`, `dnf`, or `pacman` (and asks which to use when the answer is ambiguous). It also installs `usbmuxd`, `usbutils`, and `libimobiledevice` for USB device access and diagnostics. `pymobiledevice3` goes into its own `pipx` venv, and `pipx ensurepath` puts `~/.local/bin` on your `PATH` - open a new shell for that to take effect.
 
    The SDK is tied to the Swift you had active here. If you later switch Swift versions, re-run `xcross sdk install`.
+
+   Prefer a script you can read first? [`setup/apt.sh`](setup/apt.sh), [`setup/dnf.sh`](setup/dnf.sh), and [`setup/pacman.sh`](setup/pacman.sh) install the same packages, plus Swift through swiftly if it is missing. Run one directly (`sh setup/apt.sh`) or point `setup:` in your config at it (see [Configuration](#configuration)). Before any third-party installer (apt.llvm.org's `llvm.sh`, swiftly) runs, they print its name and URL and wait for `y`.
 
 ### Verifying a release
 
@@ -186,7 +196,7 @@ The command prompts for your password and 2FA code, then stores **only** the res
 
 Machine attestation uses Android ADI libraries (`libCoreADI.so`, `libstoreservicescore.so`):
 
-- **Windows x64 / Linux x86_64** - downloaded automatically from the Apple Music APK into `%APPDATA%\xcross\adi-libs` (Windows) or `~/.config/xcross/adi-libs` (Linux) on first use.
+- **Windows / Linux, x64 or ARM64** - the matching `x86_64` or `arm64-v8a` slice is downloaded automatically from the Apple Music APK into `%APPDATA%\xcross\adi-libs` (Windows) or `~/.config/xcross/adi-libs` (Linux) on first use.
 - **Other architectures** - extract the matching APK slice yourself and pass `--adi-library-dir`.
 
 ### App Store Connect API key
@@ -209,7 +219,7 @@ See [iOS app extensions](docs/app-extensions.md) for the details.
 ### Sign out
 
 ```sh
-xcross auth clear
+xcross auth clean
 ```
 
 Deletes the saved App Store Connect key, the Apple ID session and its machine attestation state, and every certificate, private key, and provisioning profile xcross minted. The downloaded ADI libraries stay - they are architecture-specific binaries that identify no account.
@@ -226,7 +236,7 @@ xcross auth --apple-id you@example.com
 
 # 2. Check build and run requirements without changing anything
 cd my_flutter_app
-xcross doctor
+xcross flutter doctor
 
 # 3. Once per device reconnect: mount DDI + start the RSD tunnel
 #    (Administrator PowerShell on Windows; root on Linux)
@@ -249,7 +259,7 @@ While the app is running:
 
 With multiple iPhones connected, an interactive terminal shows a numbered device picker; pass `-u <UDID>` for CI or piped runs.
 
-`xcross doctor` is read-only: it checks Linux or Windows host tools, the Darwin SDK, the current Flutter or Compose project, authentication, device tooling, and connected iOS versions without building, installing, or launching. Missing project or device context is a warning; failed requirements return a nonzero exit code.
+`xcross flutter doctor` and `xcross compose doctor` are read-only: each checks only what its own framework needs (the project, the toolchain its build drives, and the Darwin SDK), plus the shared deployment requirements (device tooling, authentication, and connected iOS versions), without building, installing, or launching. Results are grouped into sections, each headed by its worst status. Missing project or device context is a warning; failed requirements return a nonzero exit code.
 
 ## Run over Wi-Fi
 
@@ -306,9 +316,12 @@ roots:
 environment:
   PATH:
     - /absolute/toolchain/bin
+setup: https://raw.githubusercontent.com/arxdeus/xcross/main/setup/apt.sh
 ```
 
 Edit it with `xcross config`, inspect it with `xcross config show`, prove it with `xcross config validate`.
+
+`setup` makes `xcross setup` run that script (an absolute path or an HTTP(S) URL) instead of its built-in installer. Before running anything, xcross prints the script's name, source, and SHA-256 and asks for confirmation. Pass `--yes` to skip the prompt, which is required when there is no terminal. Remote scripts are cached by content hash, and `xcross update` refreshes them.
 
 **Full reference: [xcross.sh/docs/configuration](https://xcross.sh/docs/configuration)** - every key, discovery order, variable expansion, and the runtime overlay.
 
@@ -316,20 +329,24 @@ Edit it with `xcross config`, inspect it with `xcross config show`, prove it wit
 
 | Command | Description |
 |---|---|
-| `xcross setup` | Install host dependencies (apt/dnf/pacman packages, `pipx`, `pymobiledevice3`). Requires Swift on `PATH` |
+| `xcross setup` | Install host dependencies: apt/dnf/pacman or Homebrew packages, `pipx`, and `pymobiledevice3` (Linux/macOS need Swift on `PATH` first). On Windows, or when `setup:` is configured, runs a setup script after showing its name, URL, and SHA-256 and asking first (`--yes` skips the prompt) |
 | `xcross config` | Interactively create or edit executable overrides, Swift/LLVM toolchain directories, roots, and child-environment paths |
 | `xcross config show` / `validate` | Print the selected YAML configuration or validate all configured paths |
 | `xcross sdk install <Xcode.xip>` | Extract a private Darwin Swift SDK from an Xcode archive, patched against the Swift toolchain currently on `PATH` |
+| `xcross sdk clean` | Remove the installed Darwin Swift SDK and any leftover backup or staging copies |
 | `xcross auth` | Save Apple ID or App Store Connect credentials |
-| `xcross auth clear` | Delete saved credentials, sessions, and signing material |
-| `xcross doctor` | Read-only check of host, SDK, project, authentication, and device requirements for build and run |
+| `xcross auth clean` | Delete saved credentials, sessions, and signing material |
 | `xcross tunnel` | Mount the Developer Disk Image + start the iOS 17+ RSD tunnel over USB |
 | `xcross tunnel --wifi` | Prepare wireless pairing, reconnect or advertise pair-host, mount DDI, and open the Wi-Fi RSD tunnel |
 | `xcross flutter run` | Build → sign → install → launch → hot reload |
+| `xcross flutter doctor` | Read-only check of the Flutter project, Swift/LLVM iOS toolchain, Darwin SDK, authentication, and devices |
 | `xcross compose setup` | Install Kotlin/Compose iOS cross-build helpers |
+| `xcross compose doctor` | Read-only check of the Gradle project, Kotlin/Native, JDK 21+, Gradle, swiftc, clang, Darwin SDK, `ld64.lld`, authentication, and devices |
 | `xcross compose build` | Build a KMP iOS framework or `.app` from the current Gradle project |
 | `xcross compose run -d <device>` | Build, sign, install, and launch a runnable KMP iOS app |
 | `xcross compose run --watch` | Same, plus `r` to rebuild + reinstall + relaunch (Compose has no in-place reload) |
+| `xcross flutter clean` | Clear this Flutter project's xcross native asset and SwiftPM build caches (device and simulator) |
+| `xcross compose clean` | Clear this Compose project's xcross build output and Kotlin/Native caches (device and simulator) |
 | `xcross flutter dap` | Run the Debug Adapter Protocol server (used by IDEs) |
 | `xcross ide vscode` | Upsert `.vscode/*` for Run & Debug / Hot Reload |
 | `xcross ide idea` | Write a JetBrains DAP run configuration (needs LSP4IJ) |
@@ -367,6 +384,7 @@ xcross setup
 xcross sdk install /path/to/Xcode.xip
 xcross compose setup
 cd examples/compose_app        # or examples/kmp_swift_app
+xcross compose doctor
 xcross compose build
 xcross compose run -d <device>
 ```
@@ -583,4 +601,6 @@ xcross is free and open source. If it saves you a Mac, consider giving back:
 
 ## License
 
-[MIT](LICENSE)
+[AGPL-3.0](LICENSE)
+
+Copyright (C) 2026 Artemis Kushner

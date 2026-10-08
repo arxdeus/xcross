@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:isolate';
 
 import 'package:test/test.dart';
 
@@ -28,14 +29,16 @@ void main() {
     final script = File('${dir.path}/probe.dart');
     await script.writeAsString('''
 import 'dart:io';
-import 'package:dart_mobile_device/src/tunnel/port_forwarder.dart';
+import 'package:cli_kit/shared/logging/logging.dart';
+import 'package:dart_mobile_device/host/shared/network/native_device_sockets.dart';
+import 'package:dart_mobile_device/shared/device/tunnel/port_forwarder.dart';
 
 Future<void> main() async {
   // Stands in for the VM Service on the phone.
   final device = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
   device.listen((s) => s.listen(s.add, onDone: s.close));
 
-  final forwarder = await PortForwarder.start(
+  final forwarder = await PortForwarder.start(sockets: const NativeDeviceSockets(), log: Log(output: StreamLogOutput(stdout: stdout, stderr: stderr, supportsAnsi: false, terminalColumns: () => 80)),
     deviceHost: device.address.address,
     devicePort: device.port,
   );
@@ -46,10 +49,12 @@ $body
   // No exit() here on purpose: main returning must be enough.
 }
 ''');
-    return Process.start(Platform.resolvedExecutable, [
-      'run',
+    final config = await Isolate.packageConfig;
+    final process = await Process.start(Platform.resolvedExecutable, [
+      '--packages=${config!.toFilePath()}',
       script.path,
     ], workingDirectory: Directory.current.path);
+    return process;
   }
 
   Future<int?> waitForExit(Process child) async {

@@ -9,16 +9,23 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:apple_developer_kit/src/adi/adi_client.dart';
-import 'package:apple_developer_kit/src/grandslam/anisette/anisette_data_provider.dart';
-import 'package:apple_developer_kit/src/grandslam/anisette/anisette_state.dart';
-import 'package:apple_developer_kit/src/grandslam/anisette/internal/adi_provisioning.dart';
+import 'package:apple_developer_kit/host/shared/adi/loader/loader.dart';
+import 'package:apple_developer_kit/shared/adi/adi_client.dart';
+import 'package:apple_developer_kit/shared/grandslam/anisette/adi_provisioning.dart';
+import 'package:apple_developer_kit/shared/grandslam/anisette/anisette_data_provider.dart';
+import 'package:apple_developer_kit/shared/grandslam/anisette/anisette_state.dart';
+import 'package:apple_developer_kit/src/host/shared/adi/loader/internal/posix_loaded_library.dart';
 import 'package:crypto/crypto.dart' as crypto;
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:propertylistserialization/propertylistserialization.dart';
 import 'package:test/test.dart';
+
+import '../../adi/support/elf_fixture.dart';
+import '../../support/host_services.dart';
+import '../../support/mapped_apple_fixture.dart';
 
 const _lookupUrl = 'https://gsa.apple.com/grandslam/GsService2/lookup';
 const _midStartUrl = 'https://gsa.apple.com/gsa/midStartProvisioning';
@@ -47,6 +54,7 @@ Uint8List _bytes(String s) => Uint8List.fromList(utf8.encode(s));
 
 /// A fake [AdiProvisioning] driving canned provisioning-handshake data,
 /// matching the shapes `AdiClient` (`package:provision_dart`) returns.
+@internal
 class FakeAdiProvisioning implements AdiProvisioning {
   FakeAdiProvisioning({this.alreadyProvisioned = false});
 
@@ -103,7 +111,8 @@ class FakeAdiProvisioning implements AdiProvisioning {
   }
 }
 
-class _RefusingAdiProvisioning implements AdiProvisioning {
+@internal
+class RefusingAdiProvisioning implements AdiProvisioning {
   @override
   Future<bool> isMachineProvisioned(int dsId) =>
       throw StateError('unexpected ADI call: isMachineProvisioned');
@@ -132,6 +141,105 @@ class _RefusingAdiProvisioning implements AdiProvisioning {
 }
 
 void main() {
+  test(
+    'mapped default ADI preserves POSIX literal-backslash path bytes',
+    () async {
+      final fixture = MappedAppleFixture();
+      addTearDown(fixture.dispose);
+      final store = AnisetteStateStore(
+        hostServices: fixture.services,
+        path: fixture.path(r'state\literal/anisette-state.json'),
+      );
+      await store.save(
+        const AnisetteState(
+          localUserUid: '12345678-1234-4234-8234-123456789abc',
+          provisioned: true,
+          routingInfo: 123,
+        ),
+      );
+      final library = fixture.path(r'libraries\literal/arm64-v8a');
+      fixture.fileSystem.directory(library).createSync(recursive: true);
+      for (final name in ['libCoreADI.so', 'libstoreservicescore.so']) {
+        fixture.fileSystem
+            .file('$library/$name')
+            .writeAsBytesSync(elfFixture(183));
+      }
+      final loader = RecordingPathLibrary(
+        PosixLoadedLibrary(InertElfLibrary()),
+      );
+      addTearDown(loader.close);
+      final provider = AnisetteDataProvider(
+        fixture.path(r'libraries\literal'),
+        hostServices: fixture.services,
+        loader: loader,
+        httpClient: MockClient(
+          (_) async => throw StateError('Unexpected network'),
+        ),
+        stateStore: store,
+      );
+      addTearDown(provider.close);
+      await expectLater(
+        provider.fetchAnisetteHeaders(),
+        throwsA(isA<AdiException>()),
+      );
+      expect(loader.pathBytes, [
+        utf8.encode(fixture.fileSystem.directory(library).path),
+        utf8.encode(
+          '${fixture.fileSystem.directory(store.provisioningDirectory).path}/',
+        ),
+      ]);
+      expect(
+        loader.loadedPaths.single,
+        '${fixture.fileSystem.directory(library).path}/libstoreservicescore.so',
+      );
+    },
+    skip: Platform.isWindows,
+  );
+
+  test(
+    'mapped filesystem resolves default ADI boundary without native effects',
+    () async {
+      final fixture = MappedAppleFixture();
+      addTearDown(fixture.dispose);
+      final store = AnisetteStateStore(hostServices: fixture.services);
+      await store.save(
+        const AnisetteState(
+          localUserUid: '12345678-1234-4234-8234-123456789abc',
+          provisioned: true,
+          routingInfo: 123,
+        ),
+      );
+      final library = fixture.path('libraries/arm64-v8a');
+      fixture.fileSystem.directory(library).createSync(recursive: true);
+      for (final name in ['libCoreADI.so', 'libstoreservicescore.so']) {
+        fixture.fileSystem
+            .file('$library/$name')
+            .writeAsBytesSync(elfFixture(183));
+      }
+      final loader = RejectingBoundaryLoader();
+      final provider = AnisetteDataProvider(
+        fixture.path('libraries'),
+        hostServices: fixture.services,
+        loader: loader,
+        httpClient: MockClient(
+          (_) async => throw StateError('Unexpected network'),
+        ),
+        stateStore: store,
+      );
+      addTearDown(provider.close);
+      await expectLater(provider.fetchAnisetteHeaders(), throwsStateError);
+      expect(
+        loader.paths.single,
+        '${fixture.backingRoot}/libraries/arm64-v8a/libstoreservicescore.so',
+      );
+      expect(
+        fixture.fileSystem.acquisitions,
+        contains(store.provisioningDirectory),
+      );
+      expect(Directory(store.provisioningDirectory).existsSync(), isFalse);
+    },
+  );
+
   late Directory tempDir;
   late String statePath;
 
@@ -152,6 +260,7 @@ void main() {
       const localUserUid = '11111111-2222-4333-8444-555555555555';
       await AnisetteStateStore(
         path: statePath,
+        hostServices: testHostServices,
       ).save(const AnisetteState(localUserUid: localUserUid));
 
       final fake = FakeAdiProvisioning();
@@ -185,8 +294,12 @@ void main() {
 
       final provider = AnisetteDataProvider(
         '/fake/adi/lib/dir',
+        hostServices: testHostServices,
         httpClient: client,
-        stateStore: AnisetteStateStore(path: statePath),
+        stateStore: AnisetteStateStore(
+          path: statePath,
+          hostServices: testHostServices,
+        ),
         adiFactory:
             ({
               required adiLibraryDirectory,
@@ -199,6 +312,7 @@ void main() {
               expect(identifier, '1111111122224333');
               return fake;
             },
+        loader: UnusedNativeLoader(),
       );
 
       final headers = await provider.fetchAnisetteHeaders();
@@ -239,7 +353,10 @@ void main() {
       );
 
       // --- persisted state now has provisioned=true + the real routingInfo ---
-      final persisted = await AnisetteStateStore(path: statePath).load();
+      final persisted = await AnisetteStateStore(
+        path: statePath,
+        hostServices: testHostServices,
+      ).load();
       expect(persisted.provisioned, isTrue);
       expect(persisted.routingInfo, 1234567890123);
       expect(persisted.localUserUid, localUserUid);
@@ -276,7 +393,10 @@ void main() {
     'skips the provisioning handshake entirely once already provisioned',
     () async {
       const localUserUid = '99999999-8888-4777-8666-555555555555';
-      await AnisetteStateStore(path: statePath).save(
+      await AnisetteStateStore(
+        path: statePath,
+        hostServices: testHostServices,
+      ).save(
         const AnisetteState(
           localUserUid: localUserUid,
           provisioned: true,
@@ -284,7 +404,7 @@ void main() {
         ),
       );
 
-      final fake = _RefusingAdiProvisioning();
+      final fake = RefusingAdiProvisioning();
       final client = MockClient(
         (request) async =>
             throw StateError('unexpected HTTP call to ${request.url}'),
@@ -292,14 +412,19 @@ void main() {
 
       final provider = AnisetteDataProvider(
         '/fake/adi/lib/dir',
+        hostServices: testHostServices,
         httpClient: client,
-        stateStore: AnisetteStateStore(path: statePath),
+        stateStore: AnisetteStateStore(
+          path: statePath,
+          hostServices: testHostServices,
+        ),
         adiFactory:
             ({
               required adiLibraryDirectory,
               required provisioningPath,
               required identifier,
             }) => fake,
+        loader: UnusedNativeLoader(),
       );
 
       final headers = await provider.fetchAnisetteHeaders();
@@ -313,7 +438,10 @@ void main() {
   test(
     'throws a clear error when local state disagrees with ADI-reported provisioning',
     () async {
-      await AnisetteStateStore(path: statePath).save(
+      await AnisetteStateStore(
+        path: statePath,
+        hostServices: testHostServices,
+      ).save(
         const AnisetteState(
           localUserUid: 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee',
         ),
@@ -326,14 +454,19 @@ void main() {
 
       final provider = AnisetteDataProvider(
         '/fake/adi/lib/dir',
+        hostServices: testHostServices,
         httpClient: client,
-        stateStore: AnisetteStateStore(path: statePath),
+        stateStore: AnisetteStateStore(
+          path: statePath,
+          hostServices: testHostServices,
+        ),
         adiFactory:
             ({
               required adiLibraryDirectory,
               required provisioningPath,
               required identifier,
             }) => FakeAdiProvisioning(alreadyProvisioned: true),
+        loader: UnusedNativeLoader(),
       );
 
       await expectLater(
@@ -348,4 +481,14 @@ void main() {
       );
     },
   );
+}
+
+@internal
+final class RejectingBoundaryLoader implements NativeLibraryLoader {
+  final List<String> paths = [];
+  @override
+  LoadedNativeLibrary load(String path) {
+    paths.add(path);
+    throw StateError('Native boundary blocked');
+  }
 }
