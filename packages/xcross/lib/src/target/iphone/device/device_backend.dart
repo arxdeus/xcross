@@ -368,9 +368,11 @@ final class NativeBackend implements DeviceBackend {
       ),
       null => null,
     };
+    // Online, a saved `prefixed` is always prefixed, but `original` falls back
+    // to prefixed when another team owns the id, so both stay candidates.
     final modes = switch (forced ?? saved) {
-      BundleIdMode.original => const [true],
       BundleIdMode.prefixed => const [false],
+      BundleIdMode.original => const [true, false],
       null => const [true, false],
     };
     for (final owned in modes) {

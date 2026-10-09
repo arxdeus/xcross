@@ -194,6 +194,40 @@ void main() {
       );
     });
 
+    test('honours a saved prefixed App ID choice offline', () async {
+      final signing = identityIn(fixture.path);
+      for (final id in ['com.example.app', 'XCR-TEAM1.com.example.app']) {
+        File(
+          p.join(signing.profilesDir, id, 'profile.mobileprovision'),
+        ).createSync(recursive: true);
+      }
+      File(
+        p.join(fixture.path, 'xcross_project.yaml'),
+      ).writeAsStringSync('bundle_id: prefixed\n');
+      await expectLater(
+        backendFor(
+          ThrowingSigningSessionProvider(
+            SigningServiceUnavailable.unreachable(
+              const SocketException('offline'),
+              identity: signing,
+            ),
+          ),
+        ).install(
+          app,
+          device: device,
+          bundleId: 'com.example.app',
+          projectRoot: fixture.path,
+        ),
+        throwsA(
+          isA<XcrossError>().having(
+            (error) => error.message,
+            'message',
+            contains('"XCR-TEAM1.com.example.app"'),
+          ),
+        ),
+      );
+    });
+
     test('lookup that cannot reach Apple falls back offline', () async {
       final client = UnreachableProvisioningClient();
       final anisette = ClosingAnisetteProvider();
