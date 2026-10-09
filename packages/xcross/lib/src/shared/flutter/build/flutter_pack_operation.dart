@@ -34,6 +34,10 @@ abstract final class FlutterPackOperation {
     );
     if (bundleDir.existsSync()) await bundleDir.delete(recursive: true);
     final appPath = await packer.pack();
-    return PackResult(outputPath: appPath, bundleId: bundleId);
+    return PackResult(
+      outputPath: appPath,
+      bundleId: bundleId,
+      projectRoot: projectRoot,
+    );
   }
 }

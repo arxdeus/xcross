@@ -113,6 +113,7 @@ final class DeviceRunOperation {
       pack.appPath,
       device: device,
       bundleId: pack.bundleId,
+      projectRoot: pack.projectRoot,
     );
     await _terminate(udid: device.udid, bundleId: installedBundleId);
     await _launch(

@@ -1,25 +1,44 @@
+import 'dart:io';
+
 import 'package:apple_developer_kit/shared/appstoreconnect/asc_client.dart';
 import 'package:apple_developer_kit/shared/appstoreconnect/asc_models.dart';
+import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 import 'package:xcross/src/shared/cli/command_prompt.dart';
+import 'package:xcross/src/shared/config/project_settings.dart';
 import 'package:xcross/src/shared/errors/errors.dart';
 import 'package:xcross/src/target/iphone/device/internal/bundle_identity_resolver.dart';
 
+import '../config/project_settings_test.dart' show IoFileSystem;
 import 'test_log_output.dart';
 
 void main() {
   const requested = 'com.example.App';
   const prefixed = 'XCR-TEAM.com.example.App';
+  late Directory root;
+  late ProjectSettings settings;
+  setUp(() {
+    root = Directory.systemTemp.createTempSync('bundle-identity-');
+    settings = ProjectSettings(
+      fileSystem: const IoFileSystem(),
+      projectRoot: root.path,
+    );
+  });
+  tearDown(() => root.deleteSync(recursive: true));
+
+  File projectFile() => File(p.join(root.path, 'xcross_project.yaml'));
 
   Future<String> resolve(
     FakeBundleClient client, {
     CommandPrompt? prompt,
     Map<String, String> environment = const {},
+    bool withSettings = true,
   }) async => (await BundleIdentityResolver(
     client: client,
     log: testLog(),
     prompt: prompt,
     environment: environment,
+    settings: withSettings ? settings : null,
   ).resolve(requested: requested, signingIdentityId: 'team-1')).exact;
 
   test('reuses an original App ID the team owns without asking', () async {
@@ -58,9 +77,10 @@ void main() {
     expect(await resolve(client, prompt: prompt), requested);
     expect(prompt.asked, hasLength(2));
     expect(client.registered, [requested]);
+    expect(projectFile().readAsStringSync(), 'bundle_id: original\n');
   });
 
-  test('falls back to prefixed when the original id is taken', () async {
+  test('saves prefixed when the original id is taken', () async {
     final client = FakeBundleClient(
       registerError: const AppleApiError(409, 'taken'),
     );
@@ -68,6 +88,7 @@ void main() {
       await resolve(client, prompt: ScriptedPrompt(['original'])),
       prefixed,
     );
+    expect(projectFile().readAsStringSync(), 'bundle_id: prefixed\n');
   });
 
   test('surfaces auth failures while registering', () {
@@ -84,6 +105,50 @@ void main() {
     final prompt = ScriptedPrompt([], interactive: false);
     expect(await resolve(FakeBundleClient(), prompt: prompt), prefixed);
     expect(prompt.asked, isEmpty);
+    expect(projectFile().existsSync(), isFalse);
+  });
+
+  test('the saved choice wins over App IDs on the team', () async {
+    projectFile().writeAsStringSync('bundle_id: prefixed\n');
+    final prompt = ScriptedPrompt([]);
+    final client = FakeBundleClient(owned: {requested});
+    expect(await resolve(client, prompt: prompt), prefixed);
+    expect(prompt.asked, isEmpty);
+  });
+
+  test('a saved original id is registered when missing', () async {
+    projectFile().writeAsStringSync('bundle_id: original\n');
+    final client = FakeBundleClient();
+    expect(await resolve(client, prompt: ScriptedPrompt([])), requested);
+    expect(client.registered, [requested]);
+  });
+
+  test('rejects an unknown saved choice', () {
+    projectFile().writeAsStringSync('bundle_id: maybe\n');
+    expect(resolve(FakeBundleClient()), throwsA(isA<XcrossError>()));
+  });
+
+  test('XCROSS_BUNDLE_ID wins over the saved choice', () async {
+    projectFile().writeAsStringSync('bundle_id: original\n');
+    expect(
+      await resolve(
+        FakeBundleClient(),
+        environment: {'XCROSS_BUNDLE_ID': 'prefixed'},
+      ),
+      prefixed,
+    );
+  });
+
+  test('asks without saving when the project root is unknown', () async {
+    expect(
+      await resolve(
+        FakeBundleClient(),
+        prompt: ScriptedPrompt(['2']),
+        withSettings: false,
+      ),
+      requested,
+    );
+    expect(projectFile().existsSync(), isFalse);
   });
 
   test('never asks inside a DAP session', () async {

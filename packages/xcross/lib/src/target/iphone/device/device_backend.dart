@@ -15,6 +15,7 @@ import 'package:xcross/src/shared/artifact/embedded_extension.dart';
 import 'package:xcross/src/shared/artifact/plist_mutations.dart';
 import 'package:xcross/src/shared/auth/signing_session.dart';
 import 'package:xcross/src/shared/cli/command_prompt.dart';
+import 'package:xcross/src/shared/config/project_settings.dart';
 import 'package:xcross/src/shared/device/signing_http_client_factory.dart';
 import 'package:xcross/src/shared/errors/errors.dart';
 import 'package:xcross/src/target/iphone/device/internal/bundle_identity_resolver.dart';
@@ -35,10 +36,13 @@ abstract interface class DeviceBackend {
   /// rewrote it. The launch that follows must use exactly this id: a device
   /// can hold several team-qualified builds of the same app, and resolving
   /// the base id by suffix can land on a stale one from another identity.
+  ///
+  /// [projectRoot] is where the App ID choice is saved and read back.
   Future<String> install(
     String appOrIpaPath, {
     required Device device,
     required String bundleId,
+    String? projectRoot,
   });
 
   static Future<DeviceBackend> resolve(
@@ -129,6 +133,7 @@ final class NativeBackend implements DeviceBackend {
     String appOrIpaPath, {
     required Device device,
     required String bundleId,
+    String? projectRoot,
   }) async {
     final udid = device.udid;
     final isAppDirectory =
@@ -144,7 +149,11 @@ final class NativeBackend implements DeviceBackend {
     _bundlePreparer.validateContainment(appOrIpaPath);
     final signing = await _signingSessions.resolve();
     try {
-      final bundleIdentity = await _qualifyBundleIdentity(signing, bundleId);
+      final bundleIdentity = await _qualifyBundleIdentity(
+        signing,
+        bundleId,
+        projectRoot: projectRoot,
+      );
       final profilesDir = pymd.runner.host.paths.context.join(
         pymd.runner.host.paths.context.dirname(signing.identityDir),
         'profiles',
@@ -211,8 +220,9 @@ final class NativeBackend implements DeviceBackend {
 
   Future<SignedBundleIdentity> _qualifyBundleIdentity(
     SigningSession signing,
-    String bundleId,
-  ) =>
+    String bundleId, {
+    required String? projectRoot,
+  }) =>
       // xtool-style: qualify with XCR-<identity> so two accounts can share a
       // project bundle id without racing for a globally unique App ID. An App
       // ID this team already owns is used as it is: qualifying it makes the
@@ -227,6 +237,12 @@ final class NativeBackend implements DeviceBackend {
         log: pymd.runner.log,
         prompt: prompt,
         environment: pymd.runner.effectiveEnvironment,
+        settings: projectRoot == null
+            ? null
+            : ProjectSettings(
+                fileSystem: pymd.runner.host.fileSystem,
+                projectRoot: projectRoot,
+              ),
       ).resolve(requested: bundleId, signingIdentityId: signing.identityId);
 
   Future<void> _rewriteAppIdentifiers(

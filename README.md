@@ -433,7 +433,15 @@ On an app's first device build for your team, `xcross flutter run` and `xcross c
 - **Prefixed** (`XCR-<TEAM>.com.example.app`, the default) never collides with another team that owns the same bundle id.
 - **Original** (`com.example.app`) is what Sign in with Apple, push, passkeys and associated domains are bound to. If another team already owns it, xcross falls back to the prefixed id.
 
-The answer sticks: once either App ID exists on the team, later builds reuse it without asking. Without a terminal (CI, IDE debugging) the prefixed id is used, and `XCROSS_BUNDLE_ID=original` or `XCROSS_BUNDLE_ID=prefixed` makes the choice up front.
+The answer is saved to the project so it can be committed: under `xcross:` in `pubspec.yaml` for Flutter, or in `xcross_project.yaml` for projects without a pubspec (Compose). If `xcross_project.yaml` exists, it is used even in a Flutter project.
+
+```yaml
+# pubspec.yaml
+xcross:
+  bundle_id: original # or prefixed
+```
+
+The order of precedence is: `XCROSS_BUNDLE_ID=original|prefixed` for a single run, then the saved `bundle_id`, then whichever App ID already exists on the team, and only then the question. Without a terminal (CI, IDE debugging) xcross uses the prefixed id and saves nothing.
 
 ## IDE integration
 
