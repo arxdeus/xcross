@@ -15,6 +15,7 @@ import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 import 'package:xcross/src/shared/auth/signing_session.dart';
+import 'package:xcross/src/shared/cli/command_prompt.dart';
 import 'package:xcross/src/shared/errors/errors.dart';
 import 'package:xcross/src/target/iphone/device/device_backend.dart';
 import 'package:xcross/src/target/iphone/device/signed_bundle_preparer.dart';
@@ -146,6 +147,120 @@ void main() {
       expect(plist.readAsStringSync(), 'untouched');
     },
   );
+
+  test(
+    'install asks once on a first build and saves the answer to pubspec',
+    () async {
+      final project = Directory(p.join(fixture.path, 'project'))..createSync();
+      final pubspec = File(p.join(project.path, 'pubspec.yaml'))
+        ..writeAsStringSync('name: app\n');
+      final app = Directory(p.join(fixture.path, 'Run.app'))..createSync();
+      final plist = File(p.join(app.path, 'Info.plist'))
+        ..writeAsStringSync(
+          '<plist><dict><key>CFBundleIdentifier</key>'
+          '<string>com.test</string></dict></plist>',
+        );
+      final runner = ProcessRunner(
+        stdinStream: const Stream.empty(),
+        stdoutSink: testSink(),
+        stderrSink: testSink(),
+        host,
+        log: testLog(),
+      );
+      final client = FirstBuildClient();
+      final prompt = AnsweringPrompt('2');
+      final backend = NativeBackend(
+        Pymd(
+          runner,
+          hostPolicy: MacOSDeviceHost(runner),
+          privileges: PosixPrivileges(runner),
+          console: TestDeviceConsole(),
+          localHttp: testLocalHttp(),
+        ),
+        hostServices: createMacOSAppleHostServices(
+          host,
+          runner: runner,
+          localeName: 'en_US',
+          abi: Abi.macosArm64,
+        ),
+        createNativeLibraryLoader: () =>
+            throw StateError('unexpected native loading'),
+        httpClients: const HttpSigningClientFactory(),
+        signingSessions: FixedSigningSessionProvider(
+          SigningSession(
+            client: client,
+            anisette: CountingAnisetteProvider(),
+            identityId: 'B',
+            identityDir: p.join(fixture.path, 'identity'),
+          ),
+        ),
+        prompt: prompt,
+      );
+      // Provisioning beyond the App ID is out of scope; the fake stops there.
+      await expectLater(
+        backend.install(
+          app.path,
+          device: const Device(
+            name: 'fixture',
+            udid: 'fixture',
+            type: ConnectionType.usb,
+          ),
+          bundleId: 'com.test',
+          projectRoot: project.path,
+        ),
+        throwsA(isA<StateError>()),
+      );
+      expect(prompt.asked, 1);
+      expect(client.registered, ['com.test']);
+      expect(
+        pubspec.readAsStringSync(),
+        'name: app\nxcross:\n  bundle_id: original\n',
+      );
+      // Signed under the original id, not XCR-B.com.test.
+      expect(plist.readAsStringSync(), contains('<string>com.test</string>'));
+    },
+  );
+}
+
+@internal
+final class AnsweringPrompt implements CommandPrompt {
+  AnsweringPrompt(this.answer);
+  final String answer;
+  int asked = 0;
+  @override
+  bool get isInteractive => true;
+  @override
+  void write(String value) {}
+  @override
+  String? readLine(String prompt) {
+    asked++;
+    return answer;
+  }
+
+  @override
+  String? readSecret(String prompt, {required String valueName}) =>
+      throw UnimplementedError();
+}
+
+@internal
+final class FirstBuildClient implements DevelopmentProvisioningClient {
+  final registered = <String>[];
+  @override
+  Future<AscBundleId?> findBundleId(String identifier) async => null;
+  @override
+  Future<AscBundleId> registerBundleId({
+    required String identifier,
+    required String name,
+  }) async {
+    registered.add(identifier);
+    return AscBundleId(id: identifier, identifier: identifier, name: name);
+  }
+
+  @override
+  void close() {}
+  @override
+  dynamic noSuchMethod(Invocation invocation) =>
+      throw StateError('provisioning stops here in this test');
 }
 
 @internal

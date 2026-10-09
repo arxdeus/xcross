@@ -6,6 +6,7 @@ import 'package:dart_mobile_device/shared/network/device_sockets.dart';
 import 'package:dart_mobile_device/target/iphone/device/os_version.dart';
 import 'package:dart_mobile_device/target/iphone/device/pymd/pymd.dart';
 import 'package:meta/meta.dart';
+import 'package:xcross/src/shared/cli/command_prompt.dart';
 import 'package:xcross/src/shared/device/signing_http_client_factory.dart';
 import 'package:xcross/src/shared/errors/errors.dart';
 import 'package:xcross/src/shared/flutter/hot_reload/vm_service_output.dart';
@@ -49,6 +50,7 @@ final class DeviceRunOperation {
     required VmServiceConnector connector,
     required DeviceSockets sockets,
     required VmServiceOutput vmOutput,
+    CommandPrompt? prompt,
   }) async {
     final launcher = CoreDeviceLauncher(
       pymd,
@@ -63,6 +65,7 @@ final class DeviceRunOperation {
         hostServices: hostServices,
         createNativeLibraryLoader: createNativeLibraryLoader,
         httpClients: httpClients,
+        prompt: prompt,
       ),
       osMajorVersion: (device) => OsVersion(pymd).deviceOSMajorVersion(
         device.udid,
@@ -110,6 +113,7 @@ final class DeviceRunOperation {
       pack.appPath,
       device: device,
       bundleId: pack.bundleId,
+      projectRoot: pack.projectRoot,
     );
     await _terminate(udid: device.udid, bundleId: installedBundleId);
     await _launch(

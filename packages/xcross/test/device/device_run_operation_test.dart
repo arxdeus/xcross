@@ -167,6 +167,7 @@ final class FakeDeviceBackend implements DeviceBackend {
     String appOrIpaPath, {
     required Device device,
     required String bundleId,
+    String? projectRoot,
   }) async {
     events.add('install:$appOrIpaPath:${device.udid}:$bundleId');
     return 'XCR-TEST.$bundleId';

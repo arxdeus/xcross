@@ -6,6 +6,7 @@
 - **Breaking:** replace `xcross doctor` with `xcross flutter doctor` and `xcross compose doctor`, each checking only the dependencies its own framework needs.
 - Group doctor output into project, toolchain, and deployment sections with a status header, aligned rows, dimmed locations, and a spinner while each section runs.
 - List every Compose requirement individually in `xcross compose doctor`, and report a missing Kotlin/Native download as a warning since the first build fetches it.
+- Ask on an app's first device build whether to register the original bundle id or an `XCR-` prefixed one, and save the answer as `bundle_id` under `xcross:` in `pubspec.yaml` (or in `xcross_project.yaml` for Compose). CI and IDE debug sessions use the saved value, falling back to the prefixed id only when nothing is saved. `XCROSS_BUNDLE_ID=original|prefixed` overrides it for a run.
 
 ## 1.5.1
 

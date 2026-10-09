@@ -426,6 +426,25 @@ Step 2 reads the application target specifically: a project with app extensions 
 
 The packed `.app`'s `Info.plist` is always derived from `ios/Runner/Info.plist` when present. `$(MARKETING_VERSION)` and `$(CURRENT_PROJECT_VERSION)` are expanded from the application target's build settings, and embedded extensions inherit those versions, as iOS requires.
 
+### App ID on device
+
+On an app's first device build for your team, `xcross flutter run` and `xcross compose run` ask which App ID to register:
+
+- **Prefixed** (`XCR-<TEAM>.com.example.app`, the default) never collides with another team that owns the same bundle id.
+- **Original** (`com.example.app`) is what Sign in with Apple, push, passkeys and associated domains are bound to. If another team already owns it, xcross falls back to the prefixed id.
+
+The answer is saved to the project so it can be committed: under `xcross:` in `pubspec.yaml` for Flutter, or in `xcross_project.yaml` for projects without a pubspec (Compose). If `xcross_project.yaml` exists, it is used even in a Flutter project.
+
+```yaml
+# pubspec.yaml
+xcross:
+  bundle_id: original # or prefixed
+```
+
+The order of precedence is: `XCROSS_BUNDLE_ID=original|prefixed` for a single run, then the saved `bundle_id`, then whichever App ID already exists on the team, and only then the question.
+
+CI and IDE debug sessions cannot be asked, so they use the saved `bundle_id` from `xcross_project.yaml` or `pubspec.yaml`. Commit it after the first local run. Only when nothing is saved and the team has no App ID yet do they fall back to the prefixed id, and they save nothing.
+
 ## IDE integration
 
 ### VS Code
