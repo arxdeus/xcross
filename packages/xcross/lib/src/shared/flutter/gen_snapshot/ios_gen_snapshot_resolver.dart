@@ -177,9 +177,7 @@ final class IosGenSnapshotResolver<T extends PlatformHostInterface> {
       );
     }
     try {
-      final manifest = await _fetchManifestOnce(
-        release,
-      ).timeout(revalidateTimeout);
+      final manifest = await _fetchManifestOnce(release);
       final asset =
           manifest?.assets[IosGenSnapshotManifest.assetName(mode, platform)];
       if (manifest != null &&
@@ -604,7 +602,7 @@ final class IosGenSnapshotResolver<T extends PlatformHostInterface> {
     }
     IosGenSnapshotManifest? manifest;
     try {
-      manifest = await _fetchManifestOnce(release).timeout(revalidateTimeout);
+      manifest = await _fetchManifestOnce(release);
     } on Object catch (error) {
       log.logTrace('Skipping gen_snapshot revalidation: $error');
       return cached;
@@ -637,6 +635,10 @@ final class IosGenSnapshotResolver<T extends PlatformHostInterface> {
   }
 
   /// One manifest request without the retries a first download uses.
+  ///
+  /// The timeout bounds the request itself rather than its caller, so the
+  /// client is closed when it fires: an abandoned connection to a server
+  /// that never answers would otherwise keep xcross from exiting.
   Future<IosGenSnapshotManifest?> _fetchManifestOnce(
     FlutterSdkRelease release,
   ) async {
@@ -645,7 +647,7 @@ final class IosGenSnapshotResolver<T extends PlatformHostInterface> {
     );
     final client = createHttpClient();
     try {
-      final response = await client.get(url);
+      final response = await client.get(url).timeout(revalidateTimeout);
       if (response.statusCode == HttpStatus.notFound) return null;
       if (response.statusCode < 200 || response.statusCode >= 300) {
         throw HttpException('HTTP ${response.statusCode}', uri: url);

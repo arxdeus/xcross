@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
@@ -622,6 +623,33 @@ void main() {
           now: () => start.add(day * 2),
         ).resolve(flutterRoot: flutterRoot, mode: IosGenSnapshotMode.release);
         expect(resolved.source, IosGenSnapshotSource.cache);
+      });
+
+      test('closes the connection when the manifest server never answers, '
+          'so xcross can exit', () async {
+        await seed();
+        final silent = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+        addTearDown(silent.close);
+        final closed = Completer<void>();
+        silent.listen(
+          (socket) => socket.listen(
+            (_) {},
+            onDone: () {
+              socket.destroy();
+              if (!closed.isCompleted) closed.complete();
+            },
+          ),
+        );
+        final resolved = await _resolver(
+          LinuxIosGenSnapshotHost(host),
+          host,
+          cacheRoot: cacheRoot,
+          httpClient: http.Client(),
+          releaseBaseUrl: 'http://127.0.0.1:${silent.port}',
+          now: () => start.add(day * 2),
+        ).resolve(flutterRoot: flutterRoot, mode: IosGenSnapshotMode.release);
+        expect(resolved.source, IosGenSnapshotSource.cache);
+        await closed.future.timeout(const Duration(seconds: 5));
       });
 
       test('keeps the entry when the release disappeared', () async {
