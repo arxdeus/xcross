@@ -14,8 +14,10 @@ import 'package:xcross/src/shared/artifact/app_entitlements.dart';
 import 'package:xcross/src/shared/artifact/embedded_extension.dart';
 import 'package:xcross/src/shared/artifact/plist_mutations.dart';
 import 'package:xcross/src/shared/auth/signing_session.dart';
+import 'package:xcross/src/shared/cli/command_prompt.dart';
 import 'package:xcross/src/shared/device/signing_http_client_factory.dart';
 import 'package:xcross/src/shared/errors/errors.dart';
+import 'package:xcross/src/target/iphone/device/internal/bundle_identity_resolver.dart';
 import 'package:xcross/src/target/iphone/device/internal/signed_bundle_identity.dart';
 import 'package:xcross/src/target/iphone/device/signed_bundle_preparer.dart';
 import 'package:xcross/src/target/iphone/device/signing_session_resolver.dart';
@@ -44,11 +46,13 @@ abstract interface class DeviceBackend {
     required AppleHostServices hostServices,
     required NativeLibraryLoader Function() createNativeLibraryLoader,
     required SigningHttpClientFactory httpClients,
+    CommandPrompt? prompt,
   }) async => NativeBackend(
     pymd,
     hostServices: hostServices,
     createNativeLibraryLoader: createNativeLibraryLoader,
     httpClients: httpClients,
+    prompt: prompt,
   );
 }
 
@@ -61,6 +65,7 @@ final class NativeBackend implements DeviceBackend {
     required this.hostServices,
     required this.createNativeLibraryLoader,
     required this.httpClients,
+    this.prompt,
     PymdDeviceResolver? resolver,
     SigningSessionProvider? signingSessions,
   }) : _signingSessions =
@@ -79,6 +84,9 @@ final class NativeBackend implements DeviceBackend {
   }
 
   final Pymd pymd;
+
+  /// Asks which App ID a first build registers; `null` never asks.
+  final CommandPrompt? prompt;
   late final AppCapabilities _capabilities = AppCapabilities(
     fileSystem: pymd.runner.host.fileSystem,
     paths: pymd.runner.host.paths,
@@ -204,23 +212,22 @@ final class NativeBackend implements DeviceBackend {
   Future<SignedBundleIdentity> _qualifyBundleIdentity(
     SigningSession signing,
     String bundleId,
-  ) async {
-    // xtool-style: qualify with XCR-<identity> so two accounts can share a
-    // project bundle id without racing for a globally unique App ID. An App ID
-    // this team already owns is used as it is: qualifying it makes the app a
-    // different App ID, and everything bound to the real one stops working - an
-    // Apple identity token carries the bundle id as its `aud`, passkeys and
-    // `ASWebAuthenticationSession.Callback.https` are bound through the App ID's
-    // AASA `webcredentials` entry, and push, Sign in with Apple and Associated
-    // Domains are all provisioned per App ID.
-    final appIdRegisteredToTeam =
-        await signing.client.findBundleId(bundleId) != null;
-    return SignedBundleIdentity.qualify(
-      requested: bundleId,
-      signingIdentityId: signing.identityId,
-      appIdRegisteredToTeam: appIdRegisteredToTeam,
-    );
-  }
+  ) =>
+      // xtool-style: qualify with XCR-<identity> so two accounts can share a
+      // project bundle id without racing for a globally unique App ID. An App
+      // ID this team already owns is used as it is: qualifying it makes the
+      // app a different App ID, and everything bound to the real one stops
+      // working - an Apple identity token carries the bundle id as its `aud`,
+      // passkeys and `ASWebAuthenticationSession.Callback.https` are bound
+      // through the App ID's AASA `webcredentials` entry, and push, Sign in
+      // with Apple and Associated Domains are all provisioned per App ID. On
+      // the app's first build, when neither exists, the user picks.
+      BundleIdentityResolver(
+        client: signing.client,
+        log: pymd.runner.log,
+        prompt: prompt,
+        environment: pymd.runner.effectiveEnvironment,
+      ).resolve(requested: bundleId, signingIdentityId: signing.identityId);
 
   Future<void> _rewriteAppIdentifiers(
     String appOrIpaPath,

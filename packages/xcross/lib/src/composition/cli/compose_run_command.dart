@@ -125,6 +125,7 @@ final class ComposeRunCommand<T extends PlatformHostInterface>
                 vmOutput: runtime.vmOutput,
                 hostServices: runtime.appleHostServices,
                 createNativeLibraryLoader: runtime.createNativeLibraryLoader,
+                prompt: runtime.commandPrompt,
               );
               await operation.run(
                 pack: pack,

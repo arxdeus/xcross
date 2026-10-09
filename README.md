@@ -426,6 +426,15 @@ Step 2 reads the application target specifically: a project with app extensions 
 
 The packed `.app`'s `Info.plist` is always derived from `ios/Runner/Info.plist` when present. `$(MARKETING_VERSION)` and `$(CURRENT_PROJECT_VERSION)` are expanded from the application target's build settings, and embedded extensions inherit those versions, as iOS requires.
 
+### App ID on device
+
+On an app's first device build for your team, `xcross flutter run` and `xcross compose run` ask which App ID to register:
+
+- **Prefixed** (`XCR-<TEAM>.com.example.app`, the default) never collides with another team that owns the same bundle id.
+- **Original** (`com.example.app`) is what Sign in with Apple, push, passkeys and associated domains are bound to. If another team already owns it, xcross falls back to the prefixed id.
+
+The answer sticks: once either App ID exists on the team, later builds reuse it without asking. Without a terminal (CI, IDE debugging) the prefixed id is used, and `XCROSS_BUNDLE_ID=original` or `XCROSS_BUNDLE_ID=prefixed` makes the choice up front.
+
 ## IDE integration
 
 ### VS Code
