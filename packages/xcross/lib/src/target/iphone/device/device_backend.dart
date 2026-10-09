@@ -2,6 +2,7 @@ import 'package:apple_developer_kit/host/shared/adi/loader/loader.dart';
 import 'package:apple_developer_kit/host/shared/apple_host_services.dart';
 import 'package:apple_developer_kit/shared/appstoreconnect/appstoreconnect.dart';
 import 'package:apple_developer_kit/shared/appstoreconnect/provisioning_identifiers.dart';
+import 'package:apple_developer_kit/shared/errors/errors.dart';
 import 'package:apple_developer_kit/shared/signing/bundle_signer.dart';
 import 'package:apple_developer_kit/shared/signing/signing_asset.dart';
 import 'package:dart_mobile_device/shared/device/models/device.dart';
@@ -13,6 +14,7 @@ import 'package:xcross/src/shared/artifact/app_capabilities.dart';
 import 'package:xcross/src/shared/artifact/app_entitlements.dart';
 import 'package:xcross/src/shared/artifact/embedded_extension.dart';
 import 'package:xcross/src/shared/artifact/plist_mutations.dart';
+import 'package:xcross/src/shared/auth/signing_availability.dart';
 import 'package:xcross/src/shared/auth/signing_session.dart';
 import 'package:xcross/src/shared/cli/command_prompt.dart';
 import 'package:xcross/src/shared/config/project_settings.dart';
@@ -147,17 +149,43 @@ final class NativeBackend implements DeviceBackend {
     }
 
     _bundlePreparer.validateContainment(appOrIpaPath);
-    final signing = await _signingSessions.resolve();
+    final SigningSession signing;
     try {
-      final bundleIdentity = await _qualifyBundleIdentity(
-        signing,
-        bundleId,
+      signing = await _signingSessions.resolve();
+    } on SigningServiceUnavailable catch (unavailable) {
+      final installed = await _installOffline(
+        appOrIpaPath,
+        device: device,
+        bundleId: bundleId,
         projectRoot: projectRoot,
+        unavailable: unavailable,
       );
-      final profilesDir = pymd.runner.host.paths.context.join(
-        pymd.runner.host.paths.context.dirname(signing.identityDir),
-        'profiles',
-      );
+      return installed;
+    }
+    try {
+      final SignedBundleIdentity bundleIdentity;
+      try {
+        bundleIdentity = await _qualifyBundleIdentity(
+          signing,
+          bundleId,
+          projectRoot: projectRoot,
+        );
+      } on Object catch (error) {
+        // The first call an App Store Connect key makes, and nothing has
+        // been changed on Apple's side yet, so falling back is still safe.
+        if (!SigningServiceUnavailable.isConnectivityFailure(error)) rethrow;
+        return await _installOffline(
+          appOrIpaPath,
+          device: device,
+          bundleId: bundleId,
+          projectRoot: projectRoot,
+          unavailable: SigningServiceUnavailable.unreachable(
+            error,
+            identity: signing.identity,
+          ),
+        );
+      }
+      final profilesDir = signing.identity.profilesDir;
       final outputDir = pymd.runner.host.paths.context.join(
         profilesDir,
         bundleIdentity.exact,
@@ -171,7 +199,11 @@ final class NativeBackend implements DeviceBackend {
         hostBundleId: bundleIdentity.requested,
         signedHostBundleId: bundleIdentity.exact,
       );
-      final appGroups = _resolveAppGroups(appOrIpaPath, extensions, signing);
+      final appGroups = _resolveAppGroups(
+        appOrIpaPath,
+        extensions,
+        signing.identityId,
+      );
       final asset = await _provisionApp(
         appOrIpaPath,
         signing: signing,
@@ -187,28 +219,15 @@ final class NativeBackend implements DeviceBackend {
         profilesDir: profilesDir,
         appGroups: appGroups,
       );
-      await _applyGrantedAppGroups(
+      return await _signAndInstall(
         appOrIpaPath,
+        device: device,
+        bundleIdentity: bundleIdentity,
         asset: asset,
+        extensions: extensions,
         extensionAssets: extensionAssets,
         appGroups: appGroups,
       );
-      await _stripPrivateKeys(appOrIpaPath, extensions);
-      await pymd.runner.log.logStep(
-        'Signing app',
-        () => BundleSigner(
-          asset,
-          hostServices: hostServices,
-          extensionAssets: extensionAssets,
-        ).signApp(appOrIpaPath),
-      );
-      await _verifySignedBundleId(appOrIpaPath, bundleIdentity);
-      await PymdDevices(pymd).install(
-        appOrIpaPath,
-        udid: udid,
-        overTunnel: device.source == DeviceSource.tunneld,
-      );
-      return bundleIdentity.exact;
     } finally {
       try {
         signing.client.close();
@@ -217,6 +236,232 @@ final class NativeBackend implements DeviceBackend {
       }
     }
   }
+
+  Future<String> _signAndInstall(
+    String appOrIpaPath, {
+    required Device device,
+    required SignedBundleIdentity bundleIdentity,
+    required SigningAsset asset,
+    required List<EmbeddedExtension> extensions,
+    required Map<String, SigningAsset> extensionAssets,
+    required List<String> appGroups,
+  }) async {
+    await _applyGrantedAppGroups(
+      appOrIpaPath,
+      asset: asset,
+      extensionAssets: extensionAssets,
+      appGroups: appGroups,
+    );
+    await _stripPrivateKeys(appOrIpaPath, extensions);
+    await pymd.runner.log.logStep(
+      'Signing app',
+      () => BundleSigner(
+        asset,
+        hostServices: hostServices,
+        extensionAssets: extensionAssets,
+      ).signApp(appOrIpaPath),
+    );
+    await _verifySignedBundleId(appOrIpaPath, bundleIdentity);
+    await PymdDevices(pymd).install(
+      appOrIpaPath,
+      udid: device.udid,
+      overTunnel: device.source == DeviceSource.tunneld,
+    );
+    return bundleIdentity.exact;
+  }
+
+  /// Signs with the certificate, key and profiles an earlier online run left
+  /// under the signing identity's directory, without contacting Apple.
+  ///
+  /// Development profiles are self-contained: iOS checks the signature, the
+  /// profile's expiry, and that the device is listed, all offline. So a run
+  /// that only rebuilds an app already provisioned for this device needs
+  /// nothing from Apple. Anything that would change the profile (a new
+  /// device, extension, capability or App Group) does, and fails here with
+  /// a pointer to reconnect.
+  Future<String> _installOffline(
+    String appOrIpaPath, {
+    required Device device,
+    required String bundleId,
+    required String? projectRoot,
+    required SigningServiceUnavailable unavailable,
+  }) async {
+    final identity = unavailable.identity;
+    if (identity == null) throw XcrossError(unavailable.message);
+
+    final bundleIdentity = _cachedBundleIdentity(
+      identity,
+      bundleId,
+      projectRoot: projectRoot,
+      unavailable: unavailable,
+    );
+    pymd.runner.log.logWarn(
+      'Signing offline with the cached profile: ${unavailable.reason}.',
+    );
+    await _rewriteAppIdentifiers(appOrIpaPath, bundleIdentity);
+    final extensions = await _bundlePreparer.rewriteExtensionIdentifiers(
+      appOrIpaPath,
+      hostBundleId: bundleIdentity.requested,
+      signedHostBundleId: bundleIdentity.exact,
+    );
+    final appGroups = _resolveAppGroups(
+      appOrIpaPath,
+      extensions,
+      identity.identityId,
+    );
+    final asset = await _loadCachedAsset(
+      identity,
+      bundleId: bundleIdentity.exact,
+      bundlePath: appOrIpaPath,
+      udid: device.udid,
+      unavailable: unavailable,
+    );
+    final extensionAssets = <String, SigningAsset>{
+      for (final extension in extensions)
+        extension.bundleId: await _loadCachedAsset(
+          identity,
+          bundleId: extension.bundleId,
+          bundlePath: extension.path,
+          udid: device.udid,
+          unavailable: unavailable,
+        ),
+    };
+    final installed = await _signAndInstall(
+      appOrIpaPath,
+      device: device,
+      bundleIdentity: bundleIdentity,
+      asset: asset,
+      extensions: extensions,
+      extensionAssets: extensionAssets,
+      appGroups: appGroups,
+    );
+    return installed;
+  }
+
+  String _cachedProfilePath(SigningIdentity identity, String bundleId) => pymd
+      .runner
+      .host
+      .paths
+      .context
+      .join(identity.profilesDir, bundleId, 'profile.mobileprovision');
+
+  /// Which App ID the last online run signed [bundleId] as.
+  ///
+  /// Online, the team's ownership of the App ID decides; offline, the profile
+  /// that run left behind records the answer. The team-owned (unqualified)
+  /// id wins, mirroring the online rule.
+  SignedBundleIdentity _cachedBundleIdentity(
+    SigningIdentity identity,
+    String bundleId, {
+    required String? projectRoot,
+    required SigningServiceUnavailable unavailable,
+  }) {
+    final forced = BundleIdMode.tryParse(
+      pymd.runner.effectiveEnvironment[BundleIdentityResolver.modeVariable],
+    );
+    final saved = switch (projectRoot) {
+      final String root => BundleIdMode.tryParse(
+        ProjectSettings(
+          fileSystem: pymd.runner.host.fileSystem,
+          projectRoot: root,
+        ).read(BundleIdentityResolver.settingKey),
+      ),
+      null => null,
+    };
+    // Online, a saved `prefixed` is always prefixed, but `original` falls back
+    // to prefixed when another team owns the id, so both stay candidates.
+    final modes = switch (forced ?? saved) {
+      BundleIdMode.prefixed => const [false],
+      BundleIdMode.original => const [true, false],
+      null => const [true, false],
+    };
+    for (final owned in modes) {
+      final candidate = SignedBundleIdentity.qualify(
+        requested: bundleId,
+        signingIdentityId: identity.identityId,
+        appIdRegisteredToTeam: owned,
+      );
+      final profile = _cachedProfilePath(identity, candidate.exact);
+      if (pymd.runner.host.fileSystem.file(profile).existsSync()) {
+        return candidate;
+      }
+    }
+    throw _noCachedProfile(bundleId, unavailable);
+  }
+
+  Future<SigningAsset> _loadCachedAsset(
+    SigningIdentity identity, {
+    required String bundleId,
+    required String? bundlePath,
+    required String udid,
+    required SigningServiceUnavailable unavailable,
+  }) async {
+    final paths = pymd.runner.host.paths.context;
+    final profilePath = _cachedProfilePath(identity, bundleId);
+    final certificatePath = paths.join(identity.identityDir, 'cert.pem');
+    final keyPath = paths.join(identity.identityDir, 'key.pem');
+    final fileSystem = pymd.runner.host.fileSystem;
+    if (![
+      profilePath,
+      certificatePath,
+      keyPath,
+    ].every((path) => fileSystem.file(path).existsSync())) {
+      throw _noCachedProfile(bundleId, unavailable);
+    }
+    final SigningAsset asset;
+    try {
+      asset = await SigningAssetLoader(hostServices: hostServices).load(
+        privateKeyPemPath: keyPath,
+        certificatePemPath: certificatePath,
+        provisioningProfilePath: profilePath,
+        declaredEntitlements: switch (bundlePath) {
+          final String path => _entitlements.of(path),
+          null => const {},
+        },
+      );
+    } on AppleError catch (error) {
+      // Expired certificate or profile, or a profile that no longer lists the
+      // cached certificate: only Apple can issue a replacement.
+      throw XcrossError(
+        '${unavailable.message}\n'
+        'The cached signing material for "$bundleId" cannot be used offline: '
+        '$error\n'
+        'Reconnect and run again so xcross can renew it.',
+      );
+    }
+    if (!profileCoversDevice(asset.profile, udid)) {
+      throw XcrossError(
+        '${unavailable.message}\n'
+        'The cached profile for "$bundleId" does not include device $udid. '
+        'Adding a device to a profile needs Apple: reconnect and run once '
+        'with this device attached, and later runs work offline.',
+      );
+    }
+    return asset;
+  }
+
+  /// Whether a development profile lets [udid] run what it signs. iOS
+  /// refuses the install otherwise, so this is checked before signing.
+  @visibleForTesting
+  static bool profileCoversDevice(Map<String, Object?> profile, String udid) {
+    if (profile['ProvisionsAllDevices'] == true) return true;
+    final devices = profile['ProvisionedDevices'];
+    if (devices is! List) return false;
+    final wanted = udid.toUpperCase();
+    return devices.any(
+      (device) => device is String && device.toUpperCase() == wanted,
+    );
+  }
+
+  static XcrossError _noCachedProfile(
+    String bundleId,
+    SigningServiceUnavailable unavailable,
+  ) => XcrossError(
+    '${unavailable.message}\n'
+    'No cached signing profile for "$bundleId" to sign with offline. '
+    'Run once while connected so xcross can provision it; later runs of the '
+    'same app on the same device then work offline.',
+  );
 
   Future<SignedBundleIdentity> _qualifyBundleIdentity(
     SigningSession signing,
@@ -275,7 +520,7 @@ final class NativeBackend implements DeviceBackend {
   List<String> _resolveAppGroups(
     String appOrIpaPath,
     List<EmbeddedExtension> extensions,
-    SigningSession signing,
+    String identityId,
   ) {
     // The app and its extensions must share the same App Groups, or the
     // extension has no way to hand data back to the app.
@@ -302,7 +547,7 @@ final class NativeBackend implements DeviceBackend {
       final String group when group.isNotEmpty => [group],
       _ => [
         for (final group in declaredGroups)
-          ProvisioningIdentifiers.qualifyAppGroup(group, signing.identityId),
+          ProvisioningIdentifiers.qualifyAppGroup(group, identityId),
       ],
     };
   }

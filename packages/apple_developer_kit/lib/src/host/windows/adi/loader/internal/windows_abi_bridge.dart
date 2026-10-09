@@ -8,8 +8,7 @@ import 'package:meta/meta.dart';
 /// Wraps an MS-ABI function so Android/SysV callers can invoke it.
 @internal
 @Native<Pointer<Void> Function(Pointer<Void>, Int32)>(
-  assetId:
-      'package:apple_developer_kit/src/host/shared/adi/loader/internal/sysv_abi_bridge.dart',
+  assetId: 'package:apple_developer_kit/src/host/shared/adi/loader/internal/sysv_abi_bridge.dart',
   symbol: 'provision_sysv_wrap_export',
   isLeaf: true,
 )
@@ -18,8 +17,7 @@ external Pointer<Void> provisionSysvWrapExport(Pointer<Void> msAbiFn, int argc);
 /// Wraps a SysV function so Dart/MS-ABI callers can invoke it.
 @internal
 @Native<Pointer<Void> Function(Pointer<Void>, Int32)>(
-  assetId:
-      'package:apple_developer_kit/src/host/shared/adi/loader/internal/sysv_abi_bridge.dart',
+  assetId: 'package:apple_developer_kit/src/host/shared/adi/loader/internal/sysv_abi_bridge.dart',
   symbol: 'provision_sysv_wrap_import',
   isLeaf: true,
 )
@@ -27,8 +25,7 @@ external Pointer<Void> provisionSysvWrapImport(Pointer<Void> sysvFn, int argc);
 
 @internal
 @Native<Int32 Function(Pointer<Void>, Size)>(
-  assetId:
-      'package:apple_developer_kit/src/host/shared/adi/loader/internal/sysv_abi_bridge.dart',
+  assetId: 'package:apple_developer_kit/src/host/shared/adi/loader/internal/sysv_abi_bridge.dart',
   symbol: 'provision_windows_arm64_prepare_code',
 )
 external int provisionWindowsArm64PrepareCode(

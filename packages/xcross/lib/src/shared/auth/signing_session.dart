@@ -20,6 +20,9 @@ final class SigningSession {
   final String identityId;
   final String identityDir;
 
+  SigningIdentity get identity =>
+      SigningIdentity(identityId: identityId, identityDir: identityDir);
+
   /// `<config-dir>/xcross/signing` — root of every certificate, private key,
   /// and provisioning profile xcross has minted, one subtree per identity.
   @useResult
@@ -31,4 +34,20 @@ final class SigningSession {
   @useResult
   static String identityDirFor(String configDirectory, String account) =>
       p.join(signingRoot(configDirectory), account, 'identity');
+}
+
+/// Who signs, and where their cached certificate lives, without any client to
+/// talk to Apple. Enough to sign offline with what an earlier run cached.
+@internal
+@immutable
+final class SigningIdentity {
+  const SigningIdentity({required this.identityId, required this.identityDir});
+
+  final String identityId;
+
+  /// See [SigningSession.identityDirFor].
+  final String identityDir;
+
+  /// `<signing-root>/<account>/profiles`, one directory per signed bundle id.
+  String get profilesDir => p.join(p.dirname(identityDir), 'profiles');
 }

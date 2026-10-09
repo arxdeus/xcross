@@ -143,8 +143,17 @@ int linuxStatMode(int windowsMode) =>
     (windowsMode & 0xf000) | 0x16d | (windowsMode & 0x80);
 
 @internal
-Pointer<Utf8> toWindowsPath(Pointer<Utf8> path) {
-  final posix = path.toDartString();
+Pointer<Utf8> toWindowsPath(Pointer<Utf8> path) =>
+    windowsDlopenPath(path.toDartString()).toNativeUtf8();
+
+/// The Windows path for a POSIX-style path the Android library builds.
+///
+/// ADI joins the library directory it was given (already `/`-separated)
+/// into paths like `//?/C:/…/libCoreADI.so`: the extended-length prefix
+/// is meaningless to a POSIX caller and makes Win32 treat the result as a
+/// relative path, so it is dropped before the separators are flipped.
+@internal
+String windowsDlopenPath(String posix) {
   final stripped = posix.startsWith('//?/') ? posix.substring(4) : posix;
-  return stripped.replaceAll('/', r'\').toNativeUtf8();
+  return stripped.replaceAll('/', r'\');
 }
