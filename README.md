@@ -216,6 +216,26 @@ XCROSS_APP_GROUP=group.com.example.Shared xcross flutter run
 
 See [iOS app extensions](docs/app-extensions.md) for the details.
 
+### Working offline
+
+Apple is only needed to provision: the first run of an app on a device, or
+when something about it changes. After that, `xcross flutter run` keeps working
+without a network. When Apple cannot be reached (or the saved Apple ID session
+has expired), xcross signs with the certificate and provisioning profile the
+last online run cached, prints a warning, and installs as usual.
+
+```sh
+XCROSS_OFFLINE=1 xcross flutter run   # skip Apple entirely, even when online
+```
+
+Offline signing still needs, for that app and device:
+
+- one earlier online run, so a profile is cached;
+- a profile that lists the device and has not expired (free accounts: 7 days);
+- no new extension, capability, or App Group since then.
+
+If any of those is missing, xcross says which and asks you to reconnect once.
+
 ### Sign out
 
 ```sh
