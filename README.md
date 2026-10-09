@@ -441,7 +441,9 @@ xcross:
   bundle_id: original # or prefixed
 ```
 
-The order of precedence is: `XCROSS_BUNDLE_ID=original|prefixed` for a single run, then the saved `bundle_id`, then whichever App ID already exists on the team, and only then the question. Without a terminal (CI, IDE debugging) xcross uses the prefixed id and saves nothing.
+The order of precedence is: `XCROSS_BUNDLE_ID=original|prefixed` for a single run, then the saved `bundle_id`, then whichever App ID already exists on the team, and only then the question.
+
+CI and IDE debug sessions cannot be asked, so they use the saved `bundle_id` from `xcross_project.yaml` or `pubspec.yaml`. Commit it after the first local run. Only when nothing is saved and the team has no App ID yet do they fall back to the prefixed id, and they save nothing.
 
 ## IDE integration
 

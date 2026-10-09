@@ -116,6 +116,39 @@ void main() {
     expect(prompt.asked, isEmpty);
   });
 
+  for (final (name, prompt, environment) in [
+    (
+      'CI (no terminal)',
+      ScriptedPrompt([], interactive: false),
+      const <String, String>{},
+    ),
+    ('an IDE debug session', ScriptedPrompt([]), const {'XCROSS_DAP': '1'}),
+    ('a run with no prompt at all', null, const <String, String>{}),
+  ]) {
+    test('$name uses the saved original id from pubspec.yaml', () async {
+      File(
+        p.join(root.path, 'pubspec.yaml'),
+      ).writeAsStringSync('name: app\nxcross:\n  bundle_id: original\n');
+      final client = FakeBundleClient();
+      expect(
+        await resolve(client, prompt: prompt, environment: environment),
+        requested,
+      );
+      expect(prompt?.asked ?? const [], isEmpty);
+      expect(client.registered, [requested]);
+    });
+
+    test('$name uses the saved prefixed id from xcross_project.yaml', () async {
+      projectFile().writeAsStringSync('bundle_id: prefixed\n');
+      final client = FakeBundleClient(owned: {requested});
+      expect(
+        await resolve(client, prompt: prompt, environment: environment),
+        prefixed,
+      );
+      expect(prompt?.asked ?? const [], isEmpty);
+    });
+  }
+
   test('a saved original id is registered when missing', () async {
     projectFile().writeAsStringSync('bundle_id: original\n');
     final client = FakeBundleClient();
