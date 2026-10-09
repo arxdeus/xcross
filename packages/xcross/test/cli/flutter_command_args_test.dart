@@ -9,6 +9,10 @@ import 'package:xcross/src/composition/cli/flutter_run_command.dart';
 import 'package:xcross/src/composition/cli/runner.dart';
 import 'package:xcross/src/shared/cli/basic/auth_command.dart';
 import 'package:xcross/src/shared/errors/errors.dart';
+import 'package:xcross/src/shared/flutter/models/flutter/flutter_build_mode.dart';
+import 'package:xcross/src/shared/flutter/models/flutter/flutter_build_options.dart';
+import 'package:xcross/src/shared/models/pack_result.dart';
+import 'package:xcross/src/target/iphone/device/core_device_launch_profile.dart';
 
 import '../log_fixture.dart';
 import 'runtime_fixture.dart';
@@ -102,6 +106,97 @@ void main() {
       final results = command.argParser.parse(['-v']);
       expect(results.flag('verbose'), isTrue);
     });
+  });
+
+  group('FlutterRunCommand precompiled launch', () {
+    late List<FlutterBuildOptions> packed;
+    late List<CoreDeviceLaunchProfile> launched;
+
+    Future<void> run(
+      List<String> args, {
+      Map<String, String> environment = const {},
+    }) {
+      final application = testApplication(environment: environment);
+      final runner = CommandRunner<void>('xcross', 'test')
+        ..addCommand(
+          FlutterRunCommand.withSeams(
+            application.runtime,
+            application.pymd,
+            sockets: application.sockets,
+            pack: (options) async {
+              packed.add(options);
+              return const PackResult(
+                outputPath: 'build/Runner.app',
+                bundleId: 'dev.example.app',
+              );
+            },
+            runDevice:
+                ({
+                  required pack,
+                  required selector,
+                  required mode,
+                  required launchProfile,
+                }) async => launched.add(launchProfile),
+          ),
+        );
+      return runner.run(['run', ...args]);
+    }
+
+    setUp(() {
+      packed = [];
+      launched = [];
+    });
+
+    test('profile builds AOT and launches with the VM Service', () async {
+      await run(['--profile', '--route=/home']);
+
+      expect(packed.single.buildMode, FlutterBuildMode.profile);
+      final profile = launched.single;
+      expect(profile.buildMode, FlutterBuildMode.profile);
+      expect(profile.hotReload, isNull);
+      expect(profile.debuggingEnabled, isTrue);
+      expect(
+        profile.argumentsForLaunch(
+          isDap: false,
+          vmServiceBindAddress: '0.0.0.0',
+        ),
+        containsAll([
+          '--vm-service-host=0.0.0.0',
+          '--enable-dart-profiling',
+          '--route=/home',
+        ]),
+      );
+    });
+
+    test('release builds AOT and launches without debugging', () async {
+      await run(['--release']);
+
+      expect(packed.single.buildMode, FlutterBuildMode.release);
+      final profile = launched.single;
+      expect(profile.buildMode, FlutterBuildMode.release);
+      expect(profile.hotReload, isNull);
+      expect(profile.debuggingEnabled, isFalse);
+      expect(
+        profile.argumentsForLaunch(isDap: false, vmServiceBindAddress: '::0'),
+        isEmpty,
+      );
+    });
+
+    for (final mode in ['--profile', '--release']) {
+      test('DAP rejects a $mode launch', () async {
+        await expectLater(
+          run([mode], environment: const {'XCROSS_DAP': '1'}),
+          throwsA(
+            isA<XcrossError>().having(
+              (e) => e.message,
+              'message',
+              'DAP launch requires a debug build.',
+            ),
+          ),
+        );
+        expect(launched, isEmpty);
+      });
+    }
   });
 
   group('FlutterBuildCommand', () {

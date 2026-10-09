@@ -1,5 +1,6 @@
 import 'package:test/test.dart';
 import 'package:xcross/src/shared/errors/errors.dart';
+import 'package:xcross/src/shared/flutter/models/flutter/flutter_build_mode.dart';
 import 'package:xcross/src/target/iphone/device/core_device_launcher.dart';
 import 'package:xcross/src/target/iphone/device/device_log.dart';
 
@@ -55,6 +56,21 @@ void main() {
     expect(
       CoreDeviceLauncher.launchFailureMessage('connection lost'),
       'Launch failed: connection lost',
+    );
+  });
+
+  test('r/R explain the missing reload by build mode', () {
+    expect(
+      CoreDeviceLauncher.reloadUnavailableReason(FlutterBuildMode.profile),
+      startsWith('hot reload is not supported in profile mode'),
+    );
+    expect(
+      CoreDeviceLauncher.reloadUnavailableReason(FlutterBuildMode.release),
+      startsWith('hot reload is not supported in release mode'),
+    );
+    expect(
+      CoreDeviceLauncher.reloadUnavailableReason(null),
+      startsWith('this session has no in-place reload'),
     );
   });
 
