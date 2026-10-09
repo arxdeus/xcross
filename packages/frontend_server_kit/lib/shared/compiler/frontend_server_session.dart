@@ -94,10 +94,9 @@ final class FrontendServerSession {
       '--target=${options.target}',
       '--no-print-incremental-dependencies',
       '-Ddart.developer.serviceExtensionStream.enabled=true',
-      '-Ddart.vm.profile=false',
-      '-Ddart.vm.product=false',
-      if (options.trackWidgetCreation) '--track-widget-creation',
       for (final define in options.dartDefines) '-D$define',
+      ...options.modeOptions,
+      if (options.trackWidgetCreation) '--track-widget-creation',
       if (options.initializeFromDill case final dill?) ...[
         '--initialize-from-dill',
         dill,

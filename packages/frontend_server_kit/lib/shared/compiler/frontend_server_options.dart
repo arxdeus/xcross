@@ -8,6 +8,10 @@ final class FrontendServerOptions {
     required this.entrypoint,
     required this.outputDill,
     this.dartDefines = const [],
+    this.modeOptions = const [
+      '-Ddart.vm.profile=false',
+      '-Ddart.vm.product=false',
+    ],
     this.target = 'flutter',
     this.trackWidgetCreation = true,
     this.initializeFromDill,
@@ -34,6 +38,10 @@ final class FrontendServerOptions {
 
   /// Merged `--dart-define` values as `KEY=VALUE` strings.
   final List<String> dartDefines;
+
+  /// Build-mode options passed after [dartDefines], such as flutter_tools'
+  /// `buildModeOptions` for debug (`-Ddart.vm.*`, `--enable-asserts`).
+  final List<String> modeOptions;
 
   /// Kernel target (`flutter`, `vm`, …).
   final String target;
