@@ -2,6 +2,8 @@ import 'dart:io';
 
 import 'package:apple_developer_kit/shared/appstoreconnect/asc_client.dart';
 import 'package:apple_developer_kit/shared/appstoreconnect/asc_models.dart';
+import 'package:cli_kit/composition/native_host.dart';
+import 'package:cli_kit/shared/logging/logging.dart';
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
@@ -9,9 +11,6 @@ import 'package:xcross/src/shared/cli/command_prompt.dart';
 import 'package:xcross/src/shared/config/project_settings.dart';
 import 'package:xcross/src/shared/errors/errors.dart';
 import 'package:xcross/src/target/iphone/device/internal/bundle_identity_resolver.dart';
-
-import '../config/io_file_system_fixture.dart';
-import 'test_log_output.dart';
 
 void main() {
   const requested = 'com.example.App';
@@ -21,7 +20,7 @@ void main() {
   setUp(() {
     root = Directory.systemTemp.createTempSync('bundle-identity-');
     settings = ProjectSettings(
-      fileSystem: const IoFileSystem(),
+      fileSystem: detectPlatformHost().fileSystem,
       projectRoot: root.path,
     );
   });
@@ -36,7 +35,7 @@ void main() {
     bool withSettings = true,
   }) async => (await BundleIdentityResolver(
     client: client,
-    log: testLog(),
+    log: Log(output: SilentLogOutput()),
     prompt: prompt,
     environment: environment,
     settings: withSettings ? settings : null,
@@ -270,4 +269,18 @@ final class FakeBundleClient implements DevelopmentProvisioningClient {
   @override
   dynamic noSuchMethod(Invocation invocation) =>
       throw StateError('unexpected ${invocation.memberName}');
+}
+
+@internal
+final class SilentLogOutput implements LogOutput {
+  @override
+  bool get supportsAnsi => false;
+  @override
+  int get terminalColumns => 80;
+  @override
+  void stdout(String message) {}
+  @override
+  void stderr(String message) {}
+  @override
+  void write(String message) {}
 }

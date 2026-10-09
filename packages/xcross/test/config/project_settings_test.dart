@@ -1,11 +1,10 @@
 import 'dart:io';
 
+import 'package:cli_kit/composition/native_host.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 import 'package:xcross/src/shared/config/project_settings.dart';
 import 'package:xcross/src/shared/errors/errors.dart';
-
-import 'io_file_system_fixture.dart';
 
 void main() {
   late Directory root;
@@ -13,7 +12,7 @@ void main() {
   setUp(() {
     root = Directory.systemTemp.createTempSync('project-settings-');
     settings = ProjectSettings(
-      fileSystem: const IoFileSystem(),
+      fileSystem: detectPlatformHost().fileSystem,
       projectRoot: root.path,
     );
   });
