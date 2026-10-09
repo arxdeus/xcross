@@ -36,8 +36,6 @@ final class FlutterDebugBundler<T extends PlatformHostInterface> {
     required this.outputDir,
     required this.deploymentTarget,
     this.entrypoint = 'lib/main.dart',
-    this.dartDefines = const [],
-    this.flavor,
     this.treeShakeIcons = false,
     this.snapshotter,
     this.splitDebugInfo,
@@ -53,17 +51,6 @@ final class FlutterDebugBundler<T extends PlatformHostInterface> {
 
   /// Dart entrypoint to compile (default: `lib/main.dart`).
   final String entrypoint;
-
-  /// `KEY=VALUE` dart-define strings forwarded to frontend_server as
-  /// `-D<KEY=VALUE>` flags alongside the built-in vm.profile/vm.product flags.
-  final List<String> dartDefines;
-
-  /// `--flavor` value. When set, forwarded to frontend_server as
-  /// `-DFLUTTER_APP_FLAVOR=<flavor>`, mirroring how `package:flutter/services`
-  /// reads `appFlavor` via `String.fromEnvironment('FLUTTER_APP_FLAVOR')`.
-  /// Skipped if [dartDefines] already contains an explicit
-  /// `FLUTTER_APP_FLAVOR=` define (explicit define wins).
-  final String? flavor;
 
   /// Whether icon fonts are subset to the glyphs the app uses.
   final bool treeShakeIcons;

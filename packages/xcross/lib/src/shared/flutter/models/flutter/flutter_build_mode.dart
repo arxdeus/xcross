@@ -32,9 +32,32 @@ enum FlutterBuildMode {
     release => IosGenSnapshotMode.release,
   };
 
-  /// `-Ddart.vm.*` defines frontend_server receives for this mode.
-  List<String> get vmDefines => [
-    '-Ddart.vm.profile=${this == profile}',
-    '-Ddart.vm.product=${this == release}',
-  ];
+  /// The frontend_server options flutter_tools adds after the build's
+  /// [dartDefines] (`buildModeOptions`). Debug and profile keep a
+  /// `dart.vm.*` value the user set; release always forces its own.
+  List<String> frontendServerOptions(List<String> dartDefines) {
+    bool userSet(String key) =>
+        dartDefines.any((define) => define.startsWith(key));
+    const deleteToString = [
+      '--delete-tostring-package-uri=dart:ui',
+      '--delete-tostring-package-uri=package:flutter',
+    ];
+    return switch (this) {
+      debug => [
+        if (!userSet('dart.vm.profile')) '-Ddart.vm.profile=false',
+        if (!userSet('dart.vm.product')) '-Ddart.vm.product=false',
+        '--enable-asserts',
+      ],
+      profile => [
+        if (!userSet('dart.vm.profile')) '-Ddart.vm.profile=true',
+        if (!userSet('dart.vm.product')) '-Ddart.vm.product=false',
+        ...deleteToString,
+      ],
+      release => [
+        '-Ddart.vm.profile=false',
+        '-Ddart.vm.product=true',
+        ...deleteToString,
+      ],
+    };
+  }
 }

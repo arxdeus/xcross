@@ -1,6 +1,5 @@
 import 'package:test/test.dart';
 import 'package:xcross/src/shared/flutter/build/flutter_aot_snapshotter.dart';
-import 'package:xcross/src/shared/flutter/flutter_version_defines.dart';
 
 void main() {
   test('gen_snapshot arguments match flutter build ios', () {
@@ -47,27 +46,5 @@ void main() {
       arguments.singleWhere((a) => a.startsWith('--save-debugging-info=')),
       endsWith('app.ios-arm64.symbols'),
     );
-  });
-
-  test('version defines use the short revisions flutter_tools uses', () {
-    expect(
-      FlutterVersionDefines.fromJson({
-        'frameworkVersion': '3.47.0',
-        'channel': 'stable',
-        'repositoryUrl': 'https://github.com/flutter/flutter.git',
-        'frameworkRevision': '4cf24164269a5ebf0c16a028a00727d0e77bbb05',
-        'engineRevision': '5f77625673248ee5846fbcaf5d3e1a3878386fd7',
-        'dartSdkVersion': '3.13.0',
-      }),
-      [
-        'FLUTTER_VERSION=3.47.0',
-        'FLUTTER_CHANNEL=stable',
-        'FLUTTER_GIT_URL=https://github.com/flutter/flutter.git',
-        'FLUTTER_FRAMEWORK_REVISION=4cf2416426',
-        'FLUTTER_ENGINE_REVISION=5f77625673',
-        'FLUTTER_DART_VERSION=3.13.0',
-      ],
-    );
-    expect(FlutterVersionDefines.fromJson({'channel': 'stable'}), isEmpty);
   });
 }

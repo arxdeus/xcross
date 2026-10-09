@@ -10,6 +10,7 @@ final class PackResult {
     required this.bundleId,
     this.kind = PackOutputKind.app,
     this.projectRoot,
+    this.dartDefines = const [],
   });
 
   final String outputPath;
@@ -23,6 +24,10 @@ final class PackResult {
   /// up to find `settings.gradle.kts`), and watching the wrong directory
   /// silently reports "no source changes" forever.
   final String? projectRoot;
+
+  /// The complete Dart defines the bundle was compiled with, for builders
+  /// that compile Dart; incremental recompiles must reuse them.
+  final List<String> dartDefines;
 
   String get appPath {
     if (kind != PackOutputKind.app) {

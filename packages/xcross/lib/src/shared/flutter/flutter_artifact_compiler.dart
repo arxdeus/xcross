@@ -13,7 +13,6 @@ import 'package:xcross/src/shared/flutter/flutter_assets_compiler.dart';
 import 'package:xcross/src/shared/flutter/flutter_build_runtime.dart';
 import 'package:xcross/src/shared/flutter/flutter_build_steps.dart';
 import 'package:xcross/src/shared/flutter/flutter_kernel_compiler.dart';
-import 'package:xcross/src/shared/flutter/flutter_version_defines.dart';
 import 'package:xcross/src/shared/flutter/models/flutter/flutter_build_options.dart';
 
 @internal
@@ -54,8 +53,7 @@ final class FlutterArtifactCompiler<T extends PlatformHostInterface>
         flutterRoot: flutterRoot,
         deploymentTarget: deploymentTarget,
         entrypoint: options.target,
-        dartDefines: options.dartDefines,
-        flavor: options.flavor,
+        dartDefines: context.dartDefines,
       ).build(),
     );
     runtime.notices.copy(
@@ -122,40 +120,20 @@ final class FlutterArtifactCompiler<T extends PlatformHostInterface>
         projectRoot: projectRoot,
         flutterRoot: flutterRoot,
         entrypoint: options.target,
-        dartDefines: options.dartDefines,
-        flavor: options.flavor,
+        dartDefines: context.dartDefines,
         buildMode: mode,
-        versionDefines: [
-          ..._buildVersionDefines(),
-          ...FlutterVersionDefines.read(runtime.host, flutterRoot),
-        ],
       ),
       projectRoot: projectRoot,
       flutterRoot: flutterRoot,
       outputDir: assembleOut,
       deploymentTarget: deploymentTarget,
       entrypoint: options.target,
-      dartDefines: options.dartDefines,
-      flavor: options.flavor,
       treeShakeIcons: options.shakesIcons,
       snapshotter: snapshotter,
       splitDebugInfo: options.splitDebugInfo,
       obfuscate: options.obfuscate,
     ).build();
     return debugBundle;
-  }
-
-  /// `FLUTTER_BUILD_NAME`/`FLUTTER_BUILD_NUMBER`, which `appBuildName` and
-  /// `appBuildNumber` read: `--build-name`/`--build-number`, else the pubspec
-  /// `version:`, as flutter_tools resolves them.
-  List<String> _buildVersionDefines() {
-    final pubspec = runtime.pubspecs.loadSync(projectRoot);
-    return [
-      if (options.buildName ?? pubspec.buildName case final name?)
-        'FLUTTER_BUILD_NAME=$name',
-      if (options.buildNumber ?? pubspec.buildNumber case final number?)
-        'FLUTTER_BUILD_NUMBER=$number',
-    ];
   }
 
   Future<FlutterAotSnapshotter<T>?> _snapshotter(

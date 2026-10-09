@@ -7,6 +7,8 @@ import 'package:xcross/src/shared/flutter/models/hot_reload_config.dart';
 @internal
 abstract final class HotReloadSetup {
   /// Resolve the paths a persistent `frontend_server` needs for hot reload.
+  /// [dartDefines] must be the debug build's complete defines
+  /// (`PackResult.dartDefines`).
   ///
   /// Returns null (with a warning) if a required artifact is missing —
   /// callers then launch without hot reload.

@@ -51,7 +51,10 @@ final class FlutterPacker<T extends PlatformHostInterface> {
   Future<String> resolveFlutterRoot({String? root}) => FlutterProjectResolver(
     runtime,
   ).resolveFlutterRoot(projectRoot: projectRoot, root: root);
-  Future<String> pack() async {
+
+  /// Builds the app; returns its path and the build's complete dart-defines
+  /// ([FlutterBuildContext.dartDefines]), which hot reload must reuse.
+  Future<({String appPath, List<String> dartDefines})> pack() async {
     options.validate(
       supportsPrecompiledModes: runtime.policy.supportsPrecompiledModes,
     );
@@ -62,6 +65,6 @@ final class FlutterPacker<T extends PlatformHostInterface> {
     final compiled = await _compile(context).compile();
     final linked = await _link(context).link(compiled);
     final assembled = await _assemble(context).assemble(linked);
-    return assembled;
+    return (appPath: assembled, dartDefines: context.dartDefines);
   }
 }

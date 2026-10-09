@@ -218,7 +218,7 @@ final class FlutterRunCommand<T extends PlatformHostInterface>
             projectRoot: runtime.host.paths.context.current,
             runtime: buildRuntime,
             target: buildOptions.target,
-            dartDefines: buildOptions.dartDefines,
+            dartDefines: pack.dartDefines,
             verbose: options.verbose,
           );
     if (hotReload == null &&

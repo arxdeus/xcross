@@ -38,7 +38,9 @@ final class HotReloadConfig {
   /// Output `.dill` path for incremental compilation.
   final String outputDill;
 
-  /// Merged `--dart-define` values as `KEY=VALUE` strings.
+  /// The build's complete dart-defines (`FlutterBuildContext.dartDefines`)
+  /// as `KEY=VALUE` strings, so a reload compiles with the same
+  /// `FLUTTER_*` values as the installed kernel.
   final List<String> dartDefines;
 
   /// Whether to emit verbose timing logs.

@@ -13,7 +13,6 @@ import 'package:xcross/src/shared/flutter/build/internal/native_assets_manifest.
 import 'package:xcross/src/shared/flutter/build/ios_deployment_target.dart';
 import 'package:xcross/src/shared/flutter/build/ios_engine_cache.dart';
 import 'package:xcross/src/shared/flutter/errors.dart';
-import 'package:xcross/src/shared/flutter/models/flutter/dart_defines.dart';
 
 /// Native code assets produced by Flutter's Dart build-hook pipeline.
 @internal
@@ -44,7 +43,6 @@ final class IosNativeAssetsBuilder<T extends PlatformHostInterface> {
     required this.deploymentTarget,
     this.entrypoint = 'lib/main.dart',
     this.dartDefines = const [],
-    this.flavor,
   }) {
     if (flutterRoot != engineCache.flutterRoot ||
         !identical(target, tools.target) ||
@@ -72,8 +70,11 @@ final class IosNativeAssetsBuilder<T extends PlatformHostInterface> {
   final String flutterRoot;
   final IosDeploymentTarget deploymentTarget;
   final String entrypoint;
+
+  /// The build's complete dart-defines (`FlutterBuildContext.dartDefines`).
+  /// The kernel `flutter assemble` compiles records the uses link hooks
+  /// receive, so it must see the same defines as the app's kernel.
   final List<String> dartDefines;
-  final String? flavor;
 
   Future<IosNativeAssetsBuildResult> build() async {
     final output = engineCache.targetPolicy.buildDirectory(
@@ -232,7 +233,7 @@ final class IosNativeAssetsBuilder<T extends PlatformHostInterface> {
     if (iosSdk != null) '-dSdkRoot=$iosSdk',
     '-dTargetFile=$entrypoint',
     '-dIosDeploymentTarget=${deploymentTarget.version}',
-    '-dDartDefines=${DartDefines.withFlavor(dartDefines, flavor).map((define) => base64.encode(utf8.encode(define))).join(',')}',
+    '-dDartDefines=${dartDefines.map((define) => base64.encode(utf8.encode(define))).join(',')}',
     if (iosSdk != null)
       'debug_ios_bundle_flutter_assets'
     else

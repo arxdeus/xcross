@@ -5,6 +5,7 @@ import 'package:darwin_sdk_kit/target/simulator/simulator_build_platform.dart';
 import 'package:test/test.dart';
 import 'package:xcross/src/shared/flutter/build/ios_deployment_target.dart';
 import 'package:xcross/src/shared/flutter/build/ios_native_assets.dart';
+import 'package:xcross/src/shared/flutter/models/flutter/flutter_build_mode.dart';
 
 import '../flutter_test_runtime.dart';
 
@@ -41,11 +42,14 @@ void main() {
   for (final withHooks in [false, true]) {
     group(withHooks ? 'native-hook assembly' : 'bundle assembly', () {
       final runtime = testIPhoneRuntime();
-      List<String> arguments(List<String> defines, {String? flavor}) =>
+      List<String> arguments(
+        List<String> defines, {
+        FlutterBuildMode mode = FlutterBuildMode.debug,
+      }) =>
           IosNativeAssetsBuilder(
             nativeAssetFrameworks: runtime.nativeAssetFrameworks,
             hooks: runtime.nativeAssetHooks,
-            engineCache: runtime.engineCache('/flutter'),
+            engineCache: runtime.engineCache('/flutter', mode: mode),
             runner: runtime.runner,
             tools: runtime.nativeTools,
             renderer: runtime.toolShimRenderer,
@@ -57,19 +61,23 @@ void main() {
             ),
             entrypoint: 'lib/entry point.dart',
             dartDefines: defines,
-            flavor: flavor,
           ).assembleArguments(
             output: '/output with spaces',
             iosSdk: withHooks ? '/SDK with spaces' : null,
           );
 
-      test('preserves compiler values and flavor without CLI validation', () {
-        const defines = ['VALUE=one,two=three ü', 'MODE=first', 'MODE=last'];
-        final args = arguments(defines, flavor: 'staging');
-        expect(_decodedDefines(args), [
-          ...defines,
+      test('forwards the complete defines verbatim', () {
+        const defines = [
+          'VALUE=one,two=three ü',
+          'MODE=first',
+          'MODE=last',
           'FLUTTER_APP_FLAVOR=staging',
-        ]);
+          'FLUTTER_BUILD_NAME=1.0.0',
+          'FLUTTER_BUILD_NUMBER=1',
+          'FLUTTER_VERSION=3.47.0',
+        ];
+        final args = arguments(defines);
+        expect(_decodedDefines(args), defines);
         expect(args.first, 'assemble');
         expect(args, contains('-dTargetPlatform=ios'));
         expect(args, contains('-dIosArchs=arm64'));
@@ -82,12 +90,22 @@ void main() {
         expect(args.contains('-dSdkRoot=/SDK with spaces'), withHooks);
       });
 
-      test('keeps the explicit flavor override and its precedence', () {
-        const defines = ['FLUTTER_APP_FLAVOR=explicit'];
-        expect(_decodedDefines(arguments(defines, flavor: 'staging')), defines);
+      test('selects the build mode for release and profile', () {
+        for (final mode in [
+          FlutterBuildMode.release,
+          FlutterBuildMode.profile,
+        ]) {
+          const defines = [
+            'FLUTTER_BUILD_NAME=1.0.0',
+            'FLUTTER_VERSION=3.47.0',
+          ];
+          final args = arguments(defines, mode: mode);
+          expect(args, contains('-dBuildMode=${mode.name}'));
+          expect(_decodedDefines(args), defines);
+        }
       });
 
-      test('does not invent a flavor for ordinary builds', () {
+      test('does not invent defines for ordinary builds', () {
         expect(_decodedDefines(arguments(const [])), isEmpty);
       });
     });
