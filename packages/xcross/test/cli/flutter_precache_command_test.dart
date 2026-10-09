@@ -61,5 +61,8 @@ void main() {
       IosGenSnapshotMode.profile.engineArtifact,
       FlutterBuildMode.profile.engineArtifact,
     );
+    for (final mode in IosGenSnapshotMode.values) {
+      expect(FlutterBuildMode.of(mode).genSnapshotMode, mode);
+    }
   });
 }
