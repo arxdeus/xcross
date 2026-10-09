@@ -54,6 +54,7 @@ final class FlutterArtifactCompiler<T extends PlatformHostInterface>
         deploymentTarget: deploymentTarget,
         entrypoint: options.target,
         dartDefines: context.dartDefines,
+        debugSymbols: runtime.debugSymbols,
       ).build(),
     );
     runtime.notices.copy(
@@ -102,10 +103,7 @@ final class FlutterArtifactCompiler<T extends PlatformHostInterface>
     await assembleDir.create(recursive: true);
 
     final mode = options.buildMode;
-    final snapshotter = await _snapshotter(
-      flutterRoot,
-      deploymentTarget: deploymentTarget,
-    );
+    final snapshotter = aotSnapshotter();
     final debugBundle = await FlutterDebugBundler(
       runtime: runtime,
       assets: FlutterAssetsCompiler(
@@ -138,10 +136,10 @@ final class FlutterArtifactCompiler<T extends PlatformHostInterface>
     return debugBundle;
   }
 
-  Future<FlutterAotSnapshotter<T>?> _snapshotter(
-    String flutterRoot, {
-    required IosDeploymentTarget deploymentTarget,
-  }) async {
+  /// Creates the AOT snapshotter from the engine the build uses, or `null`
+  /// for debug builds.
+  @visibleForTesting
+  FlutterAotSnapshotterFactory<T>? aotSnapshotter() {
     final mode = options.buildMode.genSnapshotMode;
     if (mode == null) return null;
     final locate = runtime.aotCompilers;
@@ -151,10 +149,16 @@ final class FlutterArtifactCompiler<T extends PlatformHostInterface>
         'this xcross host does not provide.',
       );
     }
-    return FlutterAotSnapshotter(
+    return (engineCache) async => FlutterAotSnapshotter(
       runtime: runtime,
-      compiler: await locate(flutterRoot: flutterRoot, mode: mode),
-      deploymentTarget: deploymentTarget,
+      compiler: await locate(
+        flutterRoot: engineCache.flutterRoot,
+        engineDirectory: engineCache.engineDirectory,
+        mode: mode,
+      ),
+      minimumOsVersion:
+          engineCache.engineMinimumOsVersion ??
+          FlutterAotSnapshotter.fallbackMinimumOsVersion,
     );
   }
 

@@ -21,7 +21,7 @@ import 'package:xcross/src/shared/flutter/gen_snapshot/ios_gen_snapshot_mode.dar
 /// Where a resolved iOS AOT compiler came from.
 @internal
 enum IosGenSnapshotSource {
-  /// Shipped with the Flutter SDK (macOS hosts).
+  /// Shipped with the build's Flutter device engine (macOS hosts).
   flutterSdk,
 
   /// A verified download reused from the xcross cache.
@@ -57,7 +57,8 @@ final class IosGenSnapshot {
 /// the compilers xcross_gen_snapshot builds from the Dart revision each
 /// Flutter release pins. Resolution order:
 ///
-/// 1. The compiler shipped with Flutter, where the host has one.
+/// 1. The compiler Flutter ships with the build's device engine, where the
+///    host has one.
 /// 2. A cached download whose `meta.json` matches and whose executable still
 ///    has the recorded SHA-256.
 /// 3. A compiler the user pinned in xcross config (`ios_gen_snapshot`) for
@@ -101,12 +102,14 @@ final class IosGenSnapshotResolver<T extends PlatformHostInterface> {
   T get host => runner.host;
   Log get log => runner.log;
 
-  /// Resolves the [mode] compiler for the Flutter SDK at [flutterRoot].
+  /// Resolves the [mode] compiler for the Flutter SDK at [flutterRoot] whose
+  /// [mode] device engine is in [engineDirectory].
   Future<IosGenSnapshot> resolve({
     required String flutterRoot,
+    required String engineDirectory,
     required IosGenSnapshotMode mode,
   }) async {
-    final shipped = hostPolicy.flutterCompiler(flutterRoot, mode);
+    final shipped = hostPolicy.flutterCompiler(engineDirectory, mode);
     final release = FlutterSdkReleaseReader(host).read(flutterRoot);
     IosGenSnapshot result(String path, IosGenSnapshotSource source) =>
         IosGenSnapshot(
@@ -141,11 +144,12 @@ final class IosGenSnapshotResolver<T extends PlatformHostInterface> {
   /// rather than thrown, since the cache may still serve a later build.
   Future<IosGenSnapshotAvailability> availability({
     required String flutterRoot,
+    required String engineDirectory,
     required IosGenSnapshotMode mode,
   }) async {
     final FlutterSdkRelease release;
     try {
-      final shipped = hostPolicy.flutterCompiler(flutterRoot, mode);
+      final shipped = hostPolicy.flutterCompiler(engineDirectory, mode);
       if (shipped != null) {
         return IosGenSnapshotAvailability(
           source: IosGenSnapshotSource.flutterSdk,

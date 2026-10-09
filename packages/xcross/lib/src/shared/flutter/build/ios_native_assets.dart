@@ -5,6 +5,7 @@ import 'package:cli_kit/shared/process/process.dart';
 import 'package:darwin_sdk_kit/target/shared/ios_target.dart';
 import 'package:meta/meta.dart';
 import 'package:xcross/src/host/shared/flutter/apple_tool_shim_renderer.dart';
+import 'package:xcross/src/shared/flutter/build/apple_debug_symbols.dart';
 import 'package:xcross/src/shared/flutter/build/internal/apple_tool_shims.dart';
 import 'package:xcross/src/shared/flutter/build/internal/flutter_tool_workspace.dart';
 import 'package:xcross/src/shared/flutter/build/internal/native_asset_frameworks.dart';
@@ -43,12 +44,16 @@ final class IosNativeAssetsBuilder<T extends PlatformHostInterface> {
     required this.deploymentTarget,
     this.entrypoint = 'lib/main.dart',
     this.dartDefines = const [],
-  }) {
+    AppleDebugSymbols<T>? debugSymbols,
+  }) : debugSymbols =
+           debugSymbols ??
+           AppleDebugSymbols(runner: runner, toolchain: tools.toolchain) {
     if (flutterRoot != engineCache.flutterRoot ||
         !identical(target, tools.target) ||
         !identical(host, runner.host) ||
         !identical(host, renderer.host) ||
         !identical(host, tools.host) ||
+        !identical(host, this.debugSymbols.host) ||
         !identical(runner, nativeAssetFrameworks.runner) ||
         !identical(host.fileSystem, nativeAssetFrameworks.fileSystem) ||
         !identical(host.paths.context, nativeAssetFrameworks.paths)) {
@@ -75,6 +80,10 @@ final class IosNativeAssetsBuilder<T extends PlatformHostInterface> {
   /// The kernel `flutter assemble` compiles records the uses link hooks
   /// receive, so it must see the same defines as the app's kernel.
   final List<String> dartDefines;
+
+  /// Writes `<name>.framework.dSYM` beside each code asset framework of
+  /// profile and release builds.
+  final AppleDebugSymbols<T> debugSymbols;
 
   Future<IosNativeAssetsBuildResult> build() async {
     final output = engineCache.targetPolicy.buildDirectory(
@@ -144,7 +153,7 @@ final class IosNativeAssetsBuilder<T extends PlatformHostInterface> {
     );
     final frameworks = await nativeAssetFrameworks.stage(sources, output);
     await nativeAssetFrameworks.thin(frameworks, lipo: config.lipo);
-    if (engineCache.mode.isPrecompiled) await _strip(frameworks);
+    await stripFrameworks(frameworks);
     await nativeAssetFrameworks.align(frameworks);
     await nativeAssetFrameworks.normalize(frameworks);
 
@@ -193,9 +202,22 @@ final class IosNativeAssetsBuilder<T extends PlatformHostInterface> {
     );
   }
 
-  /// Strips local and debug symbols from code assets of profile and release
-  /// builds, as flutter_tools does (`strip -x -S`).
-  Future<void> _strip(Iterable<String> frameworks) async {
+  /// Writes the dSYM of each code asset of profile and release builds next
+  /// to its framework, then strips local and debug symbols, as flutter_tools
+  /// does (`dsymutil`, then `strip -x -S`). Debug builds keep them.
+  @visibleForTesting
+  Future<void> stripFrameworks(Iterable<String> frameworks) async {
+    if (!engineCache.mode.isPrecompiled) return;
+    final binaries = {
+      for (final framework in frameworks)
+        framework: host.paths.context.join(
+          framework,
+          host.paths.context.basenameWithoutExtension(framework),
+        ),
+    };
+    for (final MapEntry(key: framework, value: binary) in binaries.entries) {
+      await debugSymbols.extract(binary, '$framework.dSYM');
+    }
     final strip = await tools.toolchain.locateLlvmTool('llvm-strip');
     if (strip == null) {
       runner.log.logWarn(
@@ -203,11 +225,7 @@ final class IosNativeAssetsBuilder<T extends PlatformHostInterface> {
       );
       return;
     }
-    for (final framework in frameworks) {
-      final binary = host.paths.context.join(
-        framework,
-        host.paths.context.basenameWithoutExtension(framework),
-      );
+    for (final binary in binaries.values) {
       await runner.runChecked(strip, [
         '-x',
         '-S',

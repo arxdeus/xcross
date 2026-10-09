@@ -8,6 +8,7 @@ import 'package:xcross/src/shared/compose/kmp_project_detector.dart';
 import 'package:xcross/src/shared/compose/toolchain/compose_toolchain_resolver.dart';
 import 'package:xcross/src/shared/flutter/gen_snapshot/ios_gen_snapshot_mode.dart';
 import 'package:xcross/src/shared/flutter/gen_snapshot/ios_gen_snapshot_resolver.dart';
+import 'package:xcross/src/shared/flutter/models/flutter/flutter_build_mode.dart';
 import 'package:xcross/src/shared/packages/package_config_resolver.dart';
 import 'package:xcross/src/shared/runtime/xcross_runtime.dart';
 import 'package:xcross/src/target/shared/runtime/build_features.dart';
@@ -98,6 +99,9 @@ final class DoctorSections<T extends PlatformHostInterface> {
       try {
         found = await resolver.availability(
           flutterRoot: flutterRoot,
+          engineDirectory: features.flutterRuntime
+              .engineCache(flutterRoot, mode: FlutterBuildMode.of(mode))
+              .engineDirectory,
           mode: mode,
         );
       } on Object catch (error) {
@@ -107,7 +111,7 @@ final class DoctorSections<T extends PlatformHostInterface> {
       checks.add(switch (found.source) {
         IosGenSnapshotSource.flutterSdk => DoctorCheck.success(
           label,
-          'Shipped with Flutter',
+          'Shipped with the Flutter engine',
           path: found.path,
         ),
         IosGenSnapshotSource.cache => DoctorCheck.success(

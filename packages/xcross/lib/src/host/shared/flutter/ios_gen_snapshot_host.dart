@@ -13,7 +13,7 @@ abstract interface class IosGenSnapshotHost {
   /// xcross_gen_snapshot asset platform for this host, such as `linux-x64`.
   String get prebuiltPlatform;
 
-  /// The compiler shipped inside the Flutter SDK at [flutterRoot], or `null`
-  /// when Flutter publishes none for this host.
-  String? flutterCompiler(String flutterRoot, IosGenSnapshotMode mode);
+  /// The compiler Flutter ships beside the [mode] device engine in
+  /// [engineDirectory], or `null` when Flutter publishes none for this host.
+  String? flutterCompiler(String engineDirectory, IosGenSnapshotMode mode);
 }

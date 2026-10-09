@@ -16,6 +16,12 @@ enum FlutterBuildMode {
     required this.patchedSdk,
   });
 
+  /// The precompiled mode an iOS AOT compiler [mode] builds for.
+  static FlutterBuildMode of(IosGenSnapshotMode mode) => switch (mode) {
+    IosGenSnapshotMode.profile => profile,
+    IosGenSnapshotMode.release => release,
+  };
+
   /// Flutter engine artifact directory holding this mode's device engine.
   final String engineArtifact;
 

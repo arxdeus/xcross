@@ -36,8 +36,15 @@ composeIosAotCompilerLocator<T extends PlatformHostInterface>({
     createHttpClient: createHttpClient,
     config: config,
   );
-  return ({required flutterRoot, required mode}) async =>
-      (await resolver.resolve(flutterRoot: flutterRoot, mode: mode)).executable;
+  return ({
+    required flutterRoot,
+    required engineDirectory,
+    required mode,
+  }) async => (await resolver.resolve(
+    flutterRoot: flutterRoot,
+    engineDirectory: engineDirectory,
+    mode: mode,
+  )).executable;
 }
 
 IosGenSnapshotResolver<T> _resolver<T extends PlatformHostInterface>({

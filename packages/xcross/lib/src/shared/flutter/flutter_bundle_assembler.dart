@@ -84,8 +84,43 @@ final class FlutterBundleAssembler<T extends PlatformHostInterface>
         .create(recursive: true);
     await runtime.directoryCopier.copy(tmp.path, dest);
     await tmp.delete(recursive: true);
+    await _publishDebugSymbols(
+      appFramework: appFramework,
+      engineSlice: runtime.policy.selectEngineSlice(xcframework),
+      nativeAssetFrameworks: nativeAssetFrameworks,
+    );
 
     return dest;
+  }
+
+  /// Replaces the dSYMs beside the `.app` with those of this build, as
+  /// `flutter build ios` leaves them: `App.framework.dSYM`, the engine's
+  /// `Flutter.framework.dSYM`, and one per native asset framework. Debug
+  /// builds have none, so they only remove stale ones.
+  Future<void> _publishDebugSymbols({
+    required String appFramework,
+    required String engineSlice,
+    required List<String> nativeAssetFrameworks,
+  }) async {
+    final paths = runtime.host.paths.context;
+    final output = runtime.host.fileSystem.directory(outputDirectory);
+    await for (final entity in output.list(followLinks: false)) {
+      if (entity.path.endsWith('.framework.dSYM')) {
+        await entity.delete(recursive: true);
+      }
+    }
+    if (!options.buildMode.isPrecompiled) return;
+    for (final dsym in [
+      '$appFramework.dSYM',
+      paths.join(engineSlice, 'dSYMs', 'Flutter.framework.dSYM'),
+      for (final framework in nativeAssetFrameworks) '$framework.dSYM',
+    ]) {
+      if (!runtime.host.fileSystem.directory(dsym).existsSync()) continue;
+      await runtime.directoryCopier.copy(
+        dsym,
+        paths.join(outputDirectory, paths.basename(dsym)),
+      );
+    }
   }
 
   /// Lay out the `.app` contents under [bundleDir]: the Runner executable,

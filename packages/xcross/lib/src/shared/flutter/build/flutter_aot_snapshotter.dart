@@ -1,18 +1,25 @@
 import 'package:cli_kit/shared/platform/platform_host.dart';
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
-import 'package:xcross/src/shared/flutter/build/ios_deployment_target.dart';
+import 'package:xcross/src/shared/flutter/build/ios_engine_cache.dart';
 import 'package:xcross/src/shared/flutter/errors.dart';
 import 'package:xcross/src/shared/flutter/flutter_build_runtime.dart';
 import 'package:xcross/src/shared/flutter/gen_snapshot/ios_gen_snapshot_mode.dart';
 
-/// Locates the iOS AOT compiler (`gen_snapshot`) for a Flutter SDK.
+/// Locates the iOS AOT compiler (`gen_snapshot`) for a Flutter SDK whose
+/// device engine for [mode] is in [engineDirectory].
 @internal
 typedef IosAotCompilerLocator =
     Future<String> Function({
       required String flutterRoot,
+      required String engineDirectory,
       required IosGenSnapshotMode mode,
     });
+
+/// Creates the snapshotter once [engineCache] has its artifacts in place.
+@internal
+typedef FlutterAotSnapshotterFactory<T extends PlatformHostInterface> =
+    Future<FlutterAotSnapshotter<T>> Function(IosEngineCache<T> engineCache);
 
 /// Compiles an AOT kernel into `App.framework/App` the way `flutter build
 /// ios` does: `gen_snapshot --snapshot_kind=app-aot-macho-dylib` writes the
@@ -22,22 +29,27 @@ final class FlutterAotSnapshotter<T extends PlatformHostInterface> {
   FlutterAotSnapshotter({
     required this.runtime,
     required this.compiler,
-    required this.deploymentTarget,
+    this.minimumOsVersion = fallbackMinimumOsVersion,
   });
 
   final FlutterBuildRuntime<T> runtime;
 
   /// The `gen_snapshot` executable for the build mode.
   final String compiler;
-  final IosDeploymentTarget deploymentTarget;
 
-  /// Flutter's iOS deployment floor; flutter_tools passes this, not the app's
-  /// deployment target, to `--macho-min-os-version`.
-  static const minimumOsVersion = '15.0';
+  /// `--macho-min-os-version`. flutter_tools passes Flutter's iOS deployment
+  /// floor, not the app's deployment target; the engine's `Flutter.framework`
+  /// records that floor as `MinimumOSVersion`.
+  final String minimumOsVersion;
 
-  /// Writes `<appFramework>/App` from [appDill]. The relocatable object goes
-  /// to [objectFile]; its path is recorded in the dylib's debug map, so keep
-  /// it stable for reproducible output.
+  /// Flutter's iOS deployment floor, for engines whose `Info.plist` lacks
+  /// `MinimumOSVersion`.
+  static const fallbackMinimumOsVersion = '15.0';
+
+  /// Writes `<appFramework>/App` from [appDill] and its dSYM next to
+  /// [appFramework]. The relocatable object goes to [objectFile]; its path
+  /// is recorded in the dylib's debug map, so keep it stable for
+  /// reproducible output.
   Future<void> compile({
     required String appDill,
     required String appFramework,
@@ -62,6 +74,7 @@ final class FlutterAotSnapshotter<T extends PlatformHostInterface> {
           appDill: appDill,
           binary: binary,
           objectFile: objectFile,
+          minimumOsVersion: minimumOsVersion,
           splitDebugInfo: splitDebugInfo,
           obfuscate: obfuscate,
         ),
@@ -76,19 +89,10 @@ final class FlutterAotSnapshotter<T extends PlatformHostInterface> {
   }
 
   /// Writes the dSYM, then strips local symbols, as flutter_tools does after
-  /// every profile and release snapshot. `dsymutil` is missing from some
-  /// LLVM distributions, so the dSYM is best effort. The App stays unstripped
-  /// (bigger, with build paths in its debug map) without `llvm-strip`.
+  /// every profile and release snapshot. The App stays unstripped (bigger,
+  /// with build paths in its debug map) without `llvm-strip`.
   Future<void> _extractDebugSymbols(String binary, String dsym) async {
-    final dsymutil = await runtime.toolchain.locateLlvmTool('dsymutil');
-    if (dsymutil != null) {
-      final result = await runtime.runner.run(dsymutil, ['-o', dsym, binary]);
-      if (result.exitCode != 0) {
-        runtime.runner.log.logTrace(
-          'dsymutil failed (${result.exitCode}): ${result.stderr}',
-        );
-      }
-    }
+    await runtime.debugSymbols.extract(binary, dsym);
     final strip = await runtime.toolchain.locateLlvmTool('llvm-strip');
     if (strip == null) {
       runtime.runner.log.logWarn(
@@ -111,6 +115,7 @@ final class FlutterAotSnapshotter<T extends PlatformHostInterface> {
     required String appDill,
     required String binary,
     required String objectFile,
+    String minimumOsVersion = fallbackMinimumOsVersion,
     String? splitDebugInfo,
     bool obfuscate = false,
   }) => [

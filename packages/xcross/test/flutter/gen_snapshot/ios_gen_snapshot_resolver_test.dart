@@ -38,11 +38,13 @@ const _binary = [0x7f, 0x45, 0x4c, 0x46, 1, 2, 3, 4];
 void main() {
   late Directory temporary;
   late String flutterRoot;
+  late String engineDirectory;
   late String cacheRoot;
 
   setUp(() {
     temporary = Directory.systemTemp.createTempSync('xcross-gen-snapshot-');
     flutterRoot = p.join(temporary.path, 'flutter');
+    engineDirectory = p.join(temporary.path, 'engine', 'ios-release');
     cacheRoot = p.join(temporary.path, 'cache');
     _writeFlutterSdk(flutterRoot);
   });
@@ -164,7 +166,7 @@ void main() {
       test('${host.host.name} ${host.host.architecture} uses $expected', () {
         expect(host.prebuiltPlatform, expected);
         expect(
-          host.flutterCompiler('/flutter', IosGenSnapshotMode.release),
+          host.flutterCompiler('/engine', IosGenSnapshotMode.release),
           isNull,
         );
       });
@@ -194,50 +196,44 @@ void main() {
       );
     });
 
-    test(
-      'macOS uses the compiler shipped in the Flutter engine cache',
-      () async {
-        final host = MacOSHost(architecture: 'arm64');
-        for (final mode in IosGenSnapshotMode.values) {
-          final compiler = p.join(
-            flutterRoot,
-            'bin',
-            'cache',
-            'artifacts',
-            'engine',
-            mode.engineArtifact,
-            'gen_snapshot_arm64',
-          );
-          File(compiler)
-            ..createSync(recursive: true)
-            ..writeAsBytesSync(_binary);
-          final resolver = _resolver(
-            MacOSIosGenSnapshotHost(host),
-            host,
-            cacheRoot: cacheRoot,
-            httpClient: _rejectingClient,
-          );
-          final resolved = await resolver.resolve(
-            flutterRoot: flutterRoot,
-            mode: mode,
-          );
-          expect(resolved.executable, compiler);
-          expect(resolved.source, IosGenSnapshotSource.flutterSdk);
-        }
-      },
-    );
+    test('macOS uses the compiler beside the build engine', () async {
+      final host = MacOSHost(architecture: 'arm64');
+      for (final mode in IosGenSnapshotMode.values) {
+        final engine = p.join(temporary.path, 'engine', mode.engineArtifact);
+        final compiler = p.join(engine, 'gen_snapshot_arm64');
+        File(compiler)
+          ..createSync(recursive: true)
+          ..writeAsBytesSync(_binary);
+        final resolver = _resolver(
+          MacOSIosGenSnapshotHost(host),
+          host,
+          cacheRoot: cacheRoot,
+          httpClient: _rejectingClient,
+        );
+        final resolved = await resolver.resolve(
+          flutterRoot: flutterRoot,
+          engineDirectory: engine,
+          mode: mode,
+        );
+        expect(resolved.executable, compiler);
+        expect(resolved.source, IosGenSnapshotSource.flutterSdk);
+      }
+    });
 
     test('macOS reports a missing Flutter compiler', () {
       final host = MacOSHost(architecture: 'arm64');
       expect(
         () => MacOSIosGenSnapshotHost(
           host,
-        ).flutterCompiler(flutterRoot, IosGenSnapshotMode.release),
+        ).flutterCompiler(engineDirectory, IosGenSnapshotMode.release),
         throwsA(
           isA<FlutterBuildError>().having(
             (error) => error.message,
             'message',
-            contains('flutter precache --ios'),
+            allOf(
+              contains(p.join(engineDirectory, 'gen_snapshot_arm64')),
+              contains('xcross flutter precache --mode release'),
+            ),
           ),
         ),
       );
@@ -271,6 +267,7 @@ void main() {
       server.publish('3.47.0', IosGenSnapshotMode.release, 'linux-x64');
       final resolved = await resolver().resolve(
         flutterRoot: flutterRoot,
+        engineDirectory: engineDirectory,
         mode: IosGenSnapshotMode.release,
       );
       final directory = p.join(
@@ -318,11 +315,13 @@ void main() {
       server.publish('3.47.0', IosGenSnapshotMode.profile, 'linux-x64');
       await resolver().resolve(
         flutterRoot: flutterRoot,
+        engineDirectory: engineDirectory,
         mode: IosGenSnapshotMode.profile,
       );
       server.requests.clear();
       final resolved = await resolver().resolve(
         flutterRoot: flutterRoot,
+        engineDirectory: engineDirectory,
         mode: IosGenSnapshotMode.profile,
       );
       expect(resolved.source, IosGenSnapshotSource.cache);
@@ -333,12 +332,14 @@ void main() {
       server.publish('3.47.0', IosGenSnapshotMode.release, 'linux-x64');
       final first = await resolver().resolve(
         flutterRoot: flutterRoot,
+        engineDirectory: engineDirectory,
         mode: IosGenSnapshotMode.release,
       );
       File(first.executable).writeAsBytesSync([0, 0, 0]);
       server.requests.clear();
       final second = await resolver().resolve(
         flutterRoot: flutterRoot,
+        engineDirectory: engineDirectory,
         mode: IosGenSnapshotMode.release,
       );
       expect(second.source, IosGenSnapshotSource.download);
@@ -399,6 +400,7 @@ void main() {
       await expectLater(
         resolver().resolve(
           flutterRoot: flutterRoot,
+          engineDirectory: engineDirectory,
           mode: IosGenSnapshotMode.release,
         ),
         throwsA(
@@ -427,6 +429,7 @@ void main() {
       await expectLater(
         resolver().resolve(
           flutterRoot: flutterRoot,
+          engineDirectory: engineDirectory,
           mode: IosGenSnapshotMode.release,
         ),
         throwsA(
@@ -445,6 +448,7 @@ void main() {
       await expectLater(
         resolver().resolve(
           flutterRoot: flutterRoot,
+          engineDirectory: engineDirectory,
           mode: IosGenSnapshotMode.release,
         ),
         throwsA(
@@ -471,6 +475,7 @@ void main() {
         await expectLater(
           resolver().resolve(
             flutterRoot: flutterRoot,
+            engineDirectory: engineDirectory,
             mode: IosGenSnapshotMode.release,
           ),
           throwsA(
@@ -499,6 +504,7 @@ void main() {
       await expectLater(
         resolver().resolve(
           flutterRoot: flutterRoot,
+          engineDirectory: engineDirectory,
           mode: IosGenSnapshotMode.release,
         ),
         throwsA(
@@ -513,6 +519,7 @@ void main() {
       await expectLater(
         resolver().resolve(
           flutterRoot: flutterRoot,
+          engineDirectory: engineDirectory,
           mode: IosGenSnapshotMode.release,
         ),
         throwsA(
@@ -534,6 +541,7 @@ void main() {
         ]);
       final resolved = await resolver().resolve(
         flutterRoot: flutterRoot,
+        engineDirectory: engineDirectory,
         mode: IosGenSnapshotMode.release,
       );
       expect(resolved.source, IosGenSnapshotSource.download);
@@ -555,6 +563,7 @@ void main() {
       await expectLater(
         resolver().resolve(
           flutterRoot: flutterRoot,
+          engineDirectory: engineDirectory,
           mode: IosGenSnapshotMode.release,
         ),
         throwsA(
@@ -573,17 +582,24 @@ void main() {
 
       Future<void> seed() async {
         server.publish('3.47.0', IosGenSnapshotMode.release, 'linux-x64');
-        await resolver(
-          now: () => start,
-        ).resolve(flutterRoot: flutterRoot, mode: IosGenSnapshotMode.release);
+        await resolver(now: () => start).resolve(
+          flutterRoot: flutterRoot,
+          engineDirectory: engineDirectory,
+          mode: IosGenSnapshotMode.release,
+        );
         server.requests.clear();
       }
 
       test('trusts a recently checked entry without network', () async {
         await seed();
-        final resolved = await resolver(
-          now: () => start.add(const Duration(hours: 1)),
-        ).resolve(flutterRoot: flutterRoot, mode: IosGenSnapshotMode.release);
+        final resolved =
+            await resolver(
+              now: () => start.add(const Duration(hours: 1)),
+            ).resolve(
+              flutterRoot: flutterRoot,
+              engineDirectory: engineDirectory,
+              mode: IosGenSnapshotMode.release,
+            );
         expect(resolved.source, IosGenSnapshotSource.cache);
         expect(server.requests, isEmpty);
       });
@@ -591,9 +607,11 @@ void main() {
       test('keeps an unchanged entry after the check interval', () async {
         await seed();
         final later = start.add(day * 2);
-        final resolved = await resolver(
-          now: () => later,
-        ).resolve(flutterRoot: flutterRoot, mode: IosGenSnapshotMode.release);
+        final resolved = await resolver(now: () => later).resolve(
+          flutterRoot: flutterRoot,
+          engineDirectory: engineDirectory,
+          mode: IosGenSnapshotMode.release,
+        );
         expect(resolved.source, IosGenSnapshotSource.cache);
         expect(server.requests, ['/3.47.0/manifest.json']);
         final meta = _readMeta(cacheRoot);
@@ -609,9 +627,11 @@ void main() {
           'linux-x64',
           binary: [..._binary, 9],
         );
-        final resolved = await resolver(
-          now: () => start.add(day * 2),
-        ).resolve(flutterRoot: flutterRoot, mode: IosGenSnapshotMode.release);
+        final resolved = await resolver(now: () => start.add(day * 2)).resolve(
+          flutterRoot: flutterRoot,
+          engineDirectory: engineDirectory,
+          mode: IosGenSnapshotMode.release,
+        );
         expect(resolved.source, IosGenSnapshotSource.download);
         expect(File(resolved.executable).readAsBytesSync(), [..._binary, 9]);
       });
@@ -619,9 +639,11 @@ void main() {
       test('keeps working offline', () async {
         await seed();
         server.manifestFailures.add(const SocketException('offline'));
-        final resolved = await resolver(
-          now: () => start.add(day * 2),
-        ).resolve(flutterRoot: flutterRoot, mode: IosGenSnapshotMode.release);
+        final resolved = await resolver(now: () => start.add(day * 2)).resolve(
+          flutterRoot: flutterRoot,
+          engineDirectory: engineDirectory,
+          mode: IosGenSnapshotMode.release,
+        );
         expect(resolved.source, IosGenSnapshotSource.cache);
       });
 
@@ -640,14 +662,19 @@ void main() {
             },
           ),
         );
-        final resolved = await _resolver(
-          LinuxIosGenSnapshotHost(host),
-          host,
-          cacheRoot: cacheRoot,
-          httpClient: http.Client(),
-          releaseBaseUrl: 'http://127.0.0.1:${silent.port}',
-          now: () => start.add(day * 2),
-        ).resolve(flutterRoot: flutterRoot, mode: IosGenSnapshotMode.release);
+        final resolved =
+            await _resolver(
+              LinuxIosGenSnapshotHost(host),
+              host,
+              cacheRoot: cacheRoot,
+              httpClient: http.Client(),
+              releaseBaseUrl: 'http://127.0.0.1:${silent.port}',
+              now: () => start.add(day * 2),
+            ).resolve(
+              flutterRoot: flutterRoot,
+              engineDirectory: engineDirectory,
+              mode: IosGenSnapshotMode.release,
+            );
         expect(resolved.source, IosGenSnapshotSource.cache);
         await closed.future.timeout(const Duration(seconds: 5));
       });
@@ -655,9 +682,11 @@ void main() {
       test('keeps the entry when the release disappeared', () async {
         await seed();
         server.manifestOverride = (404, 'Not Found');
-        final resolved = await resolver(
-          now: () => start.add(day * 2),
-        ).resolve(flutterRoot: flutterRoot, mode: IosGenSnapshotMode.release);
+        final resolved = await resolver(now: () => start.add(day * 2)).resolve(
+          flutterRoot: flutterRoot,
+          engineDirectory: engineDirectory,
+          mode: IosGenSnapshotMode.release,
+        );
         expect(resolved.source, IosGenSnapshotSource.cache);
       });
 
@@ -667,9 +696,14 @@ void main() {
           ..remove('checked_at')
           ..remove('asset_sha256');
         File(_metaPath(cacheRoot)).writeAsStringSync(jsonEncode(meta));
-        final resolved = await resolver(
-          now: () => start.add(const Duration(minutes: 1)),
-        ).resolve(flutterRoot: flutterRoot, mode: IosGenSnapshotMode.release);
+        final resolved =
+            await resolver(
+              now: () => start.add(const Duration(minutes: 1)),
+            ).resolve(
+              flutterRoot: flutterRoot,
+              engineDirectory: engineDirectory,
+              mode: IosGenSnapshotMode.release,
+            );
         expect(resolved.source, IosGenSnapshotSource.cache);
         expect(server.requests, ['/3.47.0/manifest.json']);
         expect(_readMeta(cacheRoot)['asset_sha256'], isA<String>());
@@ -684,6 +718,7 @@ void main() {
       await expectLater(
         resolver().resolve(
           flutterRoot: flutterRoot,
+          engineDirectory: engineDirectory,
           mode: IosGenSnapshotMode.release,
         ),
         throwsA(
@@ -701,6 +736,7 @@ void main() {
         server.publish('3.47.0', IosGenSnapshotMode.release, 'linux-x64');
         final found = await resolver().availability(
           flutterRoot: flutterRoot,
+          engineDirectory: engineDirectory,
           mode: IosGenSnapshotMode.release,
         );
         expect(found.source, IosGenSnapshotSource.download);
@@ -712,10 +748,12 @@ void main() {
         server.publish('3.47.0', IosGenSnapshotMode.release, 'linux-x64');
         await resolver().resolve(
           flutterRoot: flutterRoot,
+          engineDirectory: engineDirectory,
           mode: IosGenSnapshotMode.release,
         );
         final found = await resolver().availability(
           flutterRoot: flutterRoot,
+          engineDirectory: engineDirectory,
           mode: IosGenSnapshotMode.release,
         );
         expect(found.source, IosGenSnapshotSource.cache);
@@ -725,6 +763,7 @@ void main() {
       test('reports an unpublished version as unavailable', () async {
         final found = await resolver().availability(
           flutterRoot: flutterRoot,
+          engineDirectory: engineDirectory,
           mode: IosGenSnapshotMode.profile,
         );
         expect(found.available, isFalse);
@@ -736,11 +775,71 @@ void main() {
         server.manifestFailures.add(const SocketException('offline'));
         final found = await resolver().availability(
           flutterRoot: flutterRoot,
+          engineDirectory: engineDirectory,
           mode: IosGenSnapshotMode.release,
         );
         expect(found.available, isFalse);
         expect(found.unknown, isTrue);
       });
+
+      test('macOS reports the compiler beside the build engine', () async {
+        final host = MacOSHost(architecture: 'arm64');
+        final compiler = p.join(engineDirectory, 'gen_snapshot_arm64');
+        File(compiler)
+          ..createSync(recursive: true)
+          ..writeAsBytesSync(_binary);
+        final sdkCompiler = p.join(
+          flutterRoot,
+          'bin',
+          'cache',
+          'artifacts',
+          'engine',
+          'ios-release',
+          'gen_snapshot_arm64',
+        );
+        File(sdkCompiler)
+          ..createSync(recursive: true)
+          ..writeAsBytesSync(_binary);
+        final found =
+            await _resolver(
+              MacOSIosGenSnapshotHost(host),
+              host,
+              cacheRoot: cacheRoot,
+              httpClient: _rejectingClient,
+            ).availability(
+              flutterRoot: flutterRoot,
+              engineDirectory: engineDirectory,
+              mode: IosGenSnapshotMode.release,
+            );
+        expect(found.source, IosGenSnapshotSource.flutterSdk);
+        expect(found.path, compiler);
+      });
+
+      test(
+        'macOS reports a missing engine compiler without throwing',
+        () async {
+          final host = MacOSHost(architecture: 'arm64');
+          final found =
+              await _resolver(
+                MacOSIosGenSnapshotHost(host),
+                host,
+                cacheRoot: cacheRoot,
+                httpClient: _rejectingClient,
+              ).availability(
+                flutterRoot: flutterRoot,
+                engineDirectory: engineDirectory,
+                mode: IosGenSnapshotMode.profile,
+              );
+          expect(found.available, isFalse);
+          expect(
+            found.detail,
+            allOf(
+              contains(p.join(engineDirectory, 'gen_snapshot_arm64')),
+              contains('xcross flutter precache --mode profile'),
+            ),
+          );
+        },
+      );
     });
 
     test('concurrent resolves share one installed compiler', () async {
@@ -749,6 +848,7 @@ void main() {
         for (var i = 0; i < 4; i++)
           resolver().resolve(
             flutterRoot: flutterRoot,
+            engineDirectory: engineDirectory,
             mode: IosGenSnapshotMode.release,
           ),
       ]);
@@ -780,9 +880,14 @@ void main() {
 
       test('uses a pinned compiler keyed by Flutter version', () async {
         final path = fakeCompiler('3.13.0');
-        final resolved = await resolver(
-          pins: {'3.47.0': XcrossIosGenSnapshotPin(release: path)},
-        ).resolve(flutterRoot: flutterRoot, mode: IosGenSnapshotMode.release);
+        final resolved =
+            await resolver(
+              pins: {'3.47.0': XcrossIosGenSnapshotPin(release: path)},
+            ).resolve(
+              flutterRoot: flutterRoot,
+              engineDirectory: engineDirectory,
+              mode: IosGenSnapshotMode.release,
+            );
         expect(resolved.executable, path);
         expect(resolved.source, IosGenSnapshotSource.pinned);
         expect(server.requests, isEmpty);
@@ -790,31 +895,48 @@ void main() {
 
       test('uses a pinned compiler keyed by engine revision', () async {
         final path = fakeCompiler('3.13.0');
-        final resolved = await resolver(
-          pins: {_engine: XcrossIosGenSnapshotPin(profile: path)},
-        ).resolve(flutterRoot: flutterRoot, mode: IosGenSnapshotMode.profile);
+        final resolved =
+            await resolver(
+              pins: {_engine: XcrossIosGenSnapshotPin(profile: path)},
+            ).resolve(
+              flutterRoot: flutterRoot,
+              engineDirectory: engineDirectory,
+              mode: IosGenSnapshotMode.profile,
+            );
         expect(resolved.source, IosGenSnapshotSource.pinned);
       });
 
       test('an engine pin serves the mode a version pin lacks', () async {
         final path = fakeCompiler('3.13.0');
-        final resolved = await resolver(
-          pins: {
-            '3.47.0': XcrossIosGenSnapshotPin(release: path),
-            _engine: XcrossIosGenSnapshotPin(profile: path),
-          },
-        ).resolve(flutterRoot: flutterRoot, mode: IosGenSnapshotMode.profile);
+        final resolved =
+            await resolver(
+              pins: {
+                '3.47.0': XcrossIosGenSnapshotPin(release: path),
+                _engine: XcrossIosGenSnapshotPin(profile: path),
+              },
+            ).resolve(
+              flutterRoot: flutterRoot,
+              engineDirectory: engineDirectory,
+              mode: IosGenSnapshotMode.profile,
+            );
         expect(resolved.source, IosGenSnapshotSource.pinned);
         expect(server.requests, isEmpty);
       });
 
       test('a pin for the other mode does not apply', () async {
         server.publish('3.47.0', IosGenSnapshotMode.release, 'linux-x64');
-        final resolved = await resolver(
-          pins: {
-            '3.47.0': XcrossIosGenSnapshotPin(profile: fakeCompiler('3.13.0')),
-          },
-        ).resolve(flutterRoot: flutterRoot, mode: IosGenSnapshotMode.release);
+        final resolved =
+            await resolver(
+              pins: {
+                '3.47.0': XcrossIosGenSnapshotPin(
+                  profile: fakeCompiler('3.13.0'),
+                ),
+              },
+            ).resolve(
+              flutterRoot: flutterRoot,
+              engineDirectory: engineDirectory,
+              mode: IosGenSnapshotMode.release,
+            );
         expect(resolved.source, IosGenSnapshotSource.download);
       });
 
@@ -822,13 +944,21 @@ void main() {
         server.publish('3.47.0', IosGenSnapshotMode.release, 'linux-x64');
         await resolver().resolve(
           flutterRoot: flutterRoot,
+          engineDirectory: engineDirectory,
           mode: IosGenSnapshotMode.release,
         );
-        final resolved = await resolver(
-          pins: {
-            '3.47.0': XcrossIosGenSnapshotPin(release: fakeCompiler('3.13.0')),
-          },
-        ).resolve(flutterRoot: flutterRoot, mode: IosGenSnapshotMode.release);
+        final resolved =
+            await resolver(
+              pins: {
+                '3.47.0': XcrossIosGenSnapshotPin(
+                  release: fakeCompiler('3.13.0'),
+                ),
+              },
+            ).resolve(
+              flutterRoot: flutterRoot,
+              engineDirectory: engineDirectory,
+              mode: IosGenSnapshotMode.release,
+            );
         expect(resolved.source, IosGenSnapshotSource.cache);
       });
 
@@ -855,6 +985,7 @@ void main() {
               pins: {'3.47.0': XcrossIosGenSnapshotPin(release: pin())},
             ).resolve(
               flutterRoot: flutterRoot,
+              engineDirectory: engineDirectory,
               mode: IosGenSnapshotMode.release,
             ),
             throwsA(

@@ -55,9 +55,9 @@ final class FlutterDebugBundler<T extends PlatformHostInterface> {
   /// Whether icon fonts are subset to the glyphs the app uses.
   final bool treeShakeIcons;
 
-  /// Compiles the kernel to native code for profile and release builds;
-  /// `null` builds the debug (JIT) framework.
-  final FlutterAotSnapshotter<T>? snapshotter;
+  /// Creates the compiler of the kernel to native code for profile and
+  /// release builds; `null` builds the debug (JIT) framework.
+  final FlutterAotSnapshotterFactory<T>? snapshotter;
 
   /// `--split-debug-info` directory for AOT builds.
   final String? splitDebugInfo;
@@ -76,6 +76,7 @@ final class FlutterDebugBundler<T extends PlatformHostInterface> {
       engineCache.ensureArtifactsAvailable,
     );
 
+    final aot = await snapshotter?.call(engineCache);
     runtime.runner.log.logTrace('resolving iOS debug toolchain');
     final toolchain = _precompiled ? null : await _resolveToolchain();
 
@@ -118,8 +119,8 @@ final class FlutterDebugBundler<T extends PlatformHostInterface> {
       ),
     );
 
-    if (snapshotter case final snapshotter?) {
-      await snapshotter.compile(
+    if (aot != null) {
+      await aot.compile(
         appDill: appDill,
         appFramework: appFramework,
         objectFile: p.join(outputDir, 'app.o'),

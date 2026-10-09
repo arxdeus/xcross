@@ -10,6 +10,7 @@ import 'package:xcross/src/host/shared/flutter/flutter_sdk_host_policy.dart';
 import 'package:xcross/src/host/shared/flutter/native_host_tools.dart';
 import 'package:xcross/src/shared/artifact/plist_storyboard_policy.dart';
 import 'package:xcross/src/shared/flutter/build/adhoc_signature_refresher.dart';
+import 'package:xcross/src/shared/flutter/build/apple_debug_symbols.dart';
 import 'package:xcross/src/shared/flutter/build/flutter_aot_snapshotter.dart';
 import 'package:xcross/src/shared/flutter/build/flutter_notice_artifact.dart';
 import 'package:xcross/src/shared/flutter/build/internal/apple_tool_shims.dart';
@@ -161,6 +162,10 @@ final class FlutterBuildRuntime<T extends PlatformHostInterface> {
   );
   late final IosDeploymentTargetResolver deployments =
       IosDeploymentTargetResolver(host.fileSystem, host.paths.context);
+  late final AppleDebugSymbols<T> debugSymbols = AppleDebugSymbols(
+    runner: runner,
+    toolchain: toolchain,
+  );
 
   IosTarget<T> get target => policy.target;
   T get host => target.host;

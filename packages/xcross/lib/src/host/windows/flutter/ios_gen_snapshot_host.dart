@@ -23,5 +23,6 @@ final class WindowsIosGenSnapshotHost implements IosGenSnapshotHost {
   }
 
   @override
-  String? flutterCompiler(String flutterRoot, IosGenSnapshotMode mode) => null;
+  String? flutterCompiler(String engineDirectory, IosGenSnapshotMode mode) =>
+      null;
 }

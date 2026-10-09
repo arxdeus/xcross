@@ -4,7 +4,8 @@ import 'package:xcross/src/host/shared/flutter/ios_gen_snapshot_host.dart';
 import 'package:xcross/src/shared/flutter/errors.dart';
 import 'package:xcross/src/shared/flutter/gen_snapshot/ios_gen_snapshot_mode.dart';
 
-/// Uses the `gen_snapshot_arm64` Flutter ships in its iOS engine artifacts.
+/// Uses the `gen_snapshot_arm64` Flutter ships with each iOS device engine,
+/// from the same engine directory as the `Flutter.framework` the app embeds.
 @internal
 final class MacOSIosGenSnapshotHost implements IosGenSnapshotHost {
   const MacOSIosGenSnapshotHost(this.host);
@@ -18,20 +19,15 @@ final class MacOSIosGenSnapshotHost implements IosGenSnapshotHost {
   );
 
   @override
-  String flutterCompiler(String flutterRoot, IosGenSnapshotMode mode) {
+  String flutterCompiler(String engineDirectory, IosGenSnapshotMode mode) {
     final compiler = host.paths.context.join(
-      flutterRoot,
-      'bin',
-      'cache',
-      'artifacts',
-      'engine',
-      mode.engineArtifact,
+      engineDirectory,
       'gen_snapshot_arm64',
     );
     if (!host.fileSystem.file(compiler).existsSync()) {
       throw FlutterBuildError(
         'Flutter iOS ${mode.name} compiler is missing: $compiler. Run '
-        '`flutter precache --ios` to download it.',
+        '`xcross flutter precache --mode ${mode.name}` to download it.',
       );
     }
     return compiler;
