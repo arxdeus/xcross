@@ -233,7 +233,7 @@ final class IosNativeAssetsBuilder<T extends PlatformHostInterface> {
     if (iosSdk != null) '-dSdkRoot=$iosSdk',
     '-dTargetFile=$entrypoint',
     '-dIosDeploymentTarget=${deploymentTarget.version}',
-    '-dDartDefines=${dartDefines.map((define) => base64.encode(utf8.encode(define))).join(',')}',
+    '--DartDefines=${dartDefines.map((define) => base64.encode(utf8.encode(define))).join(',')}',
     if (iosSdk != null)
       'debug_ios_bundle_flutter_assets'
     else

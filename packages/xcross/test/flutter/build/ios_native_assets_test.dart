@@ -103,8 +103,8 @@ void main() {
       ]),
     );
     final defines = arguments
-        .singleWhere((arg) => arg.startsWith('-dDartDefines='))
-        .substring('-dDartDefines='.length)
+        .singleWhere((arg) => arg.startsWith('--DartDefines='))
+        .substring('--DartDefines='.length)
         .split(',')
         .map((value) => utf8.decode(base64.decode(value)));
     expect(defines, ['CUSTOM=value', 'FLUTTER_APP_FLAVOR=development']);

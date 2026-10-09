@@ -114,8 +114,8 @@ void main() {
 
 List<String> _decodedDefines(List<String> arguments) {
   final encoded = arguments
-      .singleWhere((argument) => argument.startsWith('-dDartDefines='))
-      .substring('-dDartDefines='.length);
+      .singleWhere((argument) => argument.startsWith('--DartDefines='))
+      .substring('--DartDefines='.length);
   return encoded.isEmpty
       ? []
       : encoded
