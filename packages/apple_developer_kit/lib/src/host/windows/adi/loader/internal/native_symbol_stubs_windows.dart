@@ -478,7 +478,7 @@ final class WindowsNativeSymbolStubs {
   // rather than reimplementing return-address stack inspection in Dart.
 
   Pointer<Void> _dlopen(Pointer<Utf8> namePtr) {
-    final path = namePtr.toDartString();
+    final path = windowsDlopenPath(namePtr.toDartString());
     try {
       final lib = loadLibraryForDlopen(path);
       // Opaque heap handle — never return the ELF mapping address. ADI

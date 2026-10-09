@@ -23,9 +23,8 @@ final class WindowsMachineIdentity implements MachineIdentityProvider {
         'MachineGuid',
       ]);
       if (result.exitCode != 0) return '';
-      return RegExp(
-            r'MachineGuid\s+REG_SZ\s+(\S+)',
-          ).firstMatch(result.stdout)?[1] ??
+      return RegExp(r'MachineGuid\s+REG_SZ\s+(\S+)')
+              .firstMatch(result.stdout)?[1] ??
           '';
     } on Object {
       return '';

@@ -13,6 +13,21 @@ import 'package:test/test.dart';
 import 'support/elf_fixture.dart';
 
 void main() {
+  test('dlopen paths drop the extended-length prefix ADI builds', () {
+    // Seen from the real libstoreservicescore.so on Windows ARM64: it joins
+    // the library directory into `//?/C:/...`, which Win32 rejects as a
+    // relative path with ERROR_INVALID_NAME.
+    expect(
+      windowsDlopenPath('//?/C:/Users/Me/.cache/arm64-v8a/libCoreADI.so'),
+      r'C:\Users\Me\.cache\arm64-v8a\libCoreADI.so',
+    );
+    expect(
+      windowsDlopenPath('C:/Users/Me/arm64-v8a/libCoreADI.so'),
+      r'C:\Users\Me\arm64-v8a\libCoreADI.so',
+    );
+    expect(windowsDlopenPath('libCoreADI.so'), 'libCoreADI.so');
+  });
+
   test('Windows policy owns the matching executable code adapter', () {
     expect(
       WindowsAdiAbi.forAbi(Abi.windowsX64).codePreparation,

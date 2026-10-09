@@ -20,24 +20,25 @@ const int _pageExecute = 0x10;
 const int _pageExecuteRead = 0x20;
 const int _pageExecuteReadwrite = 0x40;
 
-typedef _VirtualAllocDart =
-    Pointer<Void> Function(
-      Pointer<Void> address,
-      int size,
-      int allocationType,
-      int protect,
-    );
+typedef _VirtualAllocDart = Pointer<Void> Function(
+  Pointer<Void> address,
+  int size,
+  int allocationType,
+  int protect,
+);
 
-typedef _VirtualProtectDart =
-    int Function(
-      Pointer<Void> address,
-      int size,
-      int newProtect,
-      Pointer<Uint32> oldProtect,
-    );
+typedef _VirtualProtectDart = int Function(
+  Pointer<Void> address,
+  int size,
+  int newProtect,
+  Pointer<Uint32> oldProtect,
+);
 
-typedef _VirtualFreeDart =
-    int Function(Pointer<Void> address, int size, int freeType);
+typedef _VirtualFreeDart = int Function(
+  Pointer<Void> address,
+  int size,
+  int freeType,
+);
 
 @internal
 final class WindowsMemoryAllocator implements NativeMemoryAllocator {
