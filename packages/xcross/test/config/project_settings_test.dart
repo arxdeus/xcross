@@ -1,10 +1,11 @@
 import 'dart:io';
 
-import 'package:cli_kit/shared/platform/platform_host.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 import 'package:xcross/src/shared/config/project_settings.dart';
 import 'package:xcross/src/shared/errors/errors.dart';
+
+import 'io_file_system_fixture.dart';
 
 void main() {
   late Directory root;
@@ -66,16 +67,4 @@ void main() {
     file('xcross_project.yaml').writeAsStringSync('bundle_id: [1]\n');
     expect(() => settings.read('bundle_id'), throwsA(isA<XcrossError>()));
   });
-}
-
-final class IoFileSystem implements HostFileSystemInterface {
-  const IoFileSystem();
-  @override
-  File file(String path) => File(path);
-  @override
-  Directory directory(String path) => Directory(path);
-  @override
-  Link link(String path) => Link(path);
-  @override
-  dynamic noSuchMethod(Invocation invocation) => throw UnimplementedError();
 }

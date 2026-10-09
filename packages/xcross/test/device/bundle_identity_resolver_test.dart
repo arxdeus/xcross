@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:apple_developer_kit/shared/appstoreconnect/asc_client.dart';
 import 'package:apple_developer_kit/shared/appstoreconnect/asc_models.dart';
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 import 'package:xcross/src/shared/cli/command_prompt.dart';
@@ -9,7 +10,7 @@ import 'package:xcross/src/shared/config/project_settings.dart';
 import 'package:xcross/src/shared/errors/errors.dart';
 import 'package:xcross/src/target/iphone/device/internal/bundle_identity_resolver.dart';
 
-import '../config/project_settings_test.dart' show IoFileSystem;
+import '../config/io_file_system_fixture.dart';
 import 'test_log_output.dart';
 
 void main() {
@@ -220,6 +221,7 @@ void main() {
   });
 }
 
+@internal
 final class ScriptedPrompt implements CommandPrompt {
   ScriptedPrompt(this.answers, {this.interactive = true});
   final List<String> answers;
@@ -242,6 +244,7 @@ final class ScriptedPrompt implements CommandPrompt {
       throw UnimplementedError();
 }
 
+@internal
 final class FakeBundleClient implements DevelopmentProvisioningClient {
   FakeBundleClient({this.owned = const {}, this.registerError});
   final Set<String> owned;
