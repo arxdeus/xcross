@@ -75,7 +75,8 @@ final class IosGenSnapshotResolver<T extends PlatformHostInterface> {
     required this.cacheRoot,
     this.pins = const {},
     this.releaseBaseUrl = defaultReleaseBaseUrl,
-  }) {
+    DateTime Function()? now,
+  }) : _now = now ?? DateTime.now {
     if (!identical(hostPolicy.host, runner.host)) {
       throw ArgumentError('gen_snapshot resolution requires one host');
     }
@@ -95,6 +96,7 @@ final class IosGenSnapshotResolver<T extends PlatformHostInterface> {
   /// Pinned compilers keyed by Flutter version or engine revision.
   final Map<String, XcrossIosGenSnapshotPin> pins;
   final String releaseBaseUrl;
+  final DateTime Function() _now;
 
   T get host => runner.host;
   Log get log => runner.log;
@@ -119,7 +121,13 @@ final class IosGenSnapshotResolver<T extends PlatformHostInterface> {
     }
     final platform = hostPolicy.prebuiltPlatform;
     final cached = await cachedExecutable(release, mode, platform);
-    if (cached != null) return result(cached, IosGenSnapshotSource.cache);
+    if (cached != null) {
+      final current = await _revalidate(cached, release, mode, platform);
+      if (current != null) {
+        _touch(cacheDirectory(release.engine, mode, platform));
+        return result(current, IosGenSnapshotSource.cache);
+      }
+    }
     final pinned = await _pinned(release, mode);
     if (pinned != null) return result(pinned, IosGenSnapshotSource.pinned);
     final downloaded = await _download(release, mode, platform);
@@ -315,11 +323,20 @@ final class IosGenSnapshotResolver<T extends PlatformHostInterface> {
                 'host': platform,
                 'source': 'download',
                 'executable_sha256': asset.executableSha256,
+                'asset_sha256': asset.sha256,
+                'checked_at': _now().toUtc().toIso8601String(),
+                'last_used': _now().toUtc().toIso8601String(),
               }),
               flush: true,
             );
       });
-      final executable = await _install(extracted, release, mode, platform);
+      final executable = await _install(
+        extracted,
+        release,
+        mode,
+        platform,
+        executableSha256: asset.executableSha256,
+      );
       log.logDone(
         'iOS gen_snapshot ${mode.name} for Flutter ${release.version}',
         executable,
@@ -337,21 +354,26 @@ final class IosGenSnapshotResolver<T extends PlatformHostInterface> {
   /// Moves a verified [extracted] compiler into the cache.
   ///
   /// Another build may install the same compiler meanwhile; a cache entry
-  /// that still verifies is used rather than replaced, because that build
-  /// may be running it.
+  /// that still verifies as this exact build ([executableSha256]) is used
+  /// rather than replaced, because that build may be running it. An entry
+  /// holding an older, republished build is replaced.
   Future<String> _install(
     String extracted,
     FlutterSdkRelease release,
     IosGenSnapshotMode mode,
-    String platform,
-  ) async {
+    String platform, {
+    required String executableSha256,
+  }) async {
     final destination = host.fileSystem.directory(
       cacheDirectory(release.engine, mode, platform),
     );
     await destination.parent.create(recursive: true);
     for (var attempt = 0; ; attempt++) {
       final installed = await cachedExecutable(release, mode, platform);
-      if (installed != null) return installed;
+      if (installed != null &&
+          await _digest(installed) == executableSha256.toLowerCase()) {
+        return installed;
+      }
       try {
         if (destination.existsSync()) {
           await destination.delete(recursive: true);
@@ -400,6 +422,12 @@ final class IosGenSnapshotResolver<T extends PlatformHostInterface> {
           );
         }
         return IosGenSnapshotManifest.parse(response.body);
+      } on IosGenSnapshotSchemaException catch (error) {
+        throw FlutterBuildError(
+          'The iOS gen_snapshot release manifest at $url uses schema '
+          '${error.schema}, which needs a newer xcross. Run `xcross update` '
+          'and build again.',
+        );
       } on FormatException catch (error) {
         throw FlutterBuildError(
           'The iOS gen_snapshot release manifest at $url is invalid: '
@@ -455,6 +483,135 @@ final class IosGenSnapshotResolver<T extends PlatformHostInterface> {
   Future<String> _digest(String path) async =>
       (await sha256.bind(host.fileSystem.file(path).openRead()).first)
           .toString();
+
+  /// How long a cached compiler is trusted before its manifest is consulted
+  /// again for a republished build.
+  static const revalidateAfter = Duration(hours: 24);
+
+  /// Ceiling on the revalidation lookup, so a slow network never holds up a
+  /// build that already has a working compiler.
+  static const revalidateTimeout = Duration(seconds: 5);
+
+  /// Checks a cached download against its release once [revalidateAfter]
+  /// has passed, returning [cached] when it is still current and null when
+  /// the release now publishes a different build.
+  ///
+  /// Best effort by design: offline, rate limited, or a release that has
+  /// disappeared all keep using the verified compiler already on disk.
+  Future<String?> _revalidate(
+    String cached,
+    FlutterSdkRelease release,
+    IosGenSnapshotMode mode,
+    String platform,
+  ) async {
+    final meta = host.fileSystem.file(
+      host.paths.context.join(
+        cacheDirectory(release.engine, mode, platform),
+        'meta.json',
+      ),
+    );
+    final Map<String, Object?> document;
+    try {
+      final Object? decoded = jsonDecode(meta.readAsStringSync());
+      if (decoded is! Map<String, Object?>) return cached;
+      document = decoded;
+    } on Object {
+      return cached;
+    }
+    if (document['source'] != 'download') return cached;
+    final checkedAt = DateTime.tryParse('${document['checked_at']}');
+    if (checkedAt != null && _now().difference(checkedAt) < revalidateAfter) {
+      return cached;
+    }
+    IosGenSnapshotManifest? manifest;
+    try {
+      manifest = await _fetchManifestOnce(release).timeout(revalidateTimeout);
+    } on Object catch (error) {
+      log.logTrace('Skipping gen_snapshot revalidation: $error');
+      return cached;
+    }
+    final asset =
+        manifest?.assets[IosGenSnapshotManifest.assetName(mode, platform)];
+    if (manifest == null ||
+        asset == null ||
+        manifest.engine != release.engine) {
+      _writeMeta(meta, {...document, 'checked_at': _stamp()});
+      return cached;
+    }
+    final recorded = document['asset_sha256'];
+    final republished = recorded is String
+        ? recorded != asset.sha256
+        : document['executable_sha256'] != asset.executableSha256;
+    if (republished) {
+      log.logWarn(
+        'The iOS ${mode.name} gen_snapshot for Flutter ${release.version} '
+        'was republished; downloading the new build.',
+      );
+      return null;
+    }
+    _writeMeta(meta, {
+      ...document,
+      'asset_sha256': asset.sha256,
+      'checked_at': _stamp(),
+    });
+    return cached;
+  }
+
+  /// One manifest request without the retries a first download uses.
+  Future<IosGenSnapshotManifest?> _fetchManifestOnce(
+    FlutterSdkRelease release,
+  ) async {
+    final url = Uri.parse(
+      '$releaseBaseUrl/${Uri.encodeComponent(release.version)}/manifest.json',
+    );
+    final client = createHttpClient();
+    try {
+      final response = await client.get(url);
+      if (response.statusCode == HttpStatus.notFound) return null;
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        throw HttpException('HTTP ${response.statusCode}', uri: url);
+      }
+      return IosGenSnapshotManifest.parse(response.body);
+    } finally {
+      client.close();
+    }
+  }
+
+  /// Records that a cache entry was used, for `xcross cache prune`.
+  void _touch(String directory) {
+    final meta = host.fileSystem.file(
+      host.paths.context.join(directory, 'meta.json'),
+    );
+    try {
+      final Object? decoded = jsonDecode(meta.readAsStringSync());
+      if (decoded is! Map<String, Object?>) return;
+      _writeMeta(meta, {...decoded, 'last_used': _stamp()});
+    } on Object {
+      // A read-only cache only costs prune accuracy.
+    }
+  }
+
+  /// Written through a sibling and a rename, so a concurrent build never
+  /// reads a half-written file and mistakes a good entry for a broken one.
+  void _writeMeta(File meta, Map<String, Object?> document) {
+    final staged = host.fileSystem.file('${meta.path}.$pid.tmp');
+    try {
+      staged.writeAsStringSync(
+        const JsonEncoder.withIndent('  ').convert(document),
+        flush: true,
+      );
+      staged.renameSync(meta.path);
+    } on FileSystemException catch (error) {
+      log.logTrace('Could not update ${meta.path}: $error');
+      try {
+        if (staged.existsSync()) staged.deleteSync();
+      } on FileSystemException {
+        // Left for the next prune.
+      }
+    }
+  }
+
+  String _stamp() => _now().toUtc().toIso8601String();
 
   static String _short(String engine) =>
       engine.length > 8 ? engine.substring(0, 8) : engine;

@@ -44,6 +44,10 @@ final class IosGenSnapshotManifest {
     if (document is! Map<String, Object?>) {
       throw const FormatException('manifest.json must be a JSON object');
     }
+    if (document['schema'] case final int schema
+        when schema > supportedSchema) {
+      throw IosGenSnapshotSchemaException(schema);
+    }
     if (document['schema'] != supportedSchema) {
       throw FormatException(
         'Unsupported manifest.json schema ${document['schema']}; '
@@ -112,4 +116,13 @@ final class IosGenSnapshotManifest {
       size: size,
     );
   }
+}
+
+/// A manifest written for a newer xcross than the one reading it.
+@internal
+final class IosGenSnapshotSchemaException extends FormatException {
+  const IosGenSnapshotSchemaException(this.schema)
+    : super('manifest.json uses schema $schema');
+
+  final int schema;
 }

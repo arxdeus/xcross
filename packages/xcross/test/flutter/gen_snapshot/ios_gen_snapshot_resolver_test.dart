@@ -255,6 +255,7 @@ void main() {
 
     IosGenSnapshotResolver<LinuxHost> resolver({
       Map<String, XcrossIosGenSnapshotPin> pins = const {},
+      DateTime Function()? now,
     }) => _resolver(
       LinuxIosGenSnapshotHost(host),
       host,
@@ -262,6 +263,7 @@ void main() {
       httpClient: server.manifestClient,
       releaseBaseUrl: server.baseUrl,
       pins: pins,
+      now: now,
     );
 
     test('downloads, verifies, and caches the host compiler', () async {
@@ -295,6 +297,9 @@ void main() {
         'host': 'linux-x64',
         'source': 'download',
         'executable_sha256': _sha(_binary),
+        'asset_sha256': isA<String>().having((s) => s.length, 'length', 64),
+        'checked_at': isA<String>(),
+        'last_used': isA<String>(),
       });
       expect(server.requests, [
         '/3.47.0/manifest.json',
@@ -561,6 +566,108 @@ void main() {
       );
     });
 
+    group('revalidation', () {
+      const day = IosGenSnapshotResolver.revalidateAfter;
+      final start = DateTime.utc(2026, 10, 9, 12);
+
+      Future<void> seed() async {
+        server.publish('3.47.0', IosGenSnapshotMode.release, 'linux-x64');
+        await resolver(
+          now: () => start,
+        ).resolve(flutterRoot: flutterRoot, mode: IosGenSnapshotMode.release);
+        server.requests.clear();
+      }
+
+      test('trusts a recently checked entry without network', () async {
+        await seed();
+        final resolved = await resolver(
+          now: () => start.add(const Duration(hours: 1)),
+        ).resolve(flutterRoot: flutterRoot, mode: IosGenSnapshotMode.release);
+        expect(resolved.source, IosGenSnapshotSource.cache);
+        expect(server.requests, isEmpty);
+      });
+
+      test('keeps an unchanged entry after the check interval', () async {
+        await seed();
+        final later = start.add(day * 2);
+        final resolved = await resolver(
+          now: () => later,
+        ).resolve(flutterRoot: flutterRoot, mode: IosGenSnapshotMode.release);
+        expect(resolved.source, IosGenSnapshotSource.cache);
+        expect(server.requests, ['/3.47.0/manifest.json']);
+        final meta = _readMeta(cacheRoot);
+        expect(meta['checked_at'], later.toIso8601String());
+        expect(meta['last_used'], later.toIso8601String());
+      });
+
+      test('downloads again when the release was republished', () async {
+        await seed();
+        server.republish(
+          '3.47.0',
+          IosGenSnapshotMode.release,
+          'linux-x64',
+          binary: [..._binary, 9],
+        );
+        final resolved = await resolver(
+          now: () => start.add(day * 2),
+        ).resolve(flutterRoot: flutterRoot, mode: IosGenSnapshotMode.release);
+        expect(resolved.source, IosGenSnapshotSource.download);
+        expect(File(resolved.executable).readAsBytesSync(), [..._binary, 9]);
+      });
+
+      test('keeps working offline', () async {
+        await seed();
+        server.manifestFailures.add(const SocketException('offline'));
+        final resolved = await resolver(
+          now: () => start.add(day * 2),
+        ).resolve(flutterRoot: flutterRoot, mode: IosGenSnapshotMode.release);
+        expect(resolved.source, IosGenSnapshotSource.cache);
+      });
+
+      test('keeps the entry when the release disappeared', () async {
+        await seed();
+        server.manifestOverride = (404, 'Not Found');
+        final resolved = await resolver(
+          now: () => start.add(day * 2),
+        ).resolve(flutterRoot: flutterRoot, mode: IosGenSnapshotMode.release);
+        expect(resolved.source, IosGenSnapshotSource.cache);
+      });
+
+      test('revalidates entries cached before checks were recorded', () async {
+        await seed();
+        final meta = _readMeta(cacheRoot)
+          ..remove('checked_at')
+          ..remove('asset_sha256');
+        File(_metaPath(cacheRoot)).writeAsStringSync(jsonEncode(meta));
+        final resolved = await resolver(
+          now: () => start.add(const Duration(minutes: 1)),
+        ).resolve(flutterRoot: flutterRoot, mode: IosGenSnapshotMode.release);
+        expect(resolved.source, IosGenSnapshotSource.cache);
+        expect(server.requests, ['/3.47.0/manifest.json']);
+        expect(_readMeta(cacheRoot)['asset_sha256'], isA<String>());
+      });
+    });
+
+    test('asks for a newer xcross when the manifest schema is newer', () async {
+      server.manifestOverride = (
+        200,
+        jsonEncode({..._manifest(const {}), 'schema': 2}),
+      );
+      await expectLater(
+        resolver().resolve(
+          flutterRoot: flutterRoot,
+          mode: IosGenSnapshotMode.release,
+        ),
+        throwsA(
+          isA<FlutterBuildError>().having(
+            (error) => error.message,
+            'message',
+            allOf(contains('schema 2'), contains('xcross update')),
+          ),
+        ),
+      );
+    });
+
     test('concurrent resolves share one installed compiler', () async {
       server.publish('3.47.0', IosGenSnapshotMode.release, 'linux-x64');
       final results = await Future.wait([
@@ -700,6 +807,7 @@ IosGenSnapshotResolver<T> _resolver<T extends PlatformHostInterface>(
   required http.Client httpClient,
   String releaseBaseUrl = 'https://invalid.test/releases/download',
   Map<String, XcrossIosGenSnapshotPin> pins = const {},
+  DateTime Function()? now,
 }) {
   final log = testLog();
   return IosGenSnapshotResolver(
@@ -716,6 +824,7 @@ IosGenSnapshotResolver<T> _resolver<T extends PlatformHostInterface>(
     cacheRoot: cacheRoot,
     releaseBaseUrl: releaseBaseUrl,
     pins: pins,
+    now: now,
   );
 }
 
@@ -758,6 +867,19 @@ Map<String, Object?> _assetJson(String zip, String executable, int size) => {
 };
 
 String _sha(List<int> bytes) => sha256.convert(bytes).toString();
+
+String _metaPath(String cacheRoot) => p.join(
+  cacheRoot,
+  'gen-snapshot',
+  _engine,
+  'release',
+  'linux-x64',
+  'meta.json',
+);
+
+Map<String, Object?> _readMeta(String cacheRoot) =>
+    jsonDecode(File(_metaPath(cacheRoot)).readAsStringSync())
+        as Map<String, Object?>;
 
 @internal
 enum ReleaseTamper { none, archive, executable }
@@ -821,12 +943,13 @@ final class ReleaseServer {
     String platform, {
     String? engine,
     ReleaseTamper tamper = ReleaseTamper.none,
+    List<int> binary = _binary,
   }) {
     final executable = platform.startsWith('windows')
         ? 'gen_snapshot.exe'
         : 'gen_snapshot';
     final archive = Archive()
-      ..add(ArchiveFile.bytes(executable, _binary)..mode = 0x1ed)
+      ..add(ArchiveFile.bytes(executable, binary)..mode = 0x1ed)
       ..add(ArchiveFile.bytes('licenses/LICENSE.dart', utf8.encode('BSD')));
     final zip = _unixZip(archive);
     final name = IosGenSnapshotManifest.assetName(mode, platform);
@@ -835,12 +958,21 @@ final class ReleaseServer {
       _manifest({
         name: _assetJson(
           tamper == ReleaseTamper.archive ? 'd' * 64 : _sha(zip),
-          tamper == ReleaseTamper.executable ? 'e' * 64 : _sha(_binary),
+          tamper == ReleaseTamper.executable ? 'e' * 64 : _sha(binary),
           zip.length,
         ),
       }, engine: engine),
     );
   }
+
+  /// Replaces a published compiler with a different build under the same
+  /// version, as a fixed release would.
+  void republish(
+    String version,
+    IosGenSnapshotMode mode,
+    String platform, {
+    required List<int> binary,
+  }) => publish(version, mode, platform, binary: binary);
 
   Future<void> close() => _server.close(force: true);
 }
