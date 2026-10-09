@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:cli_kit/shared/download/download.dart';
 import 'package:cli_kit/shared/logging/logging.dart';
+import 'package:cli_kit/shared/platform/file_system_inspection.dart';
 import 'package:cli_kit/shared/platform/platform_host.dart';
 import 'package:cli_kit/shared/process/process.dart';
 import 'package:cli_kit/shared/process/process_models.dart';
@@ -21,20 +22,16 @@ import 'package:xcross/src/shared/flutter/gen_snapshot/ios_gen_snapshot_mode.dar
 @internal
 enum IosGenSnapshotSource {
   /// Shipped with the Flutter SDK (macOS hosts).
-  flutterSdk('flutter-sdk'),
+  flutterSdk,
 
   /// A verified download reused from the xcross cache.
-  cache('cache'),
+  cache,
 
   /// A compiler path the user pinned in xcross config.
-  pinned('pinned'),
+  pinned,
 
   /// Downloaded from xcross_gen_snapshot by this resolution.
-  download('download');
-
-  const IosGenSnapshotSource(this.label);
-
-  final String label;
+  download,
 }
 
 /// A resolved iOS AOT compiler (`gen_snapshot`).
@@ -107,6 +104,7 @@ final class IosGenSnapshotResolver<T extends PlatformHostInterface> {
     required String flutterRoot,
     required IosGenSnapshotMode mode,
   }) async {
+    final shipped = hostPolicy.flutterCompiler(flutterRoot, mode);
     final release = FlutterSdkReleaseReader(host).read(flutterRoot);
     IosGenSnapshot result(String path, IosGenSnapshotSource source) =>
         IosGenSnapshot(
@@ -116,7 +114,6 @@ final class IosGenSnapshotResolver<T extends PlatformHostInterface> {
           source: source,
         );
 
-    final shipped = hostPolicy.flutterCompiler(flutterRoot, mode);
     if (shipped != null) {
       return result(shipped, IosGenSnapshotSource.flutterSdk);
     }
@@ -191,12 +188,12 @@ final class IosGenSnapshotResolver<T extends PlatformHostInterface> {
     FlutterSdkRelease release,
     IosGenSnapshotMode mode,
   ) async {
-    final pin = pins[release.version] ?? pins[release.engine];
-    final path = pin?.forMode(mode.name);
-    if (path == null) return null;
-    final key = pins.containsKey(release.version)
-        ? release.version
-        : release.engine;
+    final pinned = [
+      for (final key in [release.version, release.engine])
+        if (pins[key]?.forMode(mode.name) case final path?) (key, path),
+    ].firstOrNull;
+    if (pinned == null) return null;
+    final (key, path) = pinned;
     String problem(String detail) =>
         'The iOS ${mode.name} gen_snapshot pinned in xcross config '
         '(ios_gen_snapshot.$key.${mode.name}) $detail: $path';
@@ -243,14 +240,17 @@ final class IosGenSnapshotResolver<T extends PlatformHostInterface> {
       () => _manifest(release),
     );
     if (manifest == null) throw _unavailable(release, mode);
-    if (manifest.engine != release.engine) {
+    if (manifest.engine != release.engine ||
+        manifest.flutter != release.version) {
       throw _unavailable(
         release,
         mode,
         reason:
-            'The published compiler for Flutter ${release.version} targets '
+            'The published compiler for Flutter ${manifest.flutter} targets '
             'engine ${_short(manifest.engine)}, but this SDK uses engine '
-            '${release.shortEngine} (a modified or locally built Flutter SDK).',
+            '${release.shortEngine}. Run `flutter --version` once to refresh '
+            'bin/cache/flutter.version.json after switching Flutter versions; '
+            'otherwise the SDK is modified or locally built.',
       );
     }
     final name = IosGenSnapshotManifest.assetName(mode, platform);
@@ -271,20 +271,29 @@ final class IosGenSnapshotResolver<T extends PlatformHostInterface> {
     final temporary = await staging.createTemp('.download-');
     try {
       final archive = host.paths.context.join(temporary.path, name);
-      await downloader.downloadToFile(
-        '$releaseBaseUrl/${Uri.encodeComponent(release.version)}/$name',
-        host.fileSystem.file(archive),
-        maxAttempts: 5,
-        label: 'iOS gen_snapshot (${mode.name})',
-      );
+      try {
+        await downloader.downloadToFile(
+          '$releaseBaseUrl/${Uri.encodeComponent(release.version)}/$name',
+          host.fileSystem.file(archive),
+          maxAttempts: 5,
+          label: 'iOS gen_snapshot (${mode.name})',
+        );
+      } on Exception catch (error) {
+        throw FlutterBuildError('Could not download $name: $error');
+      }
       final extracted = host.paths.context.join(temporary.path, 'extracted');
       await log.logStep('Verifying iOS gen_snapshot', () async {
         _verify(name, 'archive', asset.sha256, await _digest(archive));
         await FlutterEngineArchiveWriter(host).extractZip(archive, extracted);
         final executable = host.paths.context.join(extracted, _executableName);
-        if (!host.fileSystem.file(executable).existsSync()) {
+        final meta = host.paths.context.join(extracted, 'meta.json');
+        if (host.fileSystem.typeSync(executable, followLinks: false) !=
+                FileSystemEntityType.file ||
+            host.fileSystem.typeSync(meta, followLinks: false) !=
+                FileSystemEntityType.notFound) {
           throw FlutterBuildError(
-            '$name does not contain $_executableName at its root.',
+            '$name must contain a regular $_executableName at its root and '
+            'no meta.json.',
             isSecurityFailure: true,
           );
         }
@@ -296,7 +305,7 @@ final class IosGenSnapshotResolver<T extends PlatformHostInterface> {
         );
         host.fileSystem.makeExecutable(executable);
         await host.fileSystem
-            .file(host.paths.context.join(extracted, 'meta.json'))
+            .file(meta)
             .writeAsString(
               const JsonEncoder.withIndent('  ').convert({
                 'flutter': release.version,
@@ -310,19 +319,54 @@ final class IosGenSnapshotResolver<T extends PlatformHostInterface> {
               flush: true,
             );
       });
-      final destination = cacheDirectory(release.engine, mode, platform);
-      final existing = host.fileSystem.directory(destination);
-      if (existing.existsSync()) await existing.delete(recursive: true);
-      await existing.parent.create(recursive: true);
-      await host.fileSystem.directory(extracted).rename(destination);
-      final executable = host.paths.context.join(destination, _executableName);
+      final executable = await _install(extracted, release, mode, platform);
       log.logDone(
         'iOS gen_snapshot ${mode.name} for Flutter ${release.version}',
         executable,
       );
       return executable;
     } finally {
-      if (temporary.existsSync()) await temporary.delete(recursive: true);
+      try {
+        if (temporary.existsSync()) await temporary.delete(recursive: true);
+      } on FileSystemException catch (error) {
+        log.logTrace('Could not remove ${temporary.path}: $error');
+      }
+    }
+  }
+
+  /// Moves a verified [extracted] compiler into the cache.
+  ///
+  /// Another build may install the same compiler meanwhile; a cache entry
+  /// that still verifies is used rather than replaced, because that build
+  /// may be running it.
+  Future<String> _install(
+    String extracted,
+    FlutterSdkRelease release,
+    IosGenSnapshotMode mode,
+    String platform,
+  ) async {
+    final destination = host.fileSystem.directory(
+      cacheDirectory(release.engine, mode, platform),
+    );
+    await destination.parent.create(recursive: true);
+    for (var attempt = 0; ; attempt++) {
+      final installed = await cachedExecutable(release, mode, platform);
+      if (installed != null) return installed;
+      try {
+        if (destination.existsSync()) {
+          await destination.delete(recursive: true);
+        }
+        await host.fileSystem.directory(extracted).rename(destination.path);
+        return host.paths.context.join(destination.path, _executableName);
+      } on FileSystemException catch (error) {
+        if (attempt >= 2) {
+          throw FlutterBuildError(
+            'Could not install the iOS gen_snapshot into '
+            '${destination.path}: $error',
+          );
+        }
+        log.logTrace('Retrying gen_snapshot cache install: $error');
+      }
     }
   }
 
@@ -341,36 +385,45 @@ final class IosGenSnapshotResolver<T extends PlatformHostInterface> {
     final url = Uri.parse(
       '$releaseBaseUrl/${Uri.encodeComponent(release.version)}/manifest.json',
     );
-    final client = createHttpClient();
-    try {
-      final response = await client.get(url);
-      if (response.statusCode == HttpStatus.notFound) return null;
-      if (response.statusCode < 200 || response.statusCode >= 300) {
+    for (var attempt = 1; ; attempt++) {
+      final client = createHttpClient();
+      try {
+        final response = await client.get(url).timeout(manifestTimeout);
+        if (response.statusCode == HttpStatus.notFound) return null;
+        if (response.statusCode >= 500 && attempt < manifestAttempts) {
+          continue;
+        }
+        if (response.statusCode < 200 || response.statusCode >= 300) {
+          throw FlutterBuildError(
+            'Could not look up the iOS gen_snapshot release: HTTP '
+            '${response.statusCode} for $url',
+          );
+        }
+        return IosGenSnapshotManifest.parse(response.body);
+      } on FormatException catch (error) {
         throw FlutterBuildError(
-          'Could not look up the iOS gen_snapshot release: HTTP '
-          '${response.statusCode} for $url',
+          'The iOS gen_snapshot release manifest at $url is invalid: '
+          '${error.message}',
         );
+      } on Exception catch (error) {
+        if (error is FlutterBuildError) rethrow;
+        if (attempt >= manifestAttempts) {
+          throw FlutterBuildError(
+            'Could not look up the iOS gen_snapshot release at $url: $error',
+          );
+        }
+        log.logTrace('Retrying $url after: $error');
+      } finally {
+        client.close();
       }
-      return IosGenSnapshotManifest.parse(response.body);
-    } on FormatException catch (error) {
-      throw FlutterBuildError(
-        'The iOS gen_snapshot release manifest at $url is invalid: '
-        '${error.message}',
-      );
-    } on http.ClientException catch (error) {
-      throw FlutterBuildError(
-        'Could not look up the iOS gen_snapshot release at $url: '
-        '${error.message}',
-      );
-    } on SocketException catch (error) {
-      throw FlutterBuildError(
-        'Could not look up the iOS gen_snapshot release at $url: '
-        '${error.message}',
-      );
-    } finally {
-      client.close();
     }
   }
+
+  @visibleForTesting
+  static const manifestAttempts = 3;
+
+  @visibleForTesting
+  static const manifestTimeout = Duration(seconds: 30);
 
   FlutterBuildError _unavailable(
     FlutterSdkRelease release,

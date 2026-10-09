@@ -10,7 +10,6 @@ import 'package:xcross/src/host/windows/flutter/ios_gen_snapshot_host.dart';
 import 'package:xcross/src/shared/config/runtime_config.dart';
 import 'package:xcross/src/shared/flutter/build/flutter_aot_snapshotter.dart';
 import 'package:xcross/src/shared/flutter/gen_snapshot/ios_gen_snapshot_resolver.dart';
-import 'package:xcross/src/shared/runtime/xcross_runtime.dart';
 
 /// The iOS AOT compiler source for [host].
 @internal
@@ -21,18 +20,6 @@ IosGenSnapshotHost composeIosGenSnapshotHost(PlatformHostInterface host) =>
       MacOSHostInterface() => MacOSIosGenSnapshotHost(host),
       _ => throw UnsupportedError('Unsupported xcross host'),
     };
-
-/// Wires an [IosGenSnapshotResolver] from the runtime's host, config pins,
-/// downloader, and xcross cache (`XCROSS_CACHE_DIR` or `<cache>/xcross`).
-@internal
-IosGenSnapshotResolver<T> composeIosGenSnapshotResolver<
-  T extends PlatformHostInterface
->(XcrossRuntime<T> runtime) => _resolver(
-  runner: runtime.runner,
-  downloader: runtime.downloader,
-  createHttpClient: runtime.createHttpClient,
-  config: runtime.config,
-);
 
 /// The compiler locator a host context hands to its Flutter build runtimes.
 @internal

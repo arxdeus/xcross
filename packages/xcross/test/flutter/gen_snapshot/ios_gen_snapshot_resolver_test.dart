@@ -519,6 +519,69 @@ void main() {
       );
     });
 
+    test('retries transient manifest failures', () async {
+      server
+        ..publish('3.47.0', IosGenSnapshotMode.release, 'linux-x64')
+        ..manifestFailures.addAll([
+          503,
+          const SocketException('connection reset'),
+        ]);
+      final resolved = await resolver().resolve(
+        flutterRoot: flutterRoot,
+        mode: IosGenSnapshotMode.release,
+      );
+      expect(resolved.source, IosGenSnapshotSource.download);
+      expect(
+        server.requests.where((path) => path.endsWith('manifest.json')),
+        hasLength(3),
+      );
+    });
+
+    test('refuses a manifest published for another Flutter version', () async {
+      server.publish('3.47.0', IosGenSnapshotMode.release, 'linux-x64');
+      server.manifestOverride = (
+        200,
+        jsonEncode({
+          ...jsonDecode(server.manifestFor('3.47.0')) as Map<String, Object?>,
+          'flutter': '3.47.1',
+        }),
+      );
+      await expectLater(
+        resolver().resolve(
+          flutterRoot: flutterRoot,
+          mode: IosGenSnapshotMode.release,
+        ),
+        throwsA(
+          isA<FlutterBuildError>().having(
+            (error) => error.message,
+            'message',
+            contains('flutter --version'),
+          ),
+        ),
+      );
+    });
+
+    test('concurrent resolves share one installed compiler', () async {
+      server.publish('3.47.0', IosGenSnapshotMode.release, 'linux-x64');
+      final results = await Future.wait([
+        for (var i = 0; i < 4; i++)
+          resolver().resolve(
+            flutterRoot: flutterRoot,
+            mode: IosGenSnapshotMode.release,
+          ),
+      ]);
+      final executable = results.first.executable;
+      expect(results.map((result) => result.executable).toSet(), {executable});
+      expect(File(executable).readAsBytesSync(), _binary);
+      expect(
+        Directory(p.join(cacheRoot, 'gen-snapshot'))
+            .listSync()
+            .map((entity) => p.basename(entity.path))
+            .where((name) => name.startsWith('.download-')),
+        isEmpty,
+      );
+    });
+
     group('pins', () {
       String fakeCompiler(String dartVersion, {int exitCode = 0}) {
         final script = File(p.join(temporary.path, 'pinned', 'gen_snapshot'))
@@ -549,6 +612,18 @@ void main() {
           pins: {_engine: XcrossIosGenSnapshotPin(profile: path)},
         ).resolve(flutterRoot: flutterRoot, mode: IosGenSnapshotMode.profile);
         expect(resolved.source, IosGenSnapshotSource.pinned);
+      });
+
+      test('an engine pin serves the mode a version pin lacks', () async {
+        final path = fakeCompiler('3.13.0');
+        final resolved = await resolver(
+          pins: {
+            '3.47.0': XcrossIosGenSnapshotPin(release: path),
+            _engine: XcrossIosGenSnapshotPin(profile: path),
+          },
+        ).resolve(flutterRoot: flutterRoot, mode: IosGenSnapshotMode.profile);
+        expect(resolved.source, IosGenSnapshotSource.pinned);
+        expect(server.requests, isEmpty);
       });
 
       test('a pin for the other mode does not apply', () async {
@@ -713,10 +788,24 @@ final class ReleaseServer {
   final _manifests = <String, String>{};
   (int, String)? manifestOverride;
 
+  /// Transient manifest responses served before the real one: a status code
+  /// or an exception to throw.
+  final manifestFailures = <Object>[];
+
+  String manifestFor(String version) => _manifests['/$version/manifest.json']!;
+
   String get baseUrl => 'http://${_server.address.host}:${_server.port}';
 
   late final http.Client manifestClient = MockClient((request) async {
     requests.add(request.url.path);
+    if (manifestFailures.isNotEmpty) {
+      switch (manifestFailures.removeAt(0)) {
+        case final int status:
+          return http.Response('busy', status);
+        case final Exception error:
+          throw error;
+      }
+    }
     if (manifestOverride case (final status, final body)) {
       return http.Response(body, status);
     }
