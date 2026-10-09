@@ -665,10 +665,13 @@ jobs:
           for mode in release profile; do
             (cd "$RUNNER_TEMP/aot-smoke" && "$RUNNER_TEMP/xcross-bundle/bin/xcross" --verbose flutter build "--$mode")
             dart run "$GITHUB_WORKSPACE/packages/xcross/tool/verify_flutter_aot.dart" \
-              "$RUNNER_TEMP/aot-smoke/build/xcross-ios" \
+              "$RUNNER_TEMP/aot-smoke/build/xcross-ios" --dsym=required \
               "--write=$RUNNER_TEMP/aot-digests/$mode.json"
           done
 
+      # The pinned LLVM Windows installers ship no dsymutil and the Swift
+      # toolchain's asserts build crashes on gen_snapshot's DWARF, so a dSYM is
+      # optional here but must match App's LC_UUID when one is written.
       - name: Build precompiled Flutter apps on Windows
         if: runner.os == 'Windows' && steps.darwin.outputs.available == 'true'
         shell: pwsh
@@ -684,7 +687,7 @@ jobs:
             Pop-Location
             if ($code -ne 0) { throw "xcross flutter build --$mode failed" }
             dart run "$env:GITHUB_WORKSPACE/packages/xcross/tool/verify_flutter_aot.dart" `
-              "$env:RUNNER_TEMP/aot-smoke/build/xcross-ios" `
+              "$env:RUNNER_TEMP/aot-smoke/build/xcross-ios" --dsym=optional `
               "--write=$env:RUNNER_TEMP/aot-digests/$mode.json"
             if ($LASTEXITCODE -ne 0) { throw "Precompiled $mode app is invalid" }
           }
@@ -699,7 +702,7 @@ jobs:
           retention-days: 7
 
   flutter-aot-parity:
-    name: Flutter AOT parity (${{ matrix.host }})
+    name: Flutter AOT parity
     needs: [gate, flutter-build, flutter-aot-reference]
     if: >-
       ${{ !cancelled() && needs.gate.outputs.run == 'true' &&
@@ -707,12 +710,25 @@ jobs:
     permissions:
       contents: read
       actions: read
-    strategy:
-      fail-fast: false
-      matrix:
-        host: [ubuntu-24.04, ubuntu-24.04-arm, windows-2022, windows-11-arm]
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      AOT_HOSTS: ubuntu-24.04 ubuntu-24.04-arm windows-2022 windows-11-arm
     steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: ${{ needs.gate.outputs.sha }}
+          persist-credentials: false
+
+      - name: Set up Dart
+        uses: dart-lang/setup-dart@65eb853c7ba17dde3be364c3d2858773e7144260
+        with:
+          sdk: stable
+
+      - name: Resolve dependencies
+        run: dart pub get
+
       - name: Download flutter build ios digests
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
         with:
@@ -722,26 +738,44 @@ jobs:
       - name: Download cross-built digests
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
         with:
-          name: flutter-aot-digests-${{ matrix.host }}
+          pattern: flutter-aot-digests-*
           path: ${{ runner.temp }}/cross
 
-      - name: Compare with flutter build ios
+      - name: Compare release App __text, __const and Flutter __text with flutter build ios
         shell: bash
         run: |
-          set -euo pipefail
-          for mode in release profile; do
-            sections='.__text, .__const'
-            if [ "$mode" = profile ]; then sections='.__text'; fi
-            expected="$(jq -c "[$sections]" "$RUNNER_TEMP/reference/$mode.json")"
-            actual="$(jq -c "[$sections]" "$RUNNER_TEMP/cross/$mode.json")"
-            echo "$mode: flutter build ios $expected, xcross $actual"
-            test "$expected" = "$actual"
+          set -uo pipefail
+          failed=0
+          for host in $AOT_HOSTS; do
+            echo "::group::$host release"
+            dart run packages/xcross/tool/verify_flutter_aot.dart \
+              "$RUNNER_TEMP/cross/flutter-aot-digests-$host/release.json" \
+              "--expect=$RUNNER_TEMP/reference/release.json" ||
+              { echo "::error::$host release differs from flutter build ios"; failed=1; }
+            echo '::endgroup::'
           done
+          exit "$failed"
+
+      - name: Compare profile App and Flutter __text only (profile App __const embeds absolute SDK file URIs)
+        shell: bash
+        run: |
+          set -uo pipefail
+          failed=0
+          for host in $AOT_HOSTS; do
+            echo "::group::$host profile"
+            dart run packages/xcross/tool/verify_flutter_aot.dart \
+              "$RUNNER_TEMP/cross/flutter-aot-digests-$host/profile.json" \
+              "--expect=$RUNNER_TEMP/reference/profile.json" \
+              --sections=__text,Flutter.__text ||
+              { echo "::error::$host profile differs from flutter build ios"; failed=1; }
+            echo '::endgroup::'
+          done
+          exit "$failed"
 
   flutter-aot-reference:
     name: Flutter AOT reference (macOS)
     needs: gate
-    if: needs.gate.outputs.run == 'true'
+    if: needs.gate.outputs.run == 'true' && needs.gate.outputs.trusted == 'true'
     permissions:
       contents: read
     runs-on: macos-15

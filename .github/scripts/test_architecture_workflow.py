@@ -206,6 +206,45 @@ class ArchitectureWorkflowTests(unittest.TestCase):
         self.assertNotIn('--simulator', workflow)
         self.assertNotIn('if: always()', '\n'.join(lines))
 
+    def check_aot_parity(self, workflow):
+        jobs = workflow_jobs(workflow)
+        self.assertIn("    if: needs.gate.outputs.run == 'true' && needs.gate.outputs.trusted == 'true'", jobs['flutter-aot-reference'])
+        parity = jobs['flutter-aot-parity']
+        self.assertIn('    timeout-minutes: 15', parity)
+        self.assertNotIn('jq', '\n'.join(parity))
+        hosts = re.search(r'os: \[(.+)\]', '\n'.join(jobs['flutter-build'])).group(1).split(', ')
+        self.assertIn(f"      AOT_HOSTS: {' '.join(hosts)}", parity)
+        steps = workflow_steps(parity)
+        for mode, sections in (('release', None), ('profile', '--sections=__text,Flutter.__text ||')):
+            compare = [name for name in steps if name.startswith(f'Compare {mode} ')]
+            self.assertEqual(len(compare), 1)
+            script = self.required_step(steps, compare[0])
+            self.assertIn('dart run packages/xcross/tool/verify_flutter_aot.dart \\', script)
+            self.assertIn(f'"$RUNNER_TEMP/cross/flutter-aot-digests-$host/{mode}.json" \\', script)
+            self.assertIn(f'"--expect=$RUNNER_TEMP/reference/{mode}.json"' + (' \\' if sections else ' ||'), script)
+            self.assertEqual(sections is not None, sections in script)
+            self.assertIn('exit "$failed"', script)
+        build = workflow_steps(jobs['flutter-build'])
+        self.assertIn('"$RUNNER_TEMP/aot-smoke/build/xcross-ios" --dsym=required \\', build['Build precompiled Flutter apps on Linux']['script'])
+        self.assertIn('"$env:RUNNER_TEMP/aot-smoke/build/xcross-ios" --dsym=optional `', build['Build precompiled Flutter apps on Windows']['script'])
+
+    def test_aot_parity_compares_every_host_with_the_digest_verifier(self):
+        self.check_aot_parity((ROOT / '.github/workflows/integration.yml').read_text())
+
+    def test_weakened_aot_parity_is_rejected(self):
+        original = (ROOT / '.github/workflows/integration.yml').read_text()
+        for old, new in (
+            ("    if: needs.gate.outputs.run == 'true' && needs.gate.outputs.trusted == 'true'\n    permissions:\n      contents: read\n    runs-on: macos-15\n    timeout-minutes: 45\n", "    if: needs.gate.outputs.run == 'true'\n    permissions:\n      contents: read\n    runs-on: macos-15\n    timeout-minutes: 45\n"),
+            ('      AOT_HOSTS: ubuntu-24.04 ubuntu-24.04-arm windows-2022 windows-11-arm\n', '      AOT_HOSTS: ubuntu-24.04\n'),
+            ('              --sections=__text,Flutter.__text ||\n', '              --sections=__text ||\n'),
+            ('          exit "$failed"\n', '          exit 0\n'),
+            ('--dsym=required', '--dsym=optional'),
+        ):
+            with self.subTest(new=new):
+                self.assertIn(old, original)
+                with self.assertRaises((AssertionError, KeyError, IndexError, AttributeError)):
+                    self.check_aot_parity(original.replace(old, new))
+
     def test_strict_guard_is_an_independent_unprivileged_job(self):
         workflow = (ROOT / '.github/workflows/architecture.yml').read_text()
         self.assertIn('contents: read', workflow)
