@@ -154,13 +154,6 @@ final class FlutterBuildCommand<T extends PlatformHostInterface>
       ipa: options.ipa,
     );
     final buildRuntime = features.flutterRuntime;
-    if (mode.isPrecompiled && !buildRuntime.policy.supportsPrecompiledModes) {
-      usageException(
-        '--${mode.name} builds run on devices only; Flutter simulator '
-        'engines are JIT-only. Use --debug for --target-platform '
-        '${options.targetPlatform}.',
-      );
-    }
     final buildOptions = await buildRuntime.options.resolve(
       target: options.target,
       dartDefine: options.dartDefine,

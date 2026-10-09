@@ -9,6 +9,7 @@ import 'package:xcross/src/composition/cli/flutter_run_command.dart';
 import 'package:xcross/src/composition/cli/runner.dart';
 import 'package:xcross/src/shared/cli/basic/auth_command.dart';
 import 'package:xcross/src/shared/errors/errors.dart';
+import 'package:xcross/src/shared/flutter/errors.dart';
 import 'package:xcross/src/shared/flutter/models/flutter/flutter_build_mode.dart';
 import 'package:xcross/src/shared/flutter/models/flutter/flutter_build_options.dart';
 import 'package:xcross/src/shared/models/pack_result.dart';
@@ -18,6 +19,54 @@ import '../log_fixture.dart';
 import 'runtime_fixture.dart';
 
 void main() {
+  group('flutterBuildModeOf', () {
+    Never usage(String message) => throw UsageException(message, '');
+    FlutterBuildMode modeOf({
+      bool debug = false,
+      bool profile = false,
+      bool release = false,
+    }) => flutterBuildModeOf(
+      debug: debug,
+      profile: profile,
+      release: release,
+      usageException: usage,
+    );
+
+    test('defaults to debug when no mode flag is given', () {
+      expect(modeOf(), FlutterBuildMode.debug);
+    });
+
+    test('selects the single given mode', () {
+      expect(modeOf(debug: true), FlutterBuildMode.debug);
+      expect(modeOf(profile: true), FlutterBuildMode.profile);
+      expect(modeOf(release: true), FlutterBuildMode.release);
+    });
+
+    test('rejects several mode flags', () {
+      for (final flags in [
+        (debug: true, profile: true, release: false),
+        (debug: true, profile: false, release: true),
+        (debug: false, profile: true, release: true),
+        (debug: true, profile: true, release: true),
+      ]) {
+        expect(
+          () => modeOf(
+            debug: flags.debug,
+            profile: flags.profile,
+            release: flags.release,
+          ),
+          throwsA(
+            isA<UsageException>().having(
+              (e) => e.message,
+              'message',
+              'Choose only one of --debug, --profile or --release.',
+            ),
+          ),
+        );
+      }
+    });
+  });
+
   group('FlutterRunCommand.shouldUseCoreDevice', () {
     test('uses CoreDevice for confirmed iOS 17+ and unknown devices', () {
       expect(FlutterRunCommand.shouldUseCoreDevice(17), isTrue);
@@ -225,11 +274,19 @@ void main() {
             ..addCommand(FlutterBuildCommand(testRuntime()));
           await expectLater(
             runner.run(['build', ...flags]),
-            throwsA(
-              flags.contains('--ipa')
-                  ? isA<XcrossError>()
-                  : isA<UsageException>(),
-            ),
+            throwsA(switch (flags) {
+              _ when flags.contains('--ipa') => isA<XcrossError>(),
+              _ when flags.contains('simulator') =>
+                isA<FlutterBuildError>().having(
+                  (e) => e.message,
+                  'message',
+                  startsWith(
+                    '${flags.last == '--release' ? 'Release' : 'Profile'} '
+                    'mode is not supported for simulators.',
+                  ),
+                ),
+              _ => isA<UsageException>(),
+            }),
           );
         },
       );
