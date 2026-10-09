@@ -154,6 +154,7 @@ final class FlutterBuildCommand<T extends PlatformHostInterface>
       ipa: options.ipa,
     );
     final buildRuntime = features.flutterRuntime;
+    final projectRoot = runtime.host.paths.context.current;
     final buildOptions = await buildRuntime.options.resolve(
       target: options.target,
       dartDefine: options.dartDefine,
@@ -166,10 +167,11 @@ final class FlutterBuildCommand<T extends PlatformHostInterface>
       treeShakeIcons: options.treeShakeIcons,
       splitDebugInfo: options.splitDebugInfo,
       obfuscate: options.obfuscate,
+      projectRoot: projectRoot,
     );
 
     final result = await FlutterPackOperation.pack(
-      projectRoot: runtime.host.paths.context.current,
+      projectRoot: projectRoot,
       runtime: buildRuntime,
       options: buildOptions,
     );
