@@ -5,6 +5,7 @@ import 'package:path/path.dart' as p;
 import 'package:standard_message_codec/standard_message_codec.dart';
 import 'package:test/test.dart';
 import 'package:xcross/src/shared/flutter/flutter_assets_compiler.dart';
+import 'package:xcross/src/shared/flutter/models/pubspec_info.dart';
 
 import 'flutter_test_runtime.dart';
 
@@ -100,6 +101,26 @@ flutter:
     expect(shaders[1].appliesTo(flavor: null, platform: 'ios'), isFalse);
     expect(shaders[1].appliesTo(flavor: 'dark', platform: 'web'), isFalse);
     expect(shaders[2].hasTransformers, isTrue);
+  });
+
+  test('derives build name and number from a semantic version only', () {
+    const cases = <String?, (String?, String?)>{
+      '1.0.0': ('1.0.0', null),
+      '1.0.0+1': ('1.0.0', '1'),
+      '1.0.0+': (null, null),
+      '1.0': (null, null),
+      null: (null, null),
+    };
+    for (final MapEntry(key: version, value: (name, number)) in cases.entries) {
+      final info = PubspecInfo(
+        name: 'demo',
+        usesMaterialDesign: false,
+        version: version,
+      );
+      expect(info.buildName, name, reason: '$version');
+      expect(info.buildNumber, number, reason: '$version');
+      expect(info.appVersion, name == null ? isNull : version);
+    }
   });
 
   test('defaults to no assets/fonts when flutter: section is absent', () {
