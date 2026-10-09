@@ -32,6 +32,11 @@ enum FlutterBuildMode {
     release => IosGenSnapshotMode.release,
   };
 
+  /// Build directory for this mode's kernel and `App.framework`
+  /// intermediates. One per mode, so building another mode leaves a running
+  /// debug session's hot reload kernels in place.
+  String get intermediatesDirectory => 'xcross-flutter-$name';
+
   /// The frontend_server options flutter_tools adds after the build's
   /// [dartDefines] (`buildModeOptions`). Debug and profile keep a
   /// `dart.vm.*` value the user set; release always forces its own.

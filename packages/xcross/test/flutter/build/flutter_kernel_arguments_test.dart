@@ -147,4 +147,12 @@ void main() {
       '-Ddart.vm.product=true',
     ]);
   });
+
+  test('each mode keeps its own intermediates directory', () {
+    expect(FlutterBuildMode.values.map((mode) => mode.intermediatesDirectory), [
+      'xcross-flutter-debug',
+      'xcross-flutter-profile',
+      'xcross-flutter-release',
+    ]);
+  });
 }

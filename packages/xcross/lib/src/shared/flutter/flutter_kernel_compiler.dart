@@ -156,7 +156,10 @@ final class FlutterKernelCompiler<T extends PlatformHostInterface> {
   Future<String> _prepareKernelScratch() async {
     final scratch = runtime.host.fileSystem.directory(
       p.join(
-        runtime.policy.buildDirectory(projectRoot, 'xcross-flutter-debug'),
+        runtime.policy.buildDirectory(
+          projectRoot,
+          buildMode.intermediatesDirectory,
+        ),
         '.kernel',
       ),
     );

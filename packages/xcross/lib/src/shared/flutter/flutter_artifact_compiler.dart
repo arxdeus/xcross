@@ -94,7 +94,9 @@ final class FlutterArtifactCompiler<T extends PlatformHostInterface>
     String flutterRoot, {
     required IosDeploymentTarget deploymentTarget,
   }) async {
-    final assembleOut = _buildDirectory('xcross-flutter-debug');
+    final assembleOut = _buildDirectory(
+      options.buildMode.intermediatesDirectory,
+    );
     final assembleDir = runtime.host.fileSystem.directory(assembleOut);
     if (assembleDir.existsSync()) await assembleDir.delete(recursive: true);
     await assembleDir.create(recursive: true);
