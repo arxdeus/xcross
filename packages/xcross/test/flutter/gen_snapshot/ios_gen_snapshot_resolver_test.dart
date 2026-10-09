@@ -668,6 +668,53 @@ void main() {
       );
     });
 
+    group('availability', () {
+      test('reports a published compiler without downloading it', () async {
+        server.publish('3.47.0', IosGenSnapshotMode.release, 'linux-x64');
+        final found = await resolver().availability(
+          flutterRoot: flutterRoot,
+          mode: IosGenSnapshotMode.release,
+        );
+        expect(found.source, IosGenSnapshotSource.download);
+        expect(server.requests, ['/3.47.0/manifest.json']);
+        expect(Directory(cacheRoot).existsSync(), isFalse);
+      });
+
+      test('reports a cached compiler', () async {
+        server.publish('3.47.0', IosGenSnapshotMode.release, 'linux-x64');
+        await resolver().resolve(
+          flutterRoot: flutterRoot,
+          mode: IosGenSnapshotMode.release,
+        );
+        final found = await resolver().availability(
+          flutterRoot: flutterRoot,
+          mode: IosGenSnapshotMode.release,
+        );
+        expect(found.source, IosGenSnapshotSource.cache);
+        expect(found.path, endsWith('gen_snapshot'));
+      });
+
+      test('reports an unpublished version as unavailable', () async {
+        final found = await resolver().availability(
+          flutterRoot: flutterRoot,
+          mode: IosGenSnapshotMode.profile,
+        );
+        expect(found.available, isFalse);
+        expect(found.unknown, isFalse);
+        expect(found.detail, contains('Flutter 3.47.0'));
+      });
+
+      test('reports a failed lookup as unknown rather than throwing', () async {
+        server.manifestFailures.add(const SocketException('offline'));
+        final found = await resolver().availability(
+          flutterRoot: flutterRoot,
+          mode: IosGenSnapshotMode.release,
+        );
+        expect(found.available, isFalse);
+        expect(found.unknown, isTrue);
+      });
+    });
+
     test('concurrent resolves share one installed compiler', () async {
       server.publish('3.47.0', IosGenSnapshotMode.release, 'linux-x64');
       final results = await Future.wait([

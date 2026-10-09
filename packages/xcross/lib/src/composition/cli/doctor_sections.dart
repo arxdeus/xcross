@@ -1,10 +1,13 @@
 import 'package:cli_kit/shared/platform/platform_host.dart';
 import 'package:meta/meta.dart';
+import 'package:xcross/src/composition/flutter/ios_gen_snapshot.dart';
 import 'package:xcross/src/composition/ios_target.dart';
 import 'package:xcross/src/shared/cli/basic/doctor_environment_checks.dart';
 import 'package:xcross/src/shared/cli/basic/doctor_models.dart';
 import 'package:xcross/src/shared/compose/kmp_project_detector.dart';
 import 'package:xcross/src/shared/compose/toolchain/compose_toolchain_resolver.dart';
+import 'package:xcross/src/shared/flutter/gen_snapshot/ios_gen_snapshot_mode.dart';
+import 'package:xcross/src/shared/flutter/gen_snapshot/ios_gen_snapshot_resolver.dart';
 import 'package:xcross/src/shared/packages/package_config_resolver.dart';
 import 'package:xcross/src/shared/runtime/xcross_runtime.dart';
 import 'package:xcross/src/target/shared/runtime/build_features.dart';
@@ -65,7 +68,71 @@ final class DoctorSections<T extends PlatformHostInterface> {
       _flutterEntrypoint(),
       await _flutterSdk(),
       await _flutterPackages(),
+      ...await _aotCompilers(),
     ];
+  }
+
+  /// Whether release and profile builds will find an iOS AOT compiler.
+  ///
+  /// Debug builds never need one, so a missing compiler is a warning, and a
+  /// failed network check is reported without failing the doctor.
+  Future<List<DoctorCheck>> _aotCompilers() async {
+    final String flutterRoot;
+    try {
+      flutterRoot = await features.flutterRuntime.resolveFlutterRoot(
+        projectRoot: projectRoot,
+      );
+    } on Object {
+      return const [];
+    }
+    final resolver = composeIosGenSnapshotResolver(
+      runner: runtime.runner,
+      downloader: runtime.downloader,
+      createHttpClient: runtime.createHttpClient,
+      config: runtime.config,
+    );
+    final checks = <DoctorCheck>[];
+    for (final mode in IosGenSnapshotMode.values) {
+      final label = 'AOT compiler (${mode.name})';
+      final IosGenSnapshotAvailability found;
+      try {
+        found = await resolver.availability(
+          flutterRoot: flutterRoot,
+          mode: mode,
+        );
+      } on Object catch (error) {
+        checks.add(DoctorCheck.warning(label, '$error'));
+        continue;
+      }
+      checks.add(switch (found.source) {
+        IosGenSnapshotSource.flutterSdk => DoctorCheck.success(
+          label,
+          'Shipped with Flutter',
+          path: found.path,
+        ),
+        IosGenSnapshotSource.cache => DoctorCheck.success(
+          label,
+          'Cached',
+          path: found.path,
+        ),
+        IosGenSnapshotSource.pinned => DoctorCheck.success(
+          label,
+          'Pinned in xcross config',
+          path: found.path,
+        ),
+        IosGenSnapshotSource.download => DoctorCheck.success(
+          label,
+          'Published; downloaded on the first build '
+          '(`xcross flutter precache` fetches it now)',
+        ),
+        null => DoctorCheck.warning(
+          label,
+          '${found.detail ?? 'Unavailable'}'
+          '${found.unknown ? '' : ' Debug builds are unaffected.'}',
+        ),
+      });
+    }
+    return checks;
   }
 
   DoctorCheck _flutterPubspec() {

@@ -134,6 +134,85 @@ final class IosGenSnapshotResolver<T extends PlatformHostInterface> {
     return result(downloaded, IosGenSnapshotSource.download);
   }
 
+  /// Where the [mode] compiler would come from, without downloading it.
+  ///
+  /// For `xcross flutter doctor`: `null` [IosGenSnapshotAvailability.source]
+  /// means no compiler is available, and a network failure is reported
+  /// rather than thrown, since the cache may still serve a later build.
+  Future<IosGenSnapshotAvailability> availability({
+    required String flutterRoot,
+    required IosGenSnapshotMode mode,
+  }) async {
+    final FlutterSdkRelease release;
+    try {
+      final shipped = hostPolicy.flutterCompiler(flutterRoot, mode);
+      if (shipped != null) {
+        return IosGenSnapshotAvailability(
+          source: IosGenSnapshotSource.flutterSdk,
+          path: shipped,
+        );
+      }
+      release = FlutterSdkReleaseReader(host).read(flutterRoot);
+    } on FlutterBuildError catch (error) {
+      return IosGenSnapshotAvailability(detail: error.message);
+    }
+    final platform = hostPolicy.prebuiltPlatform;
+    final cached = await cachedExecutable(release, mode, platform);
+    if (cached != null) {
+      return IosGenSnapshotAvailability(
+        source: IosGenSnapshotSource.cache,
+        path: cached,
+        release: release,
+      );
+    }
+    final pin = [
+      for (final key in [release.version, release.engine])
+        ?pins[key]?.forMode(mode.name),
+    ].firstOrNull;
+    if (pin != null) {
+      return IosGenSnapshotAvailability(
+        source: IosGenSnapshotSource.pinned,
+        path: pin,
+        release: release,
+      );
+    }
+    try {
+      final manifest = await _fetchManifestOnce(
+        release,
+      ).timeout(revalidateTimeout);
+      final asset =
+          manifest?.assets[IosGenSnapshotManifest.assetName(mode, platform)];
+      if (manifest != null &&
+          asset != null &&
+          manifest.engine == release.engine) {
+        return IosGenSnapshotAvailability(
+          source: IosGenSnapshotSource.download,
+          release: release,
+        );
+      }
+      return IosGenSnapshotAvailability(
+        release: release,
+        detail:
+            'No prebuilt compiler is published for Flutter '
+            '${release.version} (engine ${release.shortEngine}) on '
+            '$platform.',
+      );
+    } on IosGenSnapshotSchemaException catch (error) {
+      return IosGenSnapshotAvailability(
+        release: release,
+        detail:
+            'The published manifest uses schema ${error.schema}; run '
+            '`xcross update`.',
+      );
+    } on Object catch (error) {
+      return IosGenSnapshotAvailability(
+        release: release,
+        unknown: true,
+        detail: 'Could not check $repositoryUrl: $error',
+      );
+    }
+  }
+
   /// Cache directory for one engine, mode, and xcross_gen_snapshot platform.
   String cacheDirectory(
     String engine,
@@ -615,4 +694,32 @@ final class IosGenSnapshotResolver<T extends PlatformHostInterface> {
 
   static String _short(String engine) =>
       engine.length > 8 ? engine.substring(0, 8) : engine;
+}
+
+/// Whether an iOS AOT compiler is available, and from where.
+@internal
+@immutable
+final class IosGenSnapshotAvailability {
+  const IosGenSnapshotAvailability({
+    this.source,
+    this.path,
+    this.release,
+    this.detail,
+    this.unknown = false,
+  });
+
+  /// Where a build would take the compiler from, or null when none exists.
+  final IosGenSnapshotSource? source;
+
+  /// The compiler on disk, for shipped, cached, and pinned compilers.
+  final String? path;
+  final FlutterSdkRelease? release;
+
+  /// Why no compiler is available, or why that could not be determined.
+  final String? detail;
+
+  /// True when the published release could not be checked (offline).
+  final bool unknown;
+
+  bool get available => source != null;
 }

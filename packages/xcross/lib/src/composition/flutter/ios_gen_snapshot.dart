@@ -45,6 +45,22 @@ IosGenSnapshotResolver<T> _resolver<T extends PlatformHostInterface>({
   required Downloader downloader,
   required http.Client Function() createHttpClient,
   required XcrossRuntimeConfig config,
+}) => composeIosGenSnapshotResolver(
+  runner: runner,
+  downloader: downloader,
+  createHttpClient: createHttpClient,
+  config: config,
+);
+
+/// The iOS AOT compiler resolver for [runner]'s host, for commands that
+/// inspect or warm the compiler cache outside a build.
+@internal
+IosGenSnapshotResolver<T>
+composeIosGenSnapshotResolver<T extends PlatformHostInterface>({
+  required ProcessRunner<T> runner,
+  required Downloader downloader,
+  required http.Client Function() createHttpClient,
+  required XcrossRuntimeConfig config,
 }) {
   final host = runner.host;
   return IosGenSnapshotResolver(

@@ -1,6 +1,9 @@
 ## Unreleased
 
 - Run on a device without a network after the first online run. When Apple's Developer Services cannot be reached, or the saved Apple ID session has expired, xcross signs with the cached certificate and provisioning profile for that app instead of failing, and says what to do when the cache cannot cover the run (no profile yet, device not in it, expired). `XCROSS_OFFLINE=1` skips Apple entirely. A 20-second cap on the Apple ID access check keeps a dead network from stalling the run.
+- Revalidate a cached iOS `gen_snapshot` against its release once a day, so a compiler republished for the same Flutter version replaces the cached one; offline builds keep using the verified cache. A manifest schema newer than this xcross asks for `xcross update`.
+- Add `xcross flutter precache` to fetch iOS engine artifacts and AOT compilers ahead of the first build, and report in `xcross flutter doctor` whether a release and profile compiler is shipped, cached, pinned, published, or missing.
+- Add `xcross cache prune` to remove cached Flutter engine artifacts and AOT compilers for engines no discoverable Flutter SDK uses (`--dry-run`, `--older-than <days>`).
 
 - **Breaking:** split `xcross clean` into per-area commands. `xcross flutter clean` clears the project's native asset and SwiftPM build caches (what `xcross clean` used to do, now for both device and simulator targets). `xcross compose clean` clears the Compose project's xcross build output and Kotlin/Native caches. `xcross sdk clean` removes the installed Darwin Swift SDK along with leftover backup and staging copies. The top-level `xcross clean` is gone.
 - **Breaking:** rename `xcross auth clear` to `xcross auth clean`. The old spelling now fails with a pointer to the new one.
