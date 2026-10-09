@@ -15,6 +15,13 @@ typedef ToolAliasRun =
 @internal
 final class ToolAliasOperation {
   const ToolAliasOperation(this.runner, {this.manifestCompiler});
+
+  /// First argument a POSIX `plutil` shim passes to the xcross executable.
+  ///
+  /// The shim `exec`s xcross by its own path, so the executable name cannot
+  /// tell xcross it is standing in for `plutil` there.
+  static const plutilAliasMarker = '--xcross-plutil-alias';
+
   final ProcessRunner runner;
   final SwiftPmManifestCompiler Function(
     ToolAliasRun run, {
@@ -32,6 +39,10 @@ final class ToolAliasOperation {
     final name = runner.host.paths.context
         .basenameWithoutExtension(path)
         .toLowerCase();
+    if (arguments case [plutilAliasMarker, ...final rest]) {
+      final plutilCode = await runPlutilAlias(rest);
+      return plutilCode;
+    }
     if (name == 'plutil') {
       final plutilCode = await runPlutilAlias(arguments);
       return plutilCode;
@@ -274,20 +285,31 @@ final class ToolAliasOperation {
     ]) {
       final file = runner.host.fileSystem.file(path);
       if (!file.existsSync()) return 1;
-      final original = await file.readAsString();
-      final pattern = RegExp(
-        r'<key>MinimumOSVersion</key>\s*<string>[^<]*</string>',
+      final updated = replaceMinimumOsVersion(
+        await file.readAsString(),
+        version,
       );
-      if (!pattern.hasMatch(original)) return 1;
-      await file.writeAsString(
-        original.replaceFirst(
-          pattern,
-          '<key>MinimumOSVersion</key>\n\t<string>$version</string>',
-        ),
-      );
+      if (updated == null) return 1;
+      await file.writeAsString(updated);
       return 0;
     }
     return 1;
+  }
+
+  /// [plist] with its top-level `MinimumOSVersion` set to [version], added
+  /// when missing as `plutil -replace` does, or `null` when [plist] is not
+  /// an XML property list with a top-level dictionary.
+  @visibleForTesting
+  static String? replaceMinimumOsVersion(String plist, String version) {
+    final entry = '<key>MinimumOSVersion</key>\n\t<string>$version</string>';
+    final existing = RegExp(
+      r'<key>MinimumOSVersion</key>\s*<string>[^<]*</string>',
+    );
+    if (existing.hasMatch(plist)) return plist.replaceFirst(existing, entry);
+    final end = RegExp(r'</dict>\s*</plist>\s*$').firstMatch(plist);
+    if (end == null) return null;
+    return '${plist.substring(0, end.start)}\t$entry\n'
+        '${plist.substring(end.start)}';
   }
 
   Future<int> _runToolAlias(

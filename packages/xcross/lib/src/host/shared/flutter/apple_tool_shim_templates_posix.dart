@@ -126,8 +126,12 @@ UnixXcrunShim renderUnixXcrunShim(
 const _xcrunProbedSdks = ['macosx', 'iphoneos', 'iphonesimulator'];
 
 @internal
-String renderUnixToolShim(String tool) =>
-    '#!/bin/sh\nexec ${shellQuote(tool)} "\$@"\n';
+String renderUnixToolShim(
+  String tool, {
+  List<String> leadingArguments = const [],
+}) =>
+    '#!/bin/sh\nexec ${[tool, ...leadingArguments].map(shellQuote).join(' ')} '
+    '"\$@"\n';
 
 @internal
 const unixCodesignShim = '#!/bin/sh\nexit 0\n';
