@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:cli_kit/shared/download/download.dart';
@@ -422,6 +423,25 @@ final class IosEngineCache<T extends PlatformHostInterface> {
     }
     if (!host.fileSystem.directory(patchedSdkRoot).existsSync()) {
       await _downloadPatchedSdk();
+    }
+    _markUsed();
+  }
+
+  /// Name of the stamp `xcross cache prune` reads to tell a cache entry
+  /// still in use from one left behind by an old Flutter version.
+  static const lastUsedStamp = '.last_used';
+
+  /// Best effort: only the cache under [cacheRoot] is stamped, never the
+  /// Flutter SDK, and a read-only cache only costs prune accuracy.
+  void _markUsed() {
+    final root = host.paths.context.join(cacheRoot, engineHash);
+    if (!host.fileSystem.directory(root).existsSync()) return;
+    try {
+      host.fileSystem
+          .file(host.paths.context.join(root, lastUsedStamp))
+          .writeAsStringSync(DateTime.now().toUtc().toIso8601String());
+    } on FileSystemException {
+      // Ignored on purpose.
     }
   }
 

@@ -47,18 +47,28 @@ IosGenSnapshotResolver<T> _resolver<T extends PlatformHostInterface>({
   required XcrossRuntimeConfig config,
 }) {
   final host = runner.host;
-  final override = host.environment.lookup(
-    runner.effectiveEnvironment,
-    'XCROSS_CACHE_DIR',
-  );
   return IosGenSnapshotResolver(
     hostPolicy: composeIosGenSnapshotHost(host),
     runner: runner,
     downloader: downloader,
     createHttpClient: createHttpClient,
-    cacheRoot: override != null && override.isNotEmpty
-        ? override
-        : host.paths.context.join(host.paths.cacheRoot, 'xcross'),
+    cacheRoot: genSnapshotCacheRoot(runner),
     pins: config.config?.iosGenSnapshot ?? const {},
   );
+}
+
+/// The xcross cache root iOS AOT compilers live under (as `gen-snapshot/`):
+/// `XCROSS_CACHE_DIR` when set, else `<user cache>/xcross`.
+@internal
+String genSnapshotCacheRoot<T extends PlatformHostInterface>(
+  ProcessRunner<T> runner,
+) {
+  final host = runner.host;
+  final override = host.environment.lookup(
+    runner.effectiveEnvironment,
+    'XCROSS_CACHE_DIR',
+  );
+  return override != null && override.isNotEmpty
+      ? override
+      : host.paths.context.join(host.paths.cacheRoot, 'xcross');
 }
