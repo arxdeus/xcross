@@ -115,8 +115,11 @@ final class FlutterArtifactCompiler<T extends PlatformHostInterface>
       ),
       kernel: FlutterKernelCompiler(
         runtime: runtime,
-        registrant: DartPluginRegistrant(runtime.host.fileSystem),
-        plugins: PluginDiscovery(runtime.host.fileSystem),
+        registrant: DartPluginRegistrant(
+          runtime.host.fileSystem,
+          runtime.host.paths.context,
+          onWarning: runtime.runner.log.logWarn,
+        ),
         projectRoot: projectRoot,
         flutterRoot: flutterRoot,
         entrypoint: options.target,

@@ -5,7 +5,6 @@ import 'package:path/path.dart' as p;
 import 'package:xcross/src/shared/flutter/build/dart_plugin_registrant.dart';
 import 'package:xcross/src/shared/flutter/build/internal/kernel_compiler.dart';
 import 'package:xcross/src/shared/flutter/build/ios_engine_cache.dart';
-import 'package:xcross/src/shared/flutter/build/ios_plugins.dart';
 import 'package:xcross/src/shared/flutter/errors.dart';
 import 'package:xcross/src/shared/flutter/flutter_build_runtime.dart';
 import 'package:xcross/src/shared/flutter/models/flutter/flutter_build_mode.dart';
@@ -15,7 +14,6 @@ final class FlutterKernelCompiler<T extends PlatformHostInterface> {
   FlutterKernelCompiler({
     required this.runtime,
     required this.registrant,
-    required this.plugins,
     required this.projectRoot,
     required this.flutterRoot,
     this.entrypoint = 'lib/main.dart',
@@ -28,7 +26,6 @@ final class FlutterKernelCompiler<T extends PlatformHostInterface> {
   final PackageUriLoader packageUriLoader;
   final FlutterBuildRuntime<T> runtime;
   final DartPluginRegistrant registrant;
-  final PluginDiscovery plugins;
   final String projectRoot;
   final String flutterRoot;
   final String entrypoint;
@@ -53,10 +50,14 @@ final class FlutterKernelCompiler<T extends PlatformHostInterface> {
     // Without it the app boots but the first plugin call throws
     // "a platform implementation has not been set", usually before runApp,
     // which reaches the device as a black screen.
+    final paths = runtime.host.paths.context;
     final registrationPath = await registrant.generate(
       projectRoot: projectRoot,
-      plugins: await plugins.discover(projectRoot),
-      entrypointUri: entrypointArg,
+      packageConfigPath: packageConfig,
+      entrypoint: paths.isAbsolute(entrypoint)
+          ? entrypoint
+          : paths.join(projectRoot, entrypoint),
+      flutterRoot: flutterRoot,
     );
     final packageUris = await packageUriLoader.load(packageConfig);
     final registrantUri = registrationPath == null

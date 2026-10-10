@@ -4,7 +4,6 @@ import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 import 'package:xcross/src/shared/flutter/build/dart_plugin_registrant.dart';
 import 'package:xcross/src/shared/flutter/build/internal/kernel_compiler.dart';
-import 'package:xcross/src/shared/flutter/build/ios_plugins.dart';
 import 'package:xcross/src/shared/flutter/flutter_kernel_compiler.dart';
 import 'package:xcross/src/shared/flutter/models/flutter/flutter_build_mode.dart';
 
@@ -35,8 +34,10 @@ void main() {
   }) =>
       FlutterKernelCompiler(
         runtime: runtime,
-        registrant: DartPluginRegistrant(runtime.host.fileSystem),
-        plugins: PluginDiscovery(runtime.host.fileSystem),
+        registrant: DartPluginRegistrant(
+          runtime.host.fileSystem,
+          runtime.host.paths.context,
+        ),
         projectRoot: '/project',
         flutterRoot: flutterRoot,
         buildMode: mode,

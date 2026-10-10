@@ -1,48 +1,8 @@
 import 'package:cli_kit/shared/platform/platform_host.dart';
-
 import 'package:meta/meta.dart';
+import 'package:package_config/package_config.dart';
 import 'package:path/path.dart' as p;
-import 'package:xcross/src/shared/flutter/build/ios_plugins.dart';
-import 'package:yaml/yaml.dart';
-
-/// One plugin that registers itself from Dart rather than from native code.
-@internal
-@immutable
-final class DartPluginRegistration {
-  const DartPluginRegistration({
-    required this.pluginName,
-    required this.dartClass,
-    required this.dartFileName,
-  });
-
-  /// Pub package the implementation lives in, e.g. `flutter_inappwebview_ios`.
-  final String pluginName;
-
-  /// The class exposing a static `registerWith()`, e.g.
-  /// `IOSInAppWebViewPlatform`.
-  final String dartClass;
-
-  /// Library within the package's `lib/` that declares [dartClass]. Defaults to
-  /// `<pluginName>.dart` when the pubspec doesn't say otherwise.
-  final String dartFileName;
-
-  /// `package:<pluginName>/<dartFileName>`.
-  String get importUri => 'package:$pluginName/$dartFileName';
-
-  @override
-  bool operator ==(Object other) =>
-      other is DartPluginRegistration &&
-      other.pluginName == pluginName &&
-      other.dartClass == dartClass &&
-      other.dartFileName == dartFileName;
-
-  @override
-  int get hashCode => Object.hash(pluginName, dartClass, dartFileName);
-
-  @override
-  String toString() =>
-      'DartPluginRegistration($pluginName, $dartClass, $dartFileName)';
-}
+import 'package:xcross/src/shared/flutter/build/dart_plugin_resolution.dart';
 
 /// Generates the `dart_plugin_registrant.dart` that federated plugins rely on
 /// to install their Dart-side platform implementation.
@@ -61,12 +21,15 @@ final class DartPluginRegistration {
 /// initializer or an `await` in `main()`, so `runApp` is never reached and the
 /// device shows a black screen with nothing on the console.
 ///
-/// Mirrors `generateMainDartWithPluginRegistrant` in flutter_tools'
-/// `flutter_plugins.dart`.
+/// The file is a kernel `--source`, so it is rendered byte-for-byte as
+/// `generateMainDartWithPluginRegistrant` in flutter_tools'
+/// `flutter_plugins.dart` renders it: any difference changes the AOT snapshot.
 @internal
 final class DartPluginRegistrant {
-  DartPluginRegistrant(this.fileSystem);
+  DartPluginRegistrant(this.fileSystem, this.paths, {this.onWarning});
   final HostFileSystemInterface fileSystem;
+  final p.Context paths;
+  final void Function(String warning)? onWarning;
 
   /// Path of the generated registrant, matching the location flutter_tools
   /// uses so both tools stay interchangeable on one project.
@@ -81,73 +44,111 @@ final class DartPluginRegistrant {
   /// when no plugin needs Dart-side registration (in which case any stale
   /// registrant is removed so a removed plugin doesn't linger).
   ///
-  /// [entrypointUri] is the app's `main` as the compiler sees it; it is only
-  /// recorded in a comment, since the generated file is passed as an extra
-  /// `--source` rather than replacing the entrypoint.
+  /// [entrypoint] is the app's main file; its language version becomes the
+  /// registrant's.
   Future<String?> generate({
     required String projectRoot,
-    required List<IosPlugin> plugins,
-    String? entrypointUri,
+    required String packageConfigPath,
+    required String entrypoint,
+    required String flutterRoot,
   }) async {
-    final registrations = resolveRegistrations(plugins);
+    final packageConfig = await _loadPackageConfig(packageConfigPath);
+    final plugins = await FlutterPluginFinder(fileSystem, paths).find(
+      projectRoot: projectRoot,
+      packageConfigPath: packageConfigPath,
+      packageConfig: packageConfig,
+    );
+    final resolutions = DartPluginResolver(
+      onWarning: onWarning,
+    ).resolve(plugins);
     final path = pathFor(projectRoot);
     final file = fileSystem.file(path);
 
-    if (registrations.isEmpty) {
+    if (resolutions.values.every((platform) => platform.isEmpty)) {
       if (file.existsSync()) await file.delete();
       return null;
     }
 
-    await file.parent.create(recursive: true);
-    await file.writeAsString(
-      render(registrations, entrypointUri: entrypointUri),
+    final source = render(
+      resolutions,
+      languageVersion: languageVersionOf(
+        entrypoint,
+        packageConfig.packageOf(paths.toUri(paths.absolute(entrypoint))),
+        flutterRoot,
+      ),
     );
+    if (file.existsSync() && file.readAsStringSync() == source) return path;
+    await file.parent.create(recursive: true);
+    await file.writeAsString(source);
     return path;
   }
 
-  /// The plugins in [plugins] that declare an iOS `dartPluginClass`, sorted by
-  /// package name so the generated file is stable across builds.
+  Future<PackageConfig> _loadPackageConfig(String path) => loadPackageConfigUri(
+    paths.toUri(paths.absolute(path)),
+    loader: (uri) async {
+      if (!uri.isScheme('file')) return null;
+      final file = fileSystem.file(paths.fromUri(uri));
+      if (!file.existsSync()) return null;
+      final bytes = await file.readAsBytes();
+      return bytes;
+    },
+  );
+
+  /// `determineLanguageVersion` from flutter_tools' `language_version.dart`:
+  /// the file's own `// @dart = X.Y` comment, else [package]'s language
+  /// version, else the Flutter SDK's Dart language version.
   @visibleForTesting
-  List<DartPluginRegistration> resolveRegistrations(List<IosPlugin> plugins) {
-    final resolved = <DartPluginRegistration>[];
-    for (final plugin in plugins) {
-      final registration = _readRegistration(plugin);
-      if (registration != null) resolved.add(registration);
-    }
-    resolved.sort((a, b) => a.pluginName.compareTo(b.pluginName));
-    return resolved;
-  }
-
-  /// Reads `flutter.plugin.platforms.ios.dartPluginClass` (and the optional
-  /// `dartFileName`) from [plugin]'s own pubspec.
-  DartPluginRegistration? _readRegistration(IosPlugin plugin) {
-    final file = fileSystem.file(p.join(plugin.packageRoot, 'pubspec.yaml'));
-    if (!file.existsSync()) return null;
-
-    final Object? pubspec;
+  String languageVersionOf(
+    String entrypoint,
+    Package? package,
+    String flutterRoot,
+  ) {
+    final file = fileSystem.file(entrypoint);
+    if (!file.existsSync()) return _currentLanguageVersion(flutterRoot);
+    final List<String> lines;
     try {
-      pubspec = loadYaml(file.readAsStringSync());
+      lines = file.readAsLinesSync();
     } on Object {
-      return null;
+      return _currentLanguageVersion(flutterRoot);
     }
-
-    if (pubspec case {
-      'flutter': {
-        'plugin': {'platforms': {'ios': final Map<Object?, Object?> ios}},
-      },
-    }) {
-      if (ios['dartPluginClass'] case final String dartClass) {
-        return DartPluginRegistration(
-          pluginName: plugin.name,
-          dartClass: dartClass,
-          dartFileName: ios['dartFileName'] as String? ?? '${plugin.name}.dart',
-        );
+    var blockCommentDepth = 0;
+    for (final line in lines) {
+      final trimmed = line.trim();
+      if (trimmed.isEmpty) continue;
+      final starts = '/*'.allMatches(trimmed).length;
+      final ends = '*/'.allMatches(trimmed).length;
+      blockCommentDepth += starts - ends;
+      if (blockCommentDepth != 0 || starts > 0 || ends > 0) continue;
+      final match = _languageVersionComment.matchAsPrefix(trimmed);
+      if (match != null) {
+        final major = int.tryParse(match.group(1)!);
+        final minor = int.tryParse(match.group(2)!);
+        if (major == null || minor == null) break;
+        return '$major.$minor';
       }
+      if (_declarationEnd.matchAsPrefix(trimmed) != null) break;
     }
-    return null;
+    if (package?.languageVersion case final version?) {
+      return '${version.major}.${version.minor}';
+    }
+    return _currentLanguageVersion(flutterRoot);
   }
 
-  /// Renders the registrant source for [registrations].
+  String _currentLanguageVersion(String flutterRoot) {
+    final text = fileSystem
+        .file(paths.join(flutterRoot, 'bin', 'cache', 'dart-sdk', 'version'))
+        .readAsStringSync();
+    final match = RegExp(r'^(\d+)(\.(\d+))?').firstMatch(text)!;
+    return '${int.parse(match.group(1)!)}.${int.parse(match.group(3) ?? '0')}';
+  }
+
+  static final _languageVersionComment = RegExp(
+    r'\/\/\s*@dart\s*=\s*([0-9])\.([0-9]+)',
+  );
+  static final _declarationEnd = RegExp('(import)|(library)|(part)');
+
+  /// Renders `_dartPluginRegistryForNonWebTemplate` for [resolutions], keyed
+  /// by platform and sorted by plugin name within each.
   ///
   /// The shape is fixed by the VM, not by taste: the class must be named
   /// `_PluginRegistrant` with a static `register()`, and both it and the class
@@ -155,65 +156,64 @@ final class DartPluginRegistrant {
   /// and registration silently never happens.
   @visibleForTesting
   static String render(
-    List<DartPluginRegistration> registrations, {
-    String? entrypointUri,
+    Map<String, List<DartPluginResolution>> resolutions, {
+    required String languageVersion,
   }) {
     final buffer = StringBuffer()
-      ..writeln('//')
-      ..writeln('// Generated file. Do not edit.')
-      ..writeln('// Generated by xcross.')
-      ..writeln('//');
-    if (entrypointUri != null) {
-      buffer.writeln('// Entrypoint: $entrypointUri');
-    }
-    buffer
-      ..writeln()
-      ..writeln("import 'dart:io'; // flutter_ignore: dart_io_import.")
-      ..writeln();
+      ..write('''
+//
+// Generated file. Do not edit.
+// This file is generated from template in file `flutter_tools/lib/src/flutter_plugins.dart`.
+//
 
-    for (final registration in registrations) {
-      buffer.writeln(
-        "import '${registration.importUri}' as ${registration.pluginName};",
+// @dart = $languageVersion
+
+import 'dart:io'; // flutter_ignore: dart_io_import.
+''');
+    for (final platform in dartRegistrantPlatforms) {
+      for (final resolution
+          in resolutions[platform.key] ?? const <DartPluginResolution>[]) {
+        buffer.write(
+          "import 'package:${resolution.pluginName}/"
+          "${resolution.dartClass.dartFileName}' as "
+          '${resolution.pluginName};\n',
+        );
+      }
+    }
+    buffer.write('''
+
+@pragma('vm:entry-point')
+class _PluginRegistrant {
+
+  @pragma('vm:entry-point')
+  static void register() {
+''');
+    for (final (index, platform) in dartRegistrantPlatforms.indexed) {
+      buffer.write(
+        '${index == 0 ? '    if' : '    } else if'} '
+        '(Platform.${platform.platformGetter}) {\n',
       );
+      for (final resolution
+          in resolutions[platform.key] ?? const <DartPluginResolution>[]) {
+        final name = resolution.pluginName;
+        buffer.write('''
+      try {
+        $name.${resolution.dartClass.dartClass}.registerWith();
+      } catch (err) {
+        print(
+          '`$name` threw an error: \$err. '
+          'The app may not function as expected until you remove this plugin from pubspec.yaml'
+        );
+      }
+
+''');
+      }
     }
-
-    buffer
-      ..writeln()
-      ..writeln("@pragma('vm:entry-point')")
-      ..writeln('class _PluginRegistrant {')
-      ..writeln()
-      ..writeln("  @pragma('vm:entry-point')")
-      ..writeln('  static void register() {')
-      ..writeln('    if (Platform.isIOS) {');
-
-    for (final registration in registrations) {
-      // A throwing plugin must not take the whole app down: flutter_tools
-      // reports and continues, so one bad plugin degrades instead of
-      // producing the same blank screen this file exists to prevent.
-      buffer
-        ..writeln('      try {')
-        ..writeln(
-          '        ${registration.pluginName}.${registration.dartClass}'
-          '.registerWith();',
-        )
-        ..writeln('      } catch (err) {')
-        ..writeln('        print(')
-        ..writeln(
-          "          '`${registration.pluginName}` threw an error: \$err. '",
-        )
-        ..writeln(
-          "          'The app may not function as expected until you remove "
-          "this plugin from pubspec.yaml'",
-        )
-        ..writeln('        );')
-        ..writeln('      }');
+    buffer.write('''
     }
-
-    buffer
-      ..writeln('    }')
-      ..writeln('  }')
-      ..writeln('}');
-
+  }
+}
+''');
     return buffer.toString();
   }
 }
