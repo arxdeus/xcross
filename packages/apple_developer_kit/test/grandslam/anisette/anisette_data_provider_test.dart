@@ -197,6 +197,8 @@ void main() {
   );
 
   test(
+    testOn: '!windows',
+
     'mapped filesystem resolves default ADI boundary without native effects',
     () async {
       final fixture = MappedAppleFixture();

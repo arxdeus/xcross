@@ -122,6 +122,8 @@ void main() {
   );
 
   test(
+    testOn: '!windows',
+
     'mapped filesystem signs bundle and preserves containment and modes',
     () async {
       final fixture = MappedAppleFixture();
