@@ -1,10 +1,15 @@
 import 'dart:io';
 
+import 'package:cli_kit/shared/platform/file_system_inspection.dart';
 import 'package:cli_kit/shared/platform/platform_host.dart';
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/shared/flutter/build/ios_engine_cache.dart';
+import 'package:xcross/src/shared/flutter/flutter_workspace_overlay.dart';
 
+/// Whether a workspace still matches the layout [FlutterWorkspaceOverlay]
+/// would create now, so a partial, stale or written-through workspace is
+/// rebuilt rather than reused.
 @internal
 final class FlutterWorkspaceReadiness<T extends PlatformHostInterface> {
   const FlutterWorkspaceReadiness(this.engineCache);
@@ -16,63 +21,12 @@ final class FlutterWorkspaceReadiness<T extends PlatformHostInterface> {
     required String flutterRoot,
     required String workspaceRoot,
   }) async {
-    final sdkCache = paths.join(flutterRoot, 'bin', 'cache');
-    final cache = paths.join(workspaceRoot, 'bin', 'cache');
-    final sdkArtifacts = paths.join(sdkCache, 'artifacts');
-    final artifacts = paths.join(cache, 'artifacts');
-    final engine = paths.join(artifacts, 'engine');
-    final links = {
-      paths.join(workspaceRoot, 'packages'): paths.join(
-        flutterRoot,
-        'packages',
-      ),
-      paths.join(cache, 'dart-sdk'): paths.join(sdkCache, 'dart-sdk'),
-      paths.join(engine, 'ios'): paths.dirname(engineCache.flutterXcframework),
-      paths.join(engine, engineCache.hostEngineCacheDirectory): paths.dirname(
-        engineCache.vmSnapshotData,
-      ),
-      paths.join(engine, 'common'): paths.dirname(engineCache.patchedSdkRoot),
-    };
     try {
-      for (final entry in links.entries) {
-        if (!await _matchesLink(entry.key, entry.value)) {
-          return false;
-        }
-      }
-      for (final (source, destination, skip) in [
-        (
-          paths.join(flutterRoot, 'bin', 'internal'),
-          paths.join(workspaceRoot, 'bin', 'internal'),
-          const <String>{},
-        ),
-        (sdkCache, cache, const {'artifacts'}),
-        (sdkArtifacts, artifacts, const {'engine'}),
-        (
-          paths.join(sdkArtifacts, 'engine'),
-          engine,
-          {'ios', engineCache.hostEngineCacheDirectory, 'common'},
-        ),
-      ]) {
-        final sourceDirectory = fileSystem.directory(source);
-        if (!sourceDirectory.existsSync()) {
-          continue;
-        }
-        await for (final entity in sourceDirectory.list(followLinks: false)) {
-          final name = paths.basename(entity.path);
-          if (skip.contains(name)) continue;
-          final target = paths.join(destination, name);
-          if (entity is File) {
-            final copy = fileSystem.file(target);
-            final copyMatches =
-                copy.existsSync() &&
-                await copy.length() == await entity.length();
-            if (!copyMatches) {
-              return false;
-            }
-          } else if (!await _matchesLink(target, entity.path)) {
-            return false;
-          }
-        }
+      final plan = FlutterWorkspaceOverlay(
+        engineCache,
+      ).plan(flutterRoot: flutterRoot, workspaceRoot: workspaceRoot);
+      for (final entry in plan) {
+        if (!await _matches(entry, plan)) return false;
       }
       return true;
     } on FileSystemException {
@@ -80,11 +34,46 @@ final class FlutterWorkspaceReadiness<T extends PlatformHostInterface> {
     }
   }
 
-  Future<bool> _matchesLink(String path, String target) async =>
-      engineCache.host.paths.pathKey(
-        await fileSystem.file(path).resolveSymbolicLinks(),
-      ) ==
-      engineCache.host.paths.pathKey(
-        await fileSystem.file(target).resolveSymbolicLinks(),
-      );
+  Future<bool> _matches(
+    FlutterWorkspaceEntry entry,
+    List<FlutterWorkspaceEntry> plan,
+  ) async {
+    final path = entry.path;
+    final type = fileSystem.typeSync(path, followLinks: false);
+    switch (entry) {
+      case FlutterWorkspaceDirectory(:final exact):
+        if (type != FileSystemEntityType.directory) return false;
+        if (!exact) return true;
+        final key = engineCache.host.paths.pathKey(path);
+        final planned = {
+          for (final child in plan)
+            if (engineCache.host.paths.pathKey(paths.dirname(child.path)) ==
+                key)
+              paths.basename(child.path),
+        };
+        return fileSystem
+            .directory(path)
+            .listSync(followLinks: false)
+            .every((child) => planned.contains(paths.basename(child.path)));
+      case FlutterWorkspaceCopy(:final source):
+        return type == FileSystemEntityType.file &&
+            await fileSystem.file(path).length() ==
+                await fileSystem.file(source).length();
+      case FlutterWorkspaceFile(:final contents):
+        return type == FileSystemEntityType.file &&
+            await fileSystem.file(path).readAsString() == contents;
+      case FlutterWorkspaceLink(:final target):
+        if (type == FileSystemEntityType.directory ||
+            type == FileSystemEntityType.notFound) {
+          return false;
+        }
+        final host = engineCache.host;
+        return host.paths.pathKey(
+              await fileSystem.file(path).resolveSymbolicLinks(),
+            ) ==
+            host.paths.pathKey(
+              await fileSystem.file(target).resolveSymbolicLinks(),
+            );
+    }
+  }
 }
