@@ -82,6 +82,18 @@ Future<Process> startWaitingChild(
   return process;
 }
 
+Future<void> _deleteWithRetry(Directory directory) async {
+  for (var attempt = 0; ; attempt++) {
+    try {
+      directory.deleteSync(recursive: true);
+      return;
+    } on FileSystemException {
+      if (attempt >= 20) rethrow;
+      await Future<void>.delayed(const Duration(milliseconds: 250));
+    }
+  }
+}
+
 void main() {
   test(
     'Windows host assembly binds the selected paths environment and filesystem',
@@ -89,7 +101,9 @@ void main() {
       final temp = Directory.systemTemp.createTempSync(
         'windows-selected-host-',
       );
-      addTearDown(() => temp.deleteSync(recursive: true));
+      // A killed child can keep its working directory open briefly on
+      // Windows, so retry deletion instead of failing the test on teardown.
+      addTearDown(() => _deleteWithRetry(temp));
       final script = File(p.join(temp.path, 'wait.dart'))
         ..writeAsStringSync(
           "import 'dart:io'; Future<void> main() async { stdout.writeln(Directory.current.path); await Future<void>.delayed(const Duration(minutes: 10)); }",
@@ -131,7 +145,9 @@ void main() {
       final temp = Directory.systemTemp.createTempSync(
         'windows-selected-cleanup-',
       );
-      addTearDown(() => temp.deleteSync(recursive: true));
+      // A killed child can keep its working directory open briefly on
+      // Windows, so retry deletion instead of failing the test on teardown.
+      addTearDown(() => _deleteWithRetry(temp));
       final paths = WindowsProcessTestPaths(temp.path);
       final files = WindowsProcessTestFileSystem(paths);
       final environment = WindowsEnvironment({
