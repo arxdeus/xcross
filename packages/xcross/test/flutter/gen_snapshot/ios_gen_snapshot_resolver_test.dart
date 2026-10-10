@@ -1,3 +1,6 @@
+@TestOn('!windows')
+library;
+
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';

@@ -153,26 +153,30 @@ void main() {
     );
   });
 
-  test('a POSIX plutil shim reaches the alias through the marker argument, '
-      'whatever the executable is called', () async {
-    final temp = Directory.systemTemp.createTempSync('xcross_plutil_marker_');
-    addTearDown(() => temp.deleteSync(recursive: true));
-    final plist = File(p.join(temp.path, 'Info.plist'))
-      ..writeAsStringSync('<plist><dict>\n</dict></plist>\n');
+  test(
+    testOn: '!windows',
+    'a POSIX plutil shim reaches the alias through the marker argument, '
+    'whatever the executable is called',
+    () async {
+      final temp = Directory.systemTemp.createTempSync('xcross_plutil_marker_');
+      addTearDown(() => temp.deleteSync(recursive: true));
+      final plist = File(p.join(temp.path, 'Info.plist'))
+        ..writeAsStringSync('<plist><dict>\n</dict></plist>\n');
 
-    expect(
-      await ToolAliasOperation(windowsAliasRunner()).run([
-        ToolAliasOperation.plutilAliasMarker,
-        '-replace',
-        'MinimumOSVersion',
-        '-string',
-        '15.0',
-        plist.path,
-      ], executablePath: '/bundle/bin/xcross'),
-      0,
-    );
-    expect(plist.readAsStringSync(), contains('<string>15.0</string>'));
-  });
+      expect(
+        await ToolAliasOperation(windowsAliasRunner()).run([
+          ToolAliasOperation.plutilAliasMarker,
+          '-replace',
+          'MinimumOSVersion',
+          '-string',
+          '15.0',
+          plist.path,
+        ], executablePath: '/bundle/bin/xcross'),
+        0,
+      );
+      expect(plist.readAsStringSync(), contains('<string>15.0</string>'));
+    },
+  );
 
   test('does not intercept the normal xcross executable', () async {
     expect(

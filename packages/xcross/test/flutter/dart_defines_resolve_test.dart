@@ -99,7 +99,7 @@ void main() {
     });
   });
 
-  group('FlutterBuildContext.dartDefines', () {
+  group('FlutterBuildContext.dartDefines', testOn: '!windows', () {
     late Directory project;
     late Directory flutter;
     setUp(() {

@@ -29,7 +29,7 @@ void main() {
     expect(FlutterVersionDefines.fromJson({'channel': 'stable'}), isEmpty);
   });
 
-  group('read', () {
+  group('read', testOn: '!windows', () {
     late Directory flutter;
     setUp(() => flutter = Directory.systemTemp.createTempSync('xcross_ver_'));
     tearDown(() => flutter.deleteSync(recursive: true));
