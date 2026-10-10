@@ -1,6 +1,6 @@
 import 'package:cli_kit/shared/platform/platform_host.dart';
 import 'package:meta/meta.dart';
-import 'package:open_apple_macros/host/shared/toolchain_plugin_layout.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/open_apple_macros.dart';
 
 @internal
 typedef HostCompiler = ({String executable, List<String> arguments});

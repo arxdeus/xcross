@@ -322,40 +322,44 @@ void main() {
     },
   );
 
-  test('show separates its header from exact YAML output', () async {
-    final executable = File(p.join(temporary.path, 'tool'))
-      ..writeAsStringSync('#!/bin/sh\n');
-    if (!Platform.isWindows) Process.runSync('chmod', ['755', executable.path]);
-    final showStore = XcrossConfigStore(
-      LinuxHost(),
-      policy: const PosixConfigHost(),
-      directory: temporary.path,
-      environment: const {},
-    );
-    final config = XcrossConfig(
-      roots: XcrossConfigRoots(darwinSdk: temporary.path),
-      tools: {'tool': executable.path},
-    );
-    await showStore.save(config);
-    final output = StringBuffer();
-    final runner = CommandRunner<void>('xcross', 'test')
-      ..addCommand(
-        ConfigCommand(
-          store: showStore,
-          terminal: FakeTerminal(interactive: false),
-          writeLine: output.writeln,
-        ),
+  test(
+    testOn: '!windows',
+    'show separates its header from exact YAML output',
+    () async {
+      final executable = File(p.join(temporary.path, 'tool'))
+        ..writeAsStringSync('#!/bin/sh\n');
+      Process.runSync('chmod', ['755', executable.path]);
+      final showStore = XcrossConfigStore(
+        LinuxHost(),
+        policy: const PosixConfigHost(),
+        directory: temporary.path,
+        environment: const {},
       );
+      final config = XcrossConfig(
+        roots: XcrossConfigRoots(darwinSdk: temporary.path),
+        tools: {'tool': executable.path},
+      );
+      await showStore.save(config);
+      final output = StringBuffer();
+      final runner = CommandRunner<void>('xcross', 'test')
+        ..addCommand(
+          ConfigCommand(
+            store: showStore,
+            terminal: FakeTerminal(interactive: false),
+            writeLine: output.writeln,
+          ),
+        );
 
-    await runner.run(['config', 'show']);
-    expect(
-      output.toString(),
-      'Selected: ${showStore.selectedFile()!.path}\n${config.toYaml()}',
-    );
-    output.clear();
-    await runner.run(['config', 'validate']);
-    expect(output.toString(), 'Configuration is valid.\n');
-  });
+      await runner.run(['config', 'show']);
+      expect(
+        output.toString(),
+        'Selected: ${showStore.selectedFile()!.path}\n${config.toYaml()}',
+      );
+      output.clear();
+      await runner.run(['config', 'validate']);
+      expect(output.toString(), 'Configuration is valid.\n');
+    },
+  );
 
   test('interactive command requires a TTY', () async {
     final runner = CommandRunner<void>('xcross', 'test')
@@ -374,23 +378,27 @@ void main() {
     );
   });
 
-  test('validate rejects a missing configured tool', () async {
-    await store.save(
-      XcrossConfig(tools: {'missing': p.join(temporary.path, 'missing')}),
-    );
-    final runner = CommandRunner<void>('xcross', 'test')
-      ..addCommand(
-        ConfigCommand(
-          store: store,
-          terminal: FakeTerminal(interactive: false),
-          writeLine: (_) {},
-        ),
+  test(
+    testOn: '!windows',
+    'validate rejects a missing configured tool',
+    () async {
+      await store.save(
+        XcrossConfig(tools: {'missing': p.join(temporary.path, 'missing')}),
       );
-    await expectLater(
-      runner.run(['config', 'validate']),
-      throwsA(isA<XcrossConfigException>()),
-    );
-  });
+      final runner = CommandRunner<void>('xcross', 'test')
+        ..addCommand(
+          ConfigCommand(
+            store: store,
+            terminal: FakeTerminal(interactive: false),
+            writeLine: (_) {},
+          ),
+        );
+      await expectLater(
+        runner.run(['config', 'validate']),
+        throwsA(isA<XcrossConfigException>()),
+      );
+    },
+  );
 }
 
 @internal

@@ -20,6 +20,8 @@ void main() {
   });
 
   test(
+    testOn: '!windows',
+
     'reads detached, loose-ref, packed-ref and linked-worktree HEAD identity',
     () {
       context = CheckoutTestContext(root, (_) => CheckoutTestProcess());
@@ -97,6 +99,8 @@ void main() {
   }
 
   test(
+    testOn: '!windows',
+
     'retargeted stamped ancestor cannot skip live destination containment',
     () async {
       final outsideParent = Directory.systemTemp.createTempSync(
@@ -155,64 +159,70 @@ void main() {
   );
 
   for (final chain in [false, true]) {
-    test('dangling optional link cache reuse, chain $chain', () async {
-      context = CheckoutTestContext(root, (command) {
-        if (command.arguments.contains('ls-files')) {
-          return CheckoutTestProcess(
-            output: utf8.encode(
-              chain
-                  ? '120000 aa 0\tExamples/link\u0000120000 bb 0\tExamples/second\u0000'
-                  : '120000 aa 0\tExamples/link\u0000',
-            ),
-          );
-        }
-        if (command.arguments.contains('cat-file')) {
-          return CheckoutTestProcess(
-            output: utf8.encode(
-              chain
-                  ? 'aa blob 6\nsecond\nbb blob 10\n../missing\n'
-                  : 'aa blob 10\n../missing\n',
-            ),
-          );
-        }
-        return CheckoutTestProcess();
-      });
-      Directory(p.join(root.path, '.git')).createSync();
-      File(p.join(root.path, '.git/HEAD')).writeAsStringSync('identity');
-      Directory(p.join(root.path, 'Examples')).createSync();
-      File(
-        p.join(root.path, 'Package.swift'),
-      ).writeAsStringSync('.target(name: "Core", path: "Sources/Core")');
-      File(
-        p.join(root.path, 'Examples/link'),
-      ).writeAsStringSync(chain ? 'second' : '../missing');
-      if (chain) {
+    test(
+      testOn: '!windows',
+      'dangling optional link cache reuse, chain $chain',
+      () async {
+        context = CheckoutTestContext(root, (command) {
+          if (command.arguments.contains('ls-files')) {
+            return CheckoutTestProcess(
+              output: utf8.encode(
+                chain
+                    ? '120000 aa 0\tExamples/link\u0000120000 bb 0\tExamples/second\u0000'
+                    : '120000 aa 0\tExamples/link\u0000',
+              ),
+            );
+          }
+          if (command.arguments.contains('cat-file')) {
+            return CheckoutTestProcess(
+              output: utf8.encode(
+                chain
+                    ? 'aa blob 6\nsecond\nbb blob 10\n../missing\n'
+                    : 'aa blob 10\n../missing\n',
+              ),
+            );
+          }
+          return CheckoutTestProcess();
+        });
+        Directory(p.join(root.path, '.git')).createSync();
+        File(p.join(root.path, '.git/HEAD')).writeAsStringSync('identity');
+        Directory(p.join(root.path, 'Examples')).createSync();
         File(
-          p.join(root.path, 'Examples/second'),
-        ).writeAsStringSync('../missing');
-      }
-      expect(
-        await context.checkout.materializeGitCheckoutSymlinks(
-          root.path,
-          git: '/fixture/git',
-          symlinks: true,
-        ),
-        isTrue,
-      );
-      final count = context.processes.commands.length;
-      expect(
-        await context.checkout.materializeGitCheckoutSymlinks(
-          root.path,
-          git: '/fixture/git',
-          symlinks: true,
-        ),
-        isFalse,
-      );
-      expect(context.processes.commands, hasLength(count));
-    });
+          p.join(root.path, 'Package.swift'),
+        ).writeAsStringSync('.target(name: "Core", path: "Sources/Core")');
+        File(
+          p.join(root.path, 'Examples/link'),
+        ).writeAsStringSync(chain ? 'second' : '../missing');
+        if (chain) {
+          File(
+            p.join(root.path, 'Examples/second'),
+          ).writeAsStringSync('../missing');
+        }
+        expect(
+          await context.checkout.materializeGitCheckoutSymlinks(
+            root.path,
+            git: '/fixture/git',
+            symlinks: true,
+          ),
+          isTrue,
+        );
+        final count = context.processes.commands.length;
+        expect(
+          await context.checkout.materializeGitCheckoutSymlinks(
+            root.path,
+            git: '/fixture/git',
+            symlinks: true,
+          ),
+          isFalse,
+        );
+        expect(context.processes.commands, hasLength(count));
+      },
+    );
   }
 
   test(
+    testOn: '!windows',
+
     'rejects link hop through outside ancestor returning lexically inside',
     () async {
       context = CheckoutTestContext(root, (_) => CheckoutTestProcess());
@@ -233,6 +243,8 @@ void main() {
 
   for (final warm in [false, true]) {
     test(
+      testOn: '!windows',
+
       'raw indexed target rejects outside intermediary, warm $warm',
       () async {
         final outside = Directory.systemTemp.createTempSync(
@@ -308,6 +320,8 @@ void main() {
   }
 
   test(
+    testOn: '!windows',
+
     'cold raw components resolve planned indexed placeholders before parent traversal',
     () async {
       context = CheckoutTestContext(root, (command) {
@@ -348,6 +362,8 @@ void main() {
   );
 
   test(
+    testOn: '!windows',
+
     'direct link entrypoint rejects planned raw target before any effects',
     () async {
       context = CheckoutTestContext(
@@ -377,19 +393,25 @@ void main() {
     },
   );
 
-  test('rejects live link cycles with bounded traversal', () async {
-    context = CheckoutTestContext(root, (_) => CheckoutTestProcess());
-    await Link(p.join(root.path, 'a')).create('b');
-    await Link(p.join(root.path, 'b')).create('a');
-    expect(
-      () => SwiftPmCheckoutContainment(
-        context.fileSystem,
-      ).validateTarget(root.path, p.join(root.path, 'a')),
-      throwsA(isA<FlutterBuildError>()),
-    );
-  });
+  test(
+    testOn: '!windows',
+    'rejects live link cycles with bounded traversal',
+    () async {
+      context = CheckoutTestContext(root, (_) => CheckoutTestProcess());
+      await Link(p.join(root.path, 'a')).create('b');
+      await Link(p.join(root.path, 'b')).create('a');
+      expect(
+        () => SwiftPmCheckoutContainment(
+          context.fileSystem,
+        ).validateTarget(root.path, p.join(root.path, 'a')),
+        throwsA(isA<FlutterBuildError>()),
+      );
+    },
+  );
 
   test(
+    testOn: '!windows',
+
     'materialization restores symlinks and unchanged HEAD stamp avoids all processes',
     () async {
       context = CheckoutTestContext(root, (command) {

@@ -179,6 +179,7 @@ abstract class PosixFlutterFeatureServices<T extends PlatformHostInterface>
     executable: resolution.executable,
     launcher: resolution.launcher,
     xcrun: resolution.xcrun,
+    openAppleMacrosServer: resolution.openAppleMacrosServer,
     declarative: resolution.declarative,
   );
 

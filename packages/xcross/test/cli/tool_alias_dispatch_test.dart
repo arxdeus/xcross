@@ -53,62 +53,71 @@ void main() {
     },
   );
 
-  test('dispatches native asset aliases through sidecar mappings', () async {
-    final temp = Directory.systemTemp.createTempSync('xcross_tool_alias_');
-    addTearDown(() => temp.deleteSync(recursive: true));
-    final alias = File(p.join(temp.path, 'cc.exe'))..writeAsStringSync('alias');
-    File('${alias.path}.path').writeAsStringSync(r'C:\LLVM\clang.exe');
-    File(
-      '${alias.path}.args',
-    ).writeAsStringSync(r'["-isysroot","C:\\SDK","-Wl,-arch,arm64"]');
+  test(
+    testOn: '!windows',
+    'dispatches native asset aliases through sidecar mappings',
+    () async {
+      final temp = Directory.systemTemp.createTempSync('xcross_tool_alias_');
+      addTearDown(() => temp.deleteSync(recursive: true));
+      final alias = File(p.join(temp.path, 'cc.exe'))
+        ..writeAsStringSync('alias');
+      File('${alias.path}.path').writeAsStringSync(r'C:\LLVM\clang.exe');
+      File(
+        '${alias.path}.args',
+      ).writeAsStringSync(r'["-isysroot","C:\\SDK","-Wl,-arch,arm64"]');
 
-    String? executable;
-    List<String>? forwarded;
-    final code = await ToolAliasOperation(windowsAliasRunner()).run(
-      ['--target=aarch64-apple-ios', '--version'],
-      executablePath: alias.path,
-      environment: const {},
-      run: (target, arguments) async {
-        executable = target;
-        forwarded = arguments;
-        return 0;
-      },
-    );
+      String? executable;
+      List<String>? forwarded;
+      final code = await ToolAliasOperation(windowsAliasRunner()).run(
+        ['--target=aarch64-apple-ios', '--version'],
+        executablePath: alias.path,
+        environment: const {},
+        run: (target, arguments) async {
+          executable = target;
+          forwarded = arguments;
+          return 0;
+        },
+      );
 
-    expect(code, 0);
-    expect(executable, r'C:\LLVM\clang.exe');
-    expect(forwarded, [
-      '-isysroot',
-      r'C:\SDK',
-      '-Wl,-arch,arm64',
-      '--target=aarch64-apple-ios',
-      '--version',
-    ]);
-  });
+      expect(code, 0);
+      expect(executable, r'C:\LLVM\clang.exe');
+      expect(forwarded, [
+        '-isysroot',
+        r'C:\SDK',
+        '-Wl,-arch,arm64',
+        '--target=aarch64-apple-ios',
+        '--version',
+      ]);
+    },
+  );
 
-  test('plutil replaces MinimumOSVersion for Flutter assemble', () async {
-    final temp = Directory.systemTemp.createTempSync('xcross_plutil_');
-    addTearDown(() => temp.deleteSync(recursive: true));
-    final plist = File(p.join(temp.path, 'Info.plist'))
-      ..writeAsStringSync('''
+  test(
+    testOn: '!windows',
+    'plutil replaces MinimumOSVersion for Flutter assemble',
+    () async {
+      final temp = Directory.systemTemp.createTempSync('xcross_plutil_');
+      addTearDown(() => temp.deleteSync(recursive: true));
+      final plist = File(p.join(temp.path, 'Info.plist'))
+        ..writeAsStringSync('''
 <plist><dict>
 <key>MinimumOSVersion</key>
 <string>12.0</string>
 </dict></plist>
 ''');
 
-    expect(
-      await ToolAliasOperation(windowsAliasRunner()).run([
-        '-replace',
-        'MinimumOSVersion',
-        '-string',
-        '15.0',
-        plist.path,
-      ], executablePath: p.join(temp.path, 'plutil')),
-      0,
-    );
-    expect(plist.readAsStringSync(), contains('<string>15.0</string>'));
-  });
+      expect(
+        await ToolAliasOperation(windowsAliasRunner()).run([
+          '-replace',
+          'MinimumOSVersion',
+          '-string',
+          '15.0',
+          plist.path,
+        ], executablePath: p.join(temp.path, 'plutil')),
+        0,
+      );
+      expect(plist.readAsStringSync(), contains('<string>15.0</string>'));
+    },
+  );
 
   test('plutil adds MinimumOSVersion to a plist that lacks it, as Flutter '
       "assemble's AppFrameworkInfo.plist does", () {
@@ -177,26 +186,30 @@ void main() {
     );
   });
 
-  test('runs dsymutil normally when the mapped executable exists', () async {
-    final temp = Directory.systemTemp.createTempSync('xcross_dsymutil_');
-    addTearDown(() => temp.deleteSync(recursive: true));
-    final dsymutil = File(p.join(temp.path, 'dsymutil.exe'))
-      ..writeAsStringSync('fake');
-    var invoked = false;
+  test(
+    testOn: '!windows',
+    'runs dsymutil normally when the mapped executable exists',
+    () async {
+      final temp = Directory.systemTemp.createTempSync('xcross_dsymutil_');
+      addTearDown(() => temp.deleteSync(recursive: true));
+      final dsymutil = File(p.join(temp.path, 'dsymutil.exe'))
+        ..writeAsStringSync('fake');
+      var invoked = false;
 
-    final code = await ToolAliasOperation(windowsAliasRunner()).run(
-      ['framework/Binary', '-o', 'framework.dSYM'],
-      executablePath: r'C:\prepared\bin\dsymutil.exe',
-      environment: {'XCROSS_APPLE_TOOL_DSYMUTIL': dsymutil.path},
-      run: (target, arguments) async {
-        invoked = true;
-        return 0;
-      },
-    );
+      final code = await ToolAliasOperation(windowsAliasRunner()).run(
+        ['framework/Binary', '-o', 'framework.dSYM'],
+        executablePath: r'C:\prepared\bin\dsymutil.exe',
+        environment: {'XCROSS_APPLE_TOOL_DSYMUTIL': dsymutil.path},
+        run: (target, arguments) async {
+          invoked = true;
+          return 0;
+        },
+      );
 
-    expect(code, 0);
-    expect(invoked, isTrue);
-  });
+      expect(code, 0);
+      expect(invoked, isTrue);
+    },
+  );
 
   test('no-ops dsymutil instead of failing the build when the mapped '
       'executable does not exist', () async {
@@ -218,71 +231,79 @@ void main() {
     expect(code, 0);
   });
 
-  test('falls back to llvm-ar when llvm-libtool-darwin is missing', () async {
-    final temp = Directory.systemTemp.createTempSync('xcross_libtool_');
-    addTearDown(() => temp.deleteSync(recursive: true));
-    final ar = File(p.join(temp.path, 'llvm-ar'))..writeAsStringSync('');
-    final list = File(p.join(temp.path, 'libraries'))
-      ..writeAsStringSync('a.a\nb.a\n');
-    String? executable;
-    List<String>? forwarded;
+  test(
+    testOn: '!windows',
+    'falls back to llvm-ar when llvm-libtool-darwin is missing',
+    () async {
+      final temp = Directory.systemTemp.createTempSync('xcross_libtool_');
+      addTearDown(() => temp.deleteSync(recursive: true));
+      final ar = File(p.join(temp.path, 'llvm-ar'))..writeAsStringSync('');
+      final list = File(p.join(temp.path, 'libraries'))
+        ..writeAsStringSync('a.a\nb.a\n');
+      String? executable;
+      List<String>? forwarded;
 
-    final code = await ToolAliasOperation(testRuntime().runner).run(
-      [
-        '-D',
-        '-static',
-        '-o',
+      final code = await ToolAliasOperation(testRuntime().runner).run(
+        [
+          '-D',
+          '-static',
+          '-o',
+          p.join(temp.path, 'Out'),
+          '-arch_only',
+          'arm64',
+          'main.o',
+          '-filelist',
+          list.path,
+        ],
+        executablePath: '/prepared/bin/libtool',
+        environment: {
+          'XCROSS_APPLE_TOOL_LIBTOOL': p.join(temp.path, 'llvm-libtool-darwin'),
+        },
+        run: (target, arguments) async {
+          executable = target;
+          forwarded = arguments;
+          return 0;
+        },
+      );
+
+      expect(code, 0);
+      expect(executable, ar.path);
+      expect(forwarded, [
+        'qLsD',
+        '--format=darwin',
         p.join(temp.path, 'Out'),
-        '-arch_only',
-        'arm64',
         'main.o',
-        '-filelist',
-        list.path,
-      ],
-      executablePath: '/prepared/bin/libtool',
-      environment: {
-        'XCROSS_APPLE_TOOL_LIBTOOL': p.join(temp.path, 'llvm-libtool-darwin'),
-      },
-      run: (target, arguments) async {
-        executable = target;
-        forwarded = arguments;
-        return 0;
-      },
-    );
+        'a.a',
+        'b.a',
+      ]);
+    },
+  );
 
-    expect(code, 0);
-    expect(executable, ar.path);
-    expect(forwarded, [
-      'qLsD',
-      '--format=darwin',
-      p.join(temp.path, 'Out'),
-      'main.o',
-      'a.a',
-      'b.a',
-    ]);
-  });
+  test(
+    testOn: '!windows',
+    'passes the arm64 slice of a universal archive to llvm-ar',
+    () {
+      final temp = Directory.systemTemp.createTempSync('xcross_libtool_fat_');
+      addTearDown(() => temp.deleteSync(recursive: true));
+      final slice = [0x21, 0x3c, 0x61, 0x72, 0x63, 0x68, 0x3e, 0x0a];
+      final header = ByteData(28)
+        ..setUint32(0, 0xcafebabe)
+        ..setUint32(4, 1)
+        ..setUint32(8, 0x0100000c)
+        ..setUint32(16, 28)
+        ..setUint32(20, slice.length);
+      final fat = File(p.join(temp.path, 'libfat.a'))
+        ..writeAsBytesSync([...header.buffer.asUint8List(), ...slice]);
+      final output = p.join(temp.path, 'Out');
 
-  test('passes the arm64 slice of a universal archive to llvm-ar', () {
-    final temp = Directory.systemTemp.createTempSync('xcross_libtool_fat_');
-    addTearDown(() => temp.deleteSync(recursive: true));
-    final slice = [0x21, 0x3c, 0x61, 0x72, 0x63, 0x68, 0x3e, 0x0a];
-    final header = ByteData(28)
-      ..setUint32(0, 0xcafebabe)
-      ..setUint32(4, 1)
-      ..setUint32(8, 0x0100000c)
-      ..setUint32(16, 28)
-      ..setUint32(20, slice.length);
-    final fat = File(p.join(temp.path, 'libfat.a'))
-      ..writeAsBytesSync([...header.buffer.asUint8List(), ...slice]);
-    final output = p.join(temp.path, 'Out');
+      final args = ToolAliasOperation(
+        testRuntime().runner,
+      ).libtoolAsArArguments(['-static', '-o', output, fat.path])!;
 
-    final args = ToolAliasOperation(
-      testRuntime().runner,
-    ).libtoolAsArArguments(['-static', '-o', output, fat.path])!;
-
-    expect(args.take(3), ['qLsD', '--format=darwin', output]);
-    expect(File(args.last).readAsBytesSync(), slice);
-  });
+      expect(args.take(3), ['qLsD', '--format=darwin', output]);
+      expect(File(args.last).readAsBytesSync(), slice);
+    },
+  );
 }
 
 @internal

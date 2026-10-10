@@ -459,7 +459,7 @@ class ArchitectureWorkflowTests(unittest.TestCase):
         paths = [body.split('path: |\n', 1)[1].split('\n          key:', 1)[0] for body in bodies]
         self.assertEqual(keys[0], keys[1])
         self.assertEqual(paths[0], paths[1])
-        self.assertIn("hashFiles('packages/open_apple_macros/swift/**', 'packages/open_apple_macros/lib/**')", keys[0])
+        self.assertIn("hashFiles('.gitmodules', 'packages/xcross/lib/src/shared/flutter/swiftpm/open_apple_macros.dart')", keys[0])
         self.assertIn('${{ runner.os }}-${{ runner.arch }}', keys[0])
         return keys[0]
 
@@ -475,7 +475,7 @@ class ArchitectureWorkflowTests(unittest.TestCase):
         for old, new in (
             ("${{ !cancelled() && steps.darwin", "${{ success() && steps.darwin"),
             ("-swift-${{ env.SWIFT_VERSION }}-", "-"),
-            ("'packages/open_apple_macros/swift/**', ", ''),
+            ("'packages/xcross/lib/src/shared/flutter/swiftpm/open_apple_macros.dart'", "'.gitmodules'"),
         ):
             with self.subTest(new=new):
                 self.assertIn(old, original)

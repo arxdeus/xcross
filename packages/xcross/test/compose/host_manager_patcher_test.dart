@@ -389,37 +389,43 @@ void main() {
       );
     });
 
-    test('rejects duplicate archive entries before patching', () async {
-      final jar = File('${tmpDir.path}/test.jar');
-      final archive = Archive()
-        ..addFile(ArchiveFile('dup/A.class', 1, [0]))
-        ..addFile(ArchiveFile('dup/B.class', 1, [1]));
-      final bytes = ZipEncoder().encode(archive);
-      final from = 'dup/B.class'.codeUnits;
-      final to = 'dup/A.class'.codeUnits;
-      for (var i = 0; i <= bytes.length - from.length; i++) {
-        var matches = true;
-        for (var j = 0; j < from.length; j++) {
-          if (bytes[i + j] != from[j]) {
-            matches = false;
-            break;
+    test(
+      testOn: '!windows',
+      'rejects duplicate archive entries before patching',
+      () async {
+        final jar = File('${tmpDir.path}/test.jar');
+        final archive = Archive()
+          ..addFile(ArchiveFile('dup/A.class', 1, [0]))
+          ..addFile(ArchiveFile('dup/B.class', 1, [1]));
+        final bytes = ZipEncoder().encode(archive);
+        final from = 'dup/B.class'.codeUnits;
+        final to = 'dup/A.class'.codeUnits;
+        for (var i = 0; i <= bytes.length - from.length; i++) {
+          var matches = true;
+          for (var j = 0; j < from.length; j++) {
+            if (bytes[i + j] != from[j]) {
+              matches = false;
+              break;
+            }
+          }
+          if (matches) {
+            bytes.setRange(i, i + to.length, to);
           }
         }
-        if (matches) {
-          bytes.setRange(i, i + to.length, to);
-        }
-      }
-      await jar.writeAsBytes(bytes);
+        await jar.writeAsBytes(bytes);
 
-      expect(
-        () => KotlinNativeJarPatcher(
-          session.fixtureRunner.host.fileSystem,
-        ).patch(jar.path),
-        throwsA(isA<StateError>()),
-      );
-    });
+        expect(
+          () => KotlinNativeJarPatcher(
+            session.fixtureRunner.host.fileSystem,
+          ).patch(jar.path),
+          throwsA(isA<StateError>()),
+        );
+      },
+    );
 
     test(
+      testOn: '!windows',
+
       'ignores central-directory signature bytes in normal entry payload',
       () async {
         final jar = File('${tmpDir.path}/test.jar');
@@ -488,45 +494,58 @@ void main() {
       expect(updatedManifest.comment, equals(originalManifest.comment));
     });
 
-    test('returns true and adds marker when HostManager present', () async {
-      final jar = File('${tmpDir.path}/test.jar');
-      await jar.writeAsBytes(
-        buildJar({
-          hostManagerClassEntry: buildFakeHostManagerClass().toList(),
-          'other/Entry.class': [1, 2, 3, 4],
-        }),
-      );
+    test(
+      testOn: '!windows',
+      'returns true and adds marker when HostManager present',
+      () async {
+        final jar = File('${tmpDir.path}/test.jar');
+        await jar.writeAsBytes(
+          buildJar({
+            hostManagerClassEntry: buildFakeHostManagerClass().toList(),
+            'other/Entry.class': [1, 2, 3, 4],
+          }),
+        );
 
-      expect(
-        KotlinNativeJarPatcher(
-          session.fixtureRunner.host.fileSystem,
-        ).patch(jar.path),
-        isTrue,
-      );
+        expect(
+          KotlinNativeJarPatcher(
+            session.fixtureRunner.host.fileSystem,
+          ).patch(jar.path),
+          isTrue,
+        );
 
-      final updated = ZipDecoder().decodeBytes(await jar.readAsBytes());
-      expect(updated.files.map((f) => f.name).toSet(), contains(jarMarkerPath));
-    });
+        final updated = ZipDecoder().decodeBytes(await jar.readAsBytes());
+        expect(
+          updated.files.map((f) => f.name).toSet(),
+          contains(jarMarkerPath),
+        );
+      },
+    );
 
-    test('is idempotent: second call returns false', () async {
-      final jar = File('${tmpDir.path}/test.jar');
-      await jar.writeAsBytes(
-        buildJar({hostManagerClassEntry: buildFakeHostManagerClass().toList()}),
-      );
+    test(
+      testOn: '!windows',
+      'is idempotent: second call returns false',
+      () async {
+        final jar = File('${tmpDir.path}/test.jar');
+        await jar.writeAsBytes(
+          buildJar({
+            hostManagerClassEntry: buildFakeHostManagerClass().toList(),
+          }),
+        );
 
-      expect(
-        KotlinNativeJarPatcher(
-          session.fixtureRunner.host.fileSystem,
-        ).patch(jar.path),
-        isTrue,
-      );
-      expect(
-        KotlinNativeJarPatcher(
-          session.fixtureRunner.host.fileSystem,
-        ).patch(jar.path),
-        isFalse,
-      );
-    });
+        expect(
+          KotlinNativeJarPatcher(
+            session.fixtureRunner.host.fileSystem,
+          ).patch(jar.path),
+          isTrue,
+        );
+        expect(
+          KotlinNativeJarPatcher(
+            session.fixtureRunner.host.fileSystem,
+          ).patch(jar.path),
+          isFalse,
+        );
+      },
+    );
 
     test('returns false for non-existent file', () {
       expect(
@@ -559,6 +578,8 @@ void main() {
     });
 
     test(
+      testOn: '!windows',
+
       'patches AppleConfigurablesImpl when present alongside HostManager',
       () async {
         final jar = File('${tmpDir.path}/test.jar');
@@ -589,6 +610,8 @@ void main() {
     );
 
     test(
+      testOn: '!windows',
+
       'patches AppleConfigurablesImpl alone even without HostManager/ObjCExport',
       () async {
         final jar = File('${tmpDir.path}/test.jar');

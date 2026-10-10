@@ -52,7 +52,7 @@ void main() {
     void writeRecord(String id) =>
         File(p.join(home.path, 'remote_$id.plist')).writeAsStringSync('');
 
-    test('no directory → no records, pairing offered', () {
+    test(testOn: '!windows', 'no directory → no records, pairing offered', () {
       pairing = RemotePairing(
         Pymd(
           console: TestDeviceConsole(),
@@ -67,41 +67,57 @@ void main() {
       expect(pairing.shouldOfferPairing(), isTrue);
     });
 
-    test('empty directory → pairing offered', () {
+    test(testOn: '!windows', 'empty directory → pairing offered', () {
       expect(pairing.pairingRecordIds(), isEmpty);
       expect(pairing.shouldOfferPairing(), isTrue);
     });
 
-    test('parses the UDID out of remote_<UDID>.plist', () {
+    test(testOn: '!windows', 'parses the UDID out of remote_<UDID>.plist', () {
       writeRecord('00008030-000664292232802E');
       expect(pairing.pairingRecordIds(), ['00008030-000664292232802E']);
     });
 
-    test('ignores unrelated files', () {
+    test(testOn: '!windows', 'ignores unrelated files', () {
       File(p.join(home.path, 'other.plist')).writeAsStringSync('');
       Directory(p.join(home.path, 'remote_dir')).createSync();
       expect(pairing.pairingRecordIds(), isEmpty);
     });
 
-    test('any record suppresses pairing for a null selector', () {
-      writeRecord('00008030-000664292232802E');
-      expect(pairing.shouldOfferPairing(), isFalse);
-    });
+    test(
+      testOn: '!windows',
+      'any record suppresses pairing for a null selector',
+      () {
+        writeRecord('00008030-000664292232802E');
+        expect(pairing.shouldOfferPairing(), isFalse);
+      },
+    );
 
-    test('any record suppresses pairing for a name selector', () {
-      writeRecord('00008030-000664292232802E');
-      expect(pairing.shouldOfferPairing('iPhone Mind'), isFalse);
-    });
+    test(
+      testOn: '!windows',
+      'any record suppresses pairing for a name selector',
+      () {
+        writeRecord('00008030-000664292232802E');
+        expect(pairing.shouldOfferPairing('iPhone Mind'), isFalse);
+      },
+    );
 
-    test('matching UDID selector suppresses pairing, dashes ignored', () {
-      writeRecord('00008030-000664292232802E');
-      expect(pairing.shouldOfferPairing('00008030000664292232802E'), isFalse);
-    });
+    test(
+      testOn: '!windows',
+      'matching UDID selector suppresses pairing, dashes ignored',
+      () {
+        writeRecord('00008030-000664292232802E');
+        expect(pairing.shouldOfferPairing('00008030000664292232802E'), isFalse);
+      },
+    );
 
-    test('non-matching UDID selector still offers pairing', () {
-      writeRecord('00008030-000664292232802E');
-      expect(pairing.shouldOfferPairing('00008110-001122334455667E'), isTrue);
-    });
+    test(
+      testOn: '!windows',
+      'non-matching UDID selector still offers pairing',
+      () {
+        writeRecord('00008030-000664292232802E');
+        expect(pairing.shouldOfferPairing('00008110-001122334455667E'), isTrue);
+      },
+    );
   });
 
   group('pairing.advertiseName', () {

@@ -79,6 +79,9 @@ $PayloadDirs = @('bin', 'lib', 'THIRD_PARTY_LICENSES')
 #   $InstallDir\
 #     bin\xcross.exe            the AOT-compiled executable
 #     lib\sysv_abi_bridge.dll   native library loaded at startup
+#     lib\OpenAppleMacrosServer.exe
+#                               Swift macro plugin server, with the Swift
+#                               runtime DLLs it loads from lib\
 #     THIRD_PARTY_LICENSES\     notices for bundled third-party code
 #
 # At runtime xcross.exe resolves its native libraries relative to itself, as

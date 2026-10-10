@@ -45,6 +45,8 @@ void main() {
   });
 
   test(
+    testOn: '!windows',
+
     'configuration prepends path and overlays roots without global state',
     () async {
       final host = LinuxHost(
@@ -100,6 +102,8 @@ environment:
   );
 
   test(
+    testOn: '!windows',
+
     'injected Windows overlay folds case and uses Windows separator on POSIX',
     () async {
       final fixtureHost = LinuxHost(currentDirectory: temporary.path);
@@ -130,29 +134,33 @@ environment:
     },
   );
 
-  test('POSIX runtime retains distinct case and suffix tool keys', () async {
-    final host = LinuxHost();
-    final tool = File(p.join(temporary.path, 'tool'))
-      ..writeAsStringSync('tool');
-    host.fileSystem.makeExecutable(tool.path);
-    final store = XcrossConfigStore(
-      host,
-      directory: temporary.path,
-      policy: const PosixConfigHost(),
-    );
-    final tools = {'clang': tool.path, 'CLANG.EXE': tool.path};
-    await store.save(XcrossConfig(tools: tools).copyWith());
-    final runtime = await XcrossRuntimeConfig.load(
-      host,
-      store: store,
-      policy: const PosixConfigHost(),
-    );
-    expect(runtime.tools, tools);
-    expect(runtime.tool('clang'), tool.path);
-    expect(runtime.tool('CLANG.EXE'), tool.path);
-    expect(runtime.tool('clang.exe'), isNull);
-    expect(runtime.processConfiguration!.normalizedTools, tools);
-  });
+  test(
+    testOn: '!windows',
+    'POSIX runtime retains distinct case and suffix tool keys',
+    () async {
+      final host = LinuxHost();
+      final tool = File(p.join(temporary.path, 'tool'))
+        ..writeAsStringSync('tool');
+      host.fileSystem.makeExecutable(tool.path);
+      final store = XcrossConfigStore(
+        host,
+        directory: temporary.path,
+        policy: const PosixConfigHost(),
+      );
+      final tools = {'clang': tool.path, 'CLANG.EXE': tool.path};
+      await store.save(XcrossConfig(tools: tools).copyWith());
+      final runtime = await XcrossRuntimeConfig.load(
+        host,
+        store: store,
+        policy: const PosixConfigHost(),
+      );
+      expect(runtime.tools, tools);
+      expect(runtime.tool('clang'), tool.path);
+      expect(runtime.tool('CLANG.EXE'), tool.path);
+      expect(runtime.tool('clang.exe'), isNull);
+      expect(runtime.processConfiguration!.normalizedTools, tools);
+    },
+  );
 
   test('Windows runtime exposes decoded canonical tool aliases', () async {
     final fixture = AuthNamespaceFixture(style: p.Style.windows);
@@ -202,27 +210,33 @@ environment:
     expect(loaded[1].childEnvironment['PATH'], '/second/bin');
   });
 
-  test('failed configuration load cannot poison another runtime', () async {
-    final host = LinuxHost(environment: const {'HOME': '/home/test'});
-    File(
-      p.join(temporary.path, 'config.yaml'),
-    ).writeAsStringSync('roots: [bad]');
-    await expectLater(
-      XcrossRuntimeConfig.load(
+  test(
+    testOn: '!windows',
+    'failed configuration load cannot poison another runtime',
+    () async {
+      final host = LinuxHost(environment: const {'HOME': '/home/test'});
+      File(
+        p.join(temporary.path, 'config.yaml'),
+      ).writeAsStringSync('roots: [bad]');
+      await expectLater(
+        XcrossRuntimeConfig.load(
+          host,
+          configDirectory: temporary.path,
+          policy: const PosixConfigHost(),
+        ),
+        throwsA(isA<XcrossConfigException>()),
+      );
+      File(
+        p.join(temporary.path, 'config.yaml'),
+      ).writeAsStringSync('roots: {}');
+      final runtime = await XcrossRuntimeConfig.load(
         host,
         configDirectory: temporary.path,
         policy: const PosixConfigHost(),
-      ),
-      throwsA(isA<XcrossConfigException>()),
-    );
-    File(p.join(temporary.path, 'config.yaml')).writeAsStringSync('roots: {}');
-    final runtime = await XcrossRuntimeConfig.load(
-      host,
-      configDirectory: temporary.path,
-      policy: const PosixConfigHost(),
-    );
-    expect(runtime.isConfigured, isTrue);
-  });
+      );
+      expect(runtime.isConfigured, isTrue);
+    },
+  );
 }
 
 @internal

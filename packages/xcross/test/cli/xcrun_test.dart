@@ -50,6 +50,8 @@ void main() {
   });
 
   test(
+    testOn: '!windows',
+
     'cross version and trusted sidecar probes never load configuration',
     () async {
       final directory = Directory.systemTemp.createTempSync('lazy-xcrun-');
@@ -91,6 +93,8 @@ void main() {
   );
 
   test(
+    testOn: '!windows',
+
     'simulator sidecar accepts generic exact and implicit simulator selection',
     () {
       final directory = Directory.systemTemp.createTempSync(
@@ -237,52 +241,59 @@ void main() {
     );
   });
 
-  test('POSIX-selected sidecar decodes POSIX paths and bare tool names', () {
-    final directory = Directory.systemTemp.createTempSync(
-      'xcross-xcrun-posix-',
-    );
-    addTearDown(() => directory.deleteSync(recursive: true));
-    final executable = p.join(directory.path, 'xcrun');
-    final platform = p.join(directory.path, 'iPhoneSimulator.platform');
-    final sdk = p.join(
-      platform,
-      'Developer',
-      'SDKs',
-      'iPhoneSimulator26.5.sdk',
-    );
-    File('$executable.sdk').writeAsStringSync(sdk);
-    final clang = File(p.join(directory.path, 'clang'))..writeAsStringSync('');
-    File(p.join(directory.path, 'clang.exe')).writeAsStringSync('');
-    final probe = xcrun.CrossXcrunProbe(LinuxHost());
-    expect(
-      probe.response([
-        '--sdk=iphonesimulator',
-        '--show-sdk-path',
-      ], executable: executable),
-      sdk,
-    );
-    expect(
-      probe.response(['--show-sdk-version'], executable: executable),
-      '26.5',
-    );
-    expect(
-      probe.response(['--show-sdk-platform-path'], executable: executable),
-      platform,
-    );
-    expect(
-      probe.response(['--find', 'clang'], executable: executable),
-      clang.path,
-    );
-    expect(
-      () => probe.response([
-        '--sdk=iphoneos',
-        '--show-sdk-version',
-      ], executable: executable),
-      throwsFormatException,
-    );
-  });
+  test(
+    testOn: '!windows',
+    'POSIX-selected sidecar decodes POSIX paths and bare tool names',
+    () {
+      final directory = Directory.systemTemp.createTempSync(
+        'xcross-xcrun-posix-',
+      );
+      addTearDown(() => directory.deleteSync(recursive: true));
+      final executable = p.join(directory.path, 'xcrun');
+      final platform = p.join(directory.path, 'iPhoneSimulator.platform');
+      final sdk = p.join(
+        platform,
+        'Developer',
+        'SDKs',
+        'iPhoneSimulator26.5.sdk',
+      );
+      File('$executable.sdk').writeAsStringSync(sdk);
+      final clang = File(p.join(directory.path, 'clang'))
+        ..writeAsStringSync('');
+      File(p.join(directory.path, 'clang.exe')).writeAsStringSync('');
+      final probe = xcrun.CrossXcrunProbe(LinuxHost());
+      expect(
+        probe.response([
+          '--sdk=iphonesimulator',
+          '--show-sdk-path',
+        ], executable: executable),
+        sdk,
+      );
+      expect(
+        probe.response(['--show-sdk-version'], executable: executable),
+        '26.5',
+      );
+      expect(
+        probe.response(['--show-sdk-platform-path'], executable: executable),
+        platform,
+      );
+      expect(
+        probe.response(['--find', 'clang'], executable: executable),
+        clang.path,
+      );
+      expect(
+        () => probe.response([
+          '--sdk=iphoneos',
+          '--show-sdk-version',
+        ], executable: executable),
+        throwsFormatException,
+      );
+    },
+  );
 
   test(
+    testOn: '!windows',
+
     'fallback honors simulator sidecar and rejects mismatched tool selection',
     () async {
       final directory = Directory.systemTemp.createTempSync(
@@ -338,6 +349,8 @@ void main() {
   );
 
   test(
+    testOn: '!windows',
+
     'installed SDK probes select device by default and explicit simulator without sidecar',
     () async {
       final directory = Directory.systemTemp.createTempSync(
@@ -468,6 +481,8 @@ void main() {
   );
 
   test(
+    testOn: '!windows',
+
     'unversioned sidecar uses SDKSettings version without changing sdkRoot',
     () {
       final directory = Directory.systemTemp.createTempSync(
@@ -528,37 +543,41 @@ void main() {
     },
   );
 
-  test('rejects macOS SDK sidecars before compiler lookup', () async {
-    final directory = Directory.systemTemp.createTempSync(
-      'xcross-xcrun-macos-',
-    );
-    addTearDown(() => directory.deleteSync(recursive: true));
-    final executable = p.join(directory.path, 'xcrun.exe');
-    File('$executable.sdk').writeAsStringSync('/sdk/MacOSX26.5.sdk');
-    File(p.join(directory.path, 'clang.exe')).writeAsStringSync('');
-    expect(
-      () => xcrun.CrossXcrunProbe(
-        LinuxHost(),
-      ).response(['--show-sdk-path'], executable: executable),
-      throwsFormatException,
-    );
-    expect(
-      () => xcrun.CrossXcrunProbe(
-        LinuxHost(),
-      ).findTool(['--find', 'clang'], executable: executable),
-      throwsFormatException,
-    );
-    expect(
-      await _runXcrun(
-        ['clang'],
-        sdk: const DarwinSdk('/unused'),
-        executable: executable,
-        findOnPath: (_) async =>
-            throw StateError('must not resolve a mismatched compiler'),
-      ),
-      1,
-    );
-  });
+  test(
+    testOn: '!windows',
+    'rejects macOS SDK sidecars before compiler lookup',
+    () async {
+      final directory = Directory.systemTemp.createTempSync(
+        'xcross-xcrun-macos-',
+      );
+      addTearDown(() => directory.deleteSync(recursive: true));
+      final executable = p.join(directory.path, 'xcrun.exe');
+      File('$executable.sdk').writeAsStringSync('/sdk/MacOSX26.5.sdk');
+      File(p.join(directory.path, 'clang.exe')).writeAsStringSync('');
+      expect(
+        () => xcrun.CrossXcrunProbe(
+          LinuxHost(),
+        ).response(['--show-sdk-path'], executable: executable),
+        throwsFormatException,
+      );
+      expect(
+        () => xcrun.CrossXcrunProbe(
+          LinuxHost(),
+        ).findTool(['--find', 'clang'], executable: executable),
+        throwsFormatException,
+      );
+      expect(
+        await _runXcrun(
+          ['clang'],
+          sdk: const DarwinSdk('/unused'),
+          executable: executable,
+          findOnPath: (_) async =>
+              throw StateError('must not resolve a mismatched compiler'),
+        ),
+        1,
+      );
+    },
+  );
 
   test(
     'native bootstrap preserves environment and never reads configuration',

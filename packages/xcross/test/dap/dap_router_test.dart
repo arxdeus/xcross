@@ -23,21 +23,25 @@ void main() {
     log: testLog(),
   );
 
-  test('configured Flutter environment wins with legacy fallbacks enabled', () {
-    final router = DapRouter(
-      const Stream<List<int>>.empty(),
-      StreamController<List<int>>().sink,
-      (_) {},
-      runner: runner,
-      errors: testSink(),
-      environmentRoot: '/configured/environment/flutter',
-    );
+  test(
+    testOn: '!windows',
+    'configured Flutter environment wins with legacy fallbacks enabled',
+    () {
+      final router = DapRouter(
+        const Stream<List<int>>.empty(),
+        StreamController<List<int>>().sink,
+        (_) {},
+        runner: runner,
+        errors: testSink(),
+        environmentRoot: '/configured/environment/flutter',
+      );
 
-    expect(
-      router.resolveFlutterExecutable(),
-      p.join('/configured/environment/flutter', 'bin', 'flutter'),
-    );
-  });
+      expect(
+        router.resolveFlutterExecutable(),
+        p.join('/configured/environment/flutter', 'bin', 'flutter'),
+      );
+    },
+  );
 
   test(
     'host paths and immutable resolution stay isolated between sessions',

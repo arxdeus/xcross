@@ -25,6 +25,8 @@ void main() {
   });
   tearDown(() => session.dispose());
   test(
+    testOn: '!windows',
+
     'cleanup uses the selected remapped filesystem, not ambient paths',
     () async {
       final root = Directory.systemTemp.createTempSync(
@@ -177,14 +179,20 @@ kotlin {
     }
 
     test(
+      testOn: '!windows',
+
       'selects device module before pack',
       () => selectedModuleCase(session.fixtureIPhoneTarget, 'device'),
     );
     test(
+      testOn: '!windows',
+
       'selects simulator module before pack',
       () => selectedModuleCase(session.fixtureSimulatorTarget, 'simulator'),
     );
     test(
+      testOn: '!windows',
+
       'missing selected device target preserves outputs before pack',
       () => missingTargetCase(
         session.fixtureIPhoneTarget,
@@ -192,6 +200,8 @@ kotlin {
       ),
     );
     test(
+      testOn: '!windows',
+
       'missing selected simulator target preserves outputs before pack',
       () => missingTargetCase(
         session.fixtureSimulatorTarget,
@@ -200,6 +210,8 @@ kotlin {
     );
 
     test(
+      testOn: '!windows',
+
       'simulator pack leaves device outputs and rejects IPA before detection',
       () async {
         final project = _project(root.path, KmpEntryKind.runnableApp);
@@ -262,65 +274,73 @@ kotlin {
       },
     );
 
-    test('detects, deletes stale outputs, then delegates packing', () async {
-      final events = <String>[];
-      final project = _project(root.path, KmpEntryKind.runnableApp);
-      final staleApp = Directory(
-        p.join(root.path, 'build', 'xcross-ios', '${project.appName}.app'),
-      )..createSync(recursive: true);
-      File(p.join(staleApp.path, 'stale')).writeAsStringSync('stale');
-      final staleFramework = Directory(
-        p.join(
-          root.path,
-          'build',
-          'xcross-ios',
-          '${project.baseName}.framework',
-        ),
-      )..createSync(recursive: true);
-      File(p.join(staleFramework.path, 'stale')).writeAsStringSync('stale');
+    test(
+      testOn: '!windows',
+      'detects, deletes stale outputs, then delegates packing',
+      () async {
+        final events = <String>[];
+        final project = _project(root.path, KmpEntryKind.runnableApp);
+        final staleApp = Directory(
+          p.join(root.path, 'build', 'xcross-ios', '${project.appName}.app'),
+        )..createSync(recursive: true);
+        File(p.join(staleApp.path, 'stale')).writeAsStringSync('stale');
+        final staleFramework = Directory(
+          p.join(
+            root.path,
+            'build',
+            'xcross-ios',
+            '${project.baseName}.framework',
+          ),
+        )..createSync(recursive: true);
+        File(p.join(staleFramework.path, 'stale')).writeAsStringSync('stale');
 
-      final operation = ComposePackOperation.withSeams(
-        session.fixtureIPhoneTarget,
-        log: session.fixtureLog,
-        runner: ProcessRunner(
+        final operation = ComposePackOperation.withSeams(
+          session.fixtureIPhoneTarget,
           log: session.fixtureLog,
-          session.fixtureIPhoneTarget.host,
-          stdinStream: const Stream<List<int>>.empty(),
-          stdoutSink: session.stdoutSink,
-          stderrSink: session.stderrSink,
-        ),
-        tools: session.fixtureTools,
-        sdkRepository: session.fixtureSdkRepositoryFor(
-          session.fixtureIPhoneTarget.host,
-        ),
-        downloader: session.fixtureDownloader,
-        currentDirectory: () => root.path,
-        detectProject: (path, {bundleId, appName, gradleTarget = 'iosArm64'}) {
-          expect(gradleTarget, 'iosArm64');
-          events.add('detect:$path:$bundleId:$appName');
-          return project;
-        },
-        packProject: ({required project, required options}) async {
-          events.add('pack');
-          expect(staleApp.existsSync(), isFalse);
-          expect(staleFramework.existsSync(), isFalse);
-          return PackResult(outputPath: 'App.app', bundleId: project.bundleId);
-        },
-      );
+          runner: ProcessRunner(
+            log: session.fixtureLog,
+            session.fixtureIPhoneTarget.host,
+            stdinStream: const Stream<List<int>>.empty(),
+            stdoutSink: session.stdoutSink,
+            stderrSink: session.stderrSink,
+          ),
+          tools: session.fixtureTools,
+          sdkRepository: session.fixtureSdkRepositoryFor(
+            session.fixtureIPhoneTarget.host,
+          ),
+          downloader: session.fixtureDownloader,
+          currentDirectory: () => root.path,
+          detectProject:
+              (path, {bundleId, appName, gradleTarget = 'iosArm64'}) {
+                expect(gradleTarget, 'iosArm64');
+                events.add('detect:$path:$bundleId:$appName');
+                return project;
+              },
+          packProject: ({required project, required options}) async {
+            events.add('pack');
+            expect(staleApp.existsSync(), isFalse);
+            expect(staleFramework.existsSync(), isFalse);
+            return PackResult(
+              outputPath: 'App.app',
+              bundleId: project.bundleId,
+            );
+          },
+        );
 
-      final result = await operation.pack(
-        options: const ComposeBuildOptions(
-          bundleId: 'dev.example.override',
-          appName: 'OverrideApp',
-        ),
-      );
+        final result = await operation.pack(
+          options: const ComposeBuildOptions(
+            bundleId: 'dev.example.override',
+            appName: 'OverrideApp',
+          ),
+        );
 
-      expect(events, [
-        'detect:${root.path}:dev.example.override:OverrideApp',
-        'pack',
-      ]);
-      expect(result.kind, PackOutputKind.app);
-    });
+        expect(events, [
+          'detect:${root.path}:dev.example.override:OverrideApp',
+          'pack',
+        ]);
+        expect(result.kind, PackOutputKind.app);
+      },
+    );
 
     test('rejects framework-only run before toolchain work', () async {
       final events = <String>[];

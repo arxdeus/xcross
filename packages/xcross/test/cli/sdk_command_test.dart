@@ -166,73 +166,88 @@ void main() {
       );
     }
 
-    test('rejects non-sibling publication before any rename', () async {
-      final staged = Directory(p.join(root.path, 'other', 'staged'))
-        ..createSync(recursive: true);
-      File(p.join(staged.path, 'kept.txt')).writeAsStringSync('kept');
-      final destination = p.join(root.path, 'Darwin.artifactbundle');
-      var publishes = 0;
-      await expectLater(
-        publication.activateStagedSdk(
-          staged,
-          destination,
-          renameStaged: (directory, path) async {
-            publishes++;
-            return directory;
-          },
-        ),
-        throwsArgumentError,
-      );
-      expect(publishes, 0);
-      expect(File(p.join(staged.path, 'kept.txt')).readAsStringSync(), 'kept');
-      expect(Directory(destination).existsSync(), isFalse);
-    });
+    test(
+      testOn: '!windows',
+      'rejects non-sibling publication before any rename',
+      () async {
+        final staged = Directory(p.join(root.path, 'other', 'staged'))
+          ..createSync(recursive: true);
+        File(p.join(staged.path, 'kept.txt')).writeAsStringSync('kept');
+        final destination = p.join(root.path, 'Darwin.artifactbundle');
+        var publishes = 0;
+        await expectLater(
+          publication.activateStagedSdk(
+            staged,
+            destination,
+            renameStaged: (directory, path) async {
+              publishes++;
+              return directory;
+            },
+          ),
+          throwsArgumentError,
+        );
+        expect(publishes, 0);
+        expect(
+          File(p.join(staged.path, 'kept.txt')).readAsStringSync(),
+          'kept',
+        );
+        expect(Directory(destination).existsSync(), isFalse);
+      },
+    );
 
-    test('SDK recovery writes only to its injected session log', () {
-      final destination = p.join(root.path, 'Darwin.artifactbundle');
-      createValidBundle('$destination.previous');
-      final unrelated = SdkTestContext();
-      addTearDown(unrelated.close);
-      sdkContext.output.messages.clear();
-      final repository = DarwinSdkRepository(
-        sdkContext.host,
-        log: sdkContext.log,
-        installBundle: destination,
-      );
-      expect(repository.current(), isNotNull);
-      expect(
-        sdkContext.output.messages,
-        contains(contains('Restored the previous Darwin Swift SDK')),
-      );
-      expect(unrelated.output.messages, isEmpty);
-    });
+    test(
+      testOn: '!windows',
+      'SDK recovery writes only to its injected session log',
+      () {
+        final destination = p.join(root.path, 'Darwin.artifactbundle');
+        createValidBundle('$destination.previous');
+        final unrelated = SdkTestContext();
+        addTearDown(unrelated.close);
+        sdkContext.output.messages.clear();
+        final repository = DarwinSdkRepository(
+          sdkContext.host,
+          log: sdkContext.log,
+          installBundle: destination,
+        );
+        expect(repository.current(), isNotNull);
+        expect(
+          sdkContext.output.messages,
+          contains(contains('Restored the previous Darwin Swift SDK')),
+        );
+        expect(unrelated.output.messages, isEmpty);
+      },
+    );
 
-    test('replaces the old SDK only after staging succeeds', () async {
-      final destination = p.join(root.path, 'Darwin.artifactbundle');
-      final old = Directory(destination)..createSync();
-      File(p.join(old.path, 'old.txt')).writeAsStringSync('old');
-      if (Platform.isWindows) {
-        final deepPath = p.joinAll([
-          old.path,
-          ...List.filled(6, 'nested-sdk-directory-with-long-name'),
-        ]);
-        expect(deepPath.length, greaterThan(260));
-        Directory(installer.ioPath(deepPath)).createSync(recursive: true);
-        File(
-          installer.ioPath(p.join(deepPath, 'header.h')),
-        ).writeAsStringSync('header');
-      }
-      final staged = Directory(p.join(root.path, 'Darwin.staging'))
-        ..createSync();
-      File(p.join(staged.path, 'new.txt')).writeAsStringSync('new');
+    test(
+      testOn: '!windows',
+      'replaces the old SDK only after staging succeeds',
+      () async {
+        final destination = p.join(root.path, 'Darwin.artifactbundle');
+        final old = Directory(destination)..createSync();
+        File(p.join(old.path, 'old.txt')).writeAsStringSync('old');
+        if (Platform.isWindows) {
+          final deepPath = p.joinAll([
+            old.path,
+            ...List.filled(6, 'nested-sdk-directory-with-long-name'),
+          ]);
+          expect(deepPath.length, greaterThan(260));
+          Directory(installer.ioPath(deepPath)).createSync(recursive: true);
+          File(
+            installer.ioPath(p.join(deepPath, 'header.h')),
+          ).writeAsStringSync('header');
+        }
+        final staged = Directory(p.join(root.path, 'Darwin.staging'))
+          ..createSync();
+        File(p.join(staged.path, 'new.txt')).writeAsStringSync('new');
 
-      await publication.activateStagedSdk(staged, destination);
+        await publication.activateStagedSdk(staged, destination);
 
-      expect(File(p.join(destination, 'new.txt')).readAsStringSync(), 'new');
-      expect(File(p.join(destination, 'old.txt')).existsSync(), isFalse);
-      expect(staged.existsSync(), isFalse);
-      expect(Directory('$destination.previous').existsSync(), isFalse);
-    });
+        expect(File(p.join(destination, 'new.txt')).readAsStringSync(), 'new');
+        expect(File(p.join(destination, 'old.txt')).existsSync(), isFalse);
+        expect(staged.existsSync(), isFalse);
+        expect(Directory('$destination.previous').existsSync(), isFalse);
+      },
+    );
 
     test('restores the old SDK when publication fails', () async {
       final destination = p.join(root.path, 'Darwin.artifactbundle');
@@ -286,46 +301,54 @@ void main() {
       expect(File(p.join(destination, 'old.txt')).readAsStringSync(), 'old');
     });
 
-    test('clears a stale backup before another installation', () async {
-      final destination = p.join(root.path, 'Darwin.artifactbundle');
-      createValidBundle(destination);
-      final backup = Directory('$destination.previous')..createSync();
-      File(p.join(backup.path, 'old.txt')).writeAsStringSync('old');
+    test(
+      testOn: '!windows',
+      'clears a stale backup before another installation',
+      () async {
+        final destination = p.join(root.path, 'Darwin.artifactbundle');
+        createValidBundle(destination);
+        final backup = Directory('$destination.previous')..createSync();
+        File(p.join(backup.path, 'old.txt')).writeAsStringSync('old');
 
-      await publication.prepareExistingSdk(destination);
+        await publication.prepareExistingSdk(destination);
 
-      expect(sdkContext.repository.isValidBundle(destination), isTrue);
-      expect(backup.existsSync(), isFalse);
-    });
+        expect(sdkContext.repository.isValidBundle(destination), isTrue);
+        expect(backup.existsSync(), isFalse);
+      },
+    );
 
-    test('rejects a truncated simulator at the final publication gate', () {
-      final destination = p.join(root.path, 'Darwin.artifactbundle');
-      final staged = p.join(root.path, 'Darwin.staging');
-      createValidBundle(destination);
-      createValidBundle(staged);
-      File(p.join(destination, 'old.txt')).writeAsStringSync('old');
-      Directory(
-        p.join(
-          staged,
-          'Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.5.sdk',
-        ),
-      ).createSync(recursive: true);
-      File(p.join(staged, 'swift-sdk.json')).writeAsStringSync(
-        jsonEncode({
-          'targetTriples': {
-            const SimulatorBuildPlatform().swiftSdkTriple: <String, String>{},
-          },
-        }),
-      );
+    test(
+      testOn: '!windows',
+      'rejects a truncated simulator at the final publication gate',
+      () {
+        final destination = p.join(root.path, 'Darwin.artifactbundle');
+        final staged = p.join(root.path, 'Darwin.staging');
+        createValidBundle(destination);
+        createValidBundle(staged);
+        File(p.join(destination, 'old.txt')).writeAsStringSync('old');
+        Directory(
+          p.join(
+            staged,
+            'Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.5.sdk',
+          ),
+        ).createSync(recursive: true);
+        File(p.join(staged, 'swift-sdk.json')).writeAsStringSync(
+          jsonEncode({
+            'targetTriples': {
+              const SimulatorBuildPlatform().swiftSdkTriple: <String, String>{},
+            },
+          }),
+        );
 
-      expect(
-        () => publication.requireValidStagedSdk(staged),
-        throwsA(isA<XcrossError>()),
-      );
-      expect(sdkContext.repository.isValidBundle(destination), isTrue);
-      expect(File(p.join(destination, 'old.txt')).readAsStringSync(), 'old');
-      expect(Directory('$destination.previous').existsSync(), isFalse);
-    });
+        expect(
+          () => publication.requireValidStagedSdk(staged),
+          throwsA(isA<XcrossError>()),
+        );
+        expect(sdkContext.repository.isValidBundle(destination), isTrue);
+        expect(File(p.join(destination, 'old.txt')).readAsStringSync(), 'old');
+        expect(Directory('$destination.previous').existsSync(), isFalse);
+      },
+    );
   });
 }
 

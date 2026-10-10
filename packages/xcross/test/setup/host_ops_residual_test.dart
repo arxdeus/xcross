@@ -92,37 +92,43 @@ void main() {
     },
   );
 
-  test('mapped clang discovers versioned pair in selected namespace', () async {
-    await write('tools/clang-22', 'clang');
-    await write('tools/clang++-22', 'clang++');
-    processes = ResidualProcesses((_, args, _) async {
-      expect(args, ['--version']);
-      return ResidualChild(output: 'clang version 22.0.1');
-    });
-    host = ResidualHost(
-      base: base,
-      fileSystem: files,
-      paths: paths,
-      processes: processes,
-    );
-    final runner = residualRunner(
-      host,
-      lookup: (name, dirs) async {
-        expect(dirs, [path('tools')]);
-        final candidate = path('tools/$name');
-        return files.file(candidate).existsSync() ? candidate : null;
-      },
-    );
-    files.lookups.clear();
-    expect(
-      await ClangRequirement(runner).resolve(directories: [path('tools')]),
-      path('tools/clang-22'),
-    );
-    expect(files.lookups, contains(path('tools')));
-    expect(files.lookups, contains(path('tools/clang++-22')));
-  });
+  test(
+    testOn: '!windows',
+    'mapped clang discovers versioned pair in selected namespace',
+    () async {
+      await write('tools/clang-22', 'clang');
+      await write('tools/clang++-22', 'clang++');
+      processes = ResidualProcesses((_, args, _) async {
+        expect(args, ['--version']);
+        return ResidualChild(output: 'clang version 22.0.1');
+      });
+      host = ResidualHost(
+        base: base,
+        fileSystem: files,
+        paths: paths,
+        processes: processes,
+      );
+      final runner = residualRunner(
+        host,
+        lookup: (name, dirs) async {
+          expect(dirs, [path('tools')]);
+          final candidate = path('tools/$name');
+          return files.file(candidate).existsSync() ? candidate : null;
+        },
+      );
+      files.lookups.clear();
+      expect(
+        await ClangRequirement(runner).resolve(directories: [path('tools')]),
+        path('tools/clang-22'),
+      );
+      expect(files.lookups, contains(path('tools')));
+      expect(files.lookups, contains(path('tools/clang++-22')));
+    },
+  );
 
   test(
+    testOn: '!windows',
+
     'mapped swift resolves real symlink before checking actual sibling',
     () async {
       await write('actual/swift', 'swift');
@@ -145,6 +151,8 @@ void main() {
   );
 
   test(
+    testOn: '!windows',
+
     'mapped ipa returns logical output and dereferences nested links',
     () async {
       await write('MyApp.app/nested/data', 'payload');
@@ -205,6 +213,8 @@ void main() {
   );
 
   test(
+    testOn: '!windows',
+
     'mapped sdk copy materializes nested destinations and follows links',
     () async {
       await write('sdk/nested/value', 'sdk bytes');
@@ -379,6 +389,8 @@ void main() {
   );
 
   test(
+    testOn: '!windows',
+
     'mapped source builder keeps logical lookup and effective process paths then cleans',
     () async {
       final calls = <(String, List<String>, String?)>[];
@@ -477,6 +489,8 @@ void main() {
   );
 
   test(
+    testOn: '!windows',
+
     'mapped self update applies offline payload and removes staging',
     () async {
       final archive = Archive()
@@ -542,6 +556,8 @@ void main() {
   );
 
   test(
+    testOn: '!windows',
+
     'mapped stale cleanup preserves fresh rollback and unrelated files',
     () async {
       for (final name in [
@@ -601,6 +617,8 @@ void main() {
   );
 
   test(
+    testOn: '!windows',
+
     'mapped self update rolls back every installed artifact on verification failure',
     () async {
       for (final name in ['bin/xcross', 'bin/xcrun', 'lib/runtime.so']) {

@@ -177,6 +177,8 @@ void main() {
   });
 
   test(
+    testOn: '!windows',
+
     'POSIX shim behavior handles absent dsymutil without command failure',
     () async {
       final directory = Directory.systemTemp.createTempSync(

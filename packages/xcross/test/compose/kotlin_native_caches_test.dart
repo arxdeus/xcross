@@ -43,30 +43,39 @@ void main() {
     );
   });
 
-  test('packed klib symlinks retain file content stamps in cache planning', () {
-    final fixture = ComposeFixture.create(session, session.fixtureIPhoneTarget);
-    addTearDown(fixture.dispose);
-    final bytes = utf8.encode(
-      'unique_name=org.example:lib-a\ndepends=stdlib org.jetbrains.kotlin.native.platform.Foundation\n',
-    );
-    final archive = Archive()
-      ..addFile(ArchiveFile('default/manifest', bytes.length, bytes));
-    final packed = File(p.join(fixture.temp.path, 'packed.klib'))
-      ..writeAsBytesSync(ZipEncoder().encode(archive));
-    Directory(fixture.libA).deleteSync(recursive: true);
-    Link(fixture.libA).createSync(packed.path);
-    final first = fixture.plan().libraries.singleWhere(
-      (node) => node.uniqueName == 'org.example:lib-a',
-    );
-    expect(first.path, fixture.libA);
-    packed.writeAsBytesSync([...packed.readAsBytesSync(), 0]);
-    final second = fixture.plan().libraries.singleWhere(
-      (node) => node.uniqueName == 'org.example:lib-a',
-    );
-    expect(second.cacheRoot, isNot(first.cacheRoot));
-  });
+  test(
+    testOn: '!windows',
+    'packed klib symlinks retain file content stamps in cache planning',
+    () {
+      final fixture = ComposeFixture.create(
+        session,
+        session.fixtureIPhoneTarget,
+      );
+      addTearDown(fixture.dispose);
+      final bytes = utf8.encode(
+        'unique_name=org.example:lib-a\ndepends=stdlib org.jetbrains.kotlin.native.platform.Foundation\n',
+      );
+      final archive = Archive()
+        ..addFile(ArchiveFile('default/manifest', bytes.length, bytes));
+      final packed = File(p.join(fixture.temp.path, 'packed.klib'))
+        ..writeAsBytesSync(ZipEncoder().encode(archive));
+      Directory(fixture.libA).deleteSync(recursive: true);
+      Link(fixture.libA).createSync(packed.path);
+      final first = fixture.plan().libraries.singleWhere(
+        (node) => node.uniqueName == 'org.example:lib-a',
+      );
+      expect(first.path, fixture.libA);
+      packed.writeAsBytesSync([...packed.readAsBytesSync(), 0]);
+      final second = fixture.plan().libraries.singleWhere(
+        (node) => node.uniqueName == 'org.example:lib-a',
+      );
+      expect(second.cacheRoot, isNot(first.cacheRoot));
+    },
+  );
 
   test(
+    testOn: '!windows',
+
     'simulator cache plan selects simulator platform and compile target',
     () async {
       final fixture = ComposeFixture.create(
@@ -151,38 +160,46 @@ void main() {
     setUp(() => temp = Directory.systemTemp.createTempSync('xcross_klib_'));
     tearDown(() => temp.deleteSync(recursive: true));
 
-    test('reads an unpacked klib in the default/ layout', () {
-      final klib = _unpackedKlib(temp.path, 'core', 'project:core', const []);
-      expect(
-        KlibManifestReader(
-          session.fixtureRunner.host.fileSystem,
-        ).read(klib)['unique_name'],
-        'project:core',
-      );
-    });
+    test(
+      testOn: '!windows',
+      'reads an unpacked klib in the default/ layout',
+      () {
+        final klib = _unpackedKlib(temp.path, 'core', 'project:core', const []);
+        expect(
+          KlibManifestReader(
+            session.fixtureRunner.host.fileSystem,
+          ).read(klib)['unique_name'],
+          'project:core',
+        );
+      },
+    );
 
-    test('reads a packed .klib without needing the rest of it', () {
-      final archive = Archive()
-        ..addFile(
-          ArchiveFile.bytes(
-            'default/manifest',
-            utf8.encode(
-              r'unique_name=org.example\:packed'
-              '\n',
+    test(
+      testOn: '!windows',
+      'reads a packed .klib without needing the rest of it',
+      () {
+        final archive = Archive()
+          ..addFile(
+            ArchiveFile.bytes(
+              'default/manifest',
+              utf8.encode(
+                r'unique_name=org.example\:packed'
+                '\n',
+              ),
             ),
-          ),
-        )
-        ..addFile(ArchiveFile.bytes('default/ir/bodies.knb', [1, 2, 3]));
-      final klib = File(p.join(temp.path, 'packed.klib'))
-        ..writeAsBytesSync(ZipEncoder().encode(archive));
+          )
+          ..addFile(ArchiveFile.bytes('default/ir/bodies.knb', [1, 2, 3]));
+        final klib = File(p.join(temp.path, 'packed.klib'))
+          ..writeAsBytesSync(ZipEncoder().encode(archive));
 
-      expect(
-        KlibManifestReader(
-          session.fixtureRunner.host.fileSystem,
-        ).read(klib.path)['unique_name'],
-        'org.example:packed',
-      );
-    });
+        expect(
+          KlibManifestReader(
+            session.fixtureRunner.host.fileSystem,
+          ).read(klib.path)['unique_name'],
+          'org.example:packed',
+        );
+      },
+    );
 
     test('fails loudly for something that is not a klib', () {
       final dir = Directory(p.join(temp.path, 'nothing'))..createSync();
@@ -203,72 +220,82 @@ void main() {
     );
     tearDown(() => fixture.dispose());
 
-    test('plans every library in dependency order, stdlib first', () {
-      final plan = fixture.plan();
-      final names = plan.libraries.map((node) => node.uniqueName).toList();
+    test(
+      testOn: '!windows',
+      'plans every library in dependency order, stdlib first',
+      () {
+        final plan = fixture.plan();
+        final names = plan.libraries.map((node) => node.uniqueName).toList();
 
-      expect(names, hasLength(5));
-      expect(names.first, 'stdlib');
-      for (final node in plan.libraries) {
-        for (final dependency in node.dependencies) {
-          expect(
-            names.indexOf(dependency),
-            lessThan(names.indexOf(node.uniqueName)),
-            reason: '${node.uniqueName} needs $dependency cached first',
-          );
+        expect(names, hasLength(5));
+        expect(names.first, 'stdlib');
+        for (final node in plan.libraries) {
+          for (final dependency in node.dependencies) {
+            expect(
+              names.indexOf(dependency),
+              lessThan(names.indexOf(node.uniqueName)),
+              reason: '${node.uniqueName} needs $dependency cached first',
+            );
+          }
         }
-      }
-      // Platform libraries are pulled in from the module's own manifest too,
-      // not only from dependencies' manifests.
-      expect(names, contains('org.jetbrains.kotlin.native.platform.UIKit'));
-      final byName = {for (final node in plan.libraries) node.uniqueName: node};
-      expect(byName['stdlib']!.fromDistribution, isTrue);
-      expect(
-        byName['org.jetbrains.kotlin.native.platform.Foundation']!
-            .fromDistribution,
-        isTrue,
-      );
-      expect(byName['org.example:lib-a']!.fromDistribution, isFalse);
-      expect(
-        byName['org.example:lib-b']!.cachePath,
-        p.join(
-          byName['org.example:lib-b']!.cacheRoot,
-          'org.example:lib-b-cache',
-        ),
-      );
-      expect(
-        plan.moduleCacheRoot,
-        p.join(
-          fixture.root,
-          'build',
-          'xcross-ios',
-          'konan-caches',
-          'module-shared',
-        ),
-      );
-      expect(
-        plan.linkArguments.last,
-        '-Xcache-directory=${plan.moduleCacheRoot}',
-      );
-      expect(plan.linkArguments, hasLength(6));
-    });
+        // Platform libraries are pulled in from the module's own manifest too,
+        // not only from dependencies' manifests.
+        expect(names, contains('org.jetbrains.kotlin.native.platform.UIKit'));
+        final byName = {
+          for (final node in plan.libraries) node.uniqueName: node,
+        };
+        expect(byName['stdlib']!.fromDistribution, isTrue);
+        expect(
+          byName['org.jetbrains.kotlin.native.platform.Foundation']!
+              .fromDistribution,
+          isTrue,
+        );
+        expect(byName['org.example:lib-a']!.fromDistribution, isFalse);
+        expect(
+          byName['org.example:lib-b']!.cachePath,
+          p.join(
+            byName['org.example:lib-b']!.cacheRoot,
+            'org.example:lib-b-cache',
+          ),
+        );
+        expect(
+          plan.moduleCacheRoot,
+          p.join(
+            fixture.root,
+            'build',
+            'xcross-ios',
+            'konan-caches',
+            'module-shared',
+          ),
+        );
+        expect(
+          plan.linkArguments.last,
+          '-Xcache-directory=${plan.moduleCacheRoot}',
+        );
+        expect(plan.linkArguments, hasLength(6));
+      },
+    );
 
-    test('a changed library re-keys it and everything built on it', () {
-      final before = fixture.cacheRoots();
-      // lib-a is a directory klib, the shape Gradle rewrites in place.
-      File(p.join(fixture.libA, 'default', 'ir', 'bodies.knb'))
-        ..writeAsStringSync('changed and longer')
-        ..setLastModifiedSync(DateTime(2030));
-      final after = fixture.cacheRoots();
+    test(
+      testOn: '!windows',
+      'a changed library re-keys it and everything built on it',
+      () {
+        final before = fixture.cacheRoots();
+        // lib-a is a directory klib, the shape Gradle rewrites in place.
+        File(p.join(fixture.libA, 'default', 'ir', 'bodies.knb'))
+          ..writeAsStringSync('changed and longer')
+          ..setLastModifiedSync(DateTime(2030));
+        final after = fixture.cacheRoots();
 
-      expect(after['stdlib'], before['stdlib']);
-      expect(
-        after['org.jetbrains.kotlin.native.platform.Foundation'],
-        before['org.jetbrains.kotlin.native.platform.Foundation'],
-      );
-      expect(after['org.example:lib-a'], isNot(before['org.example:lib-a']));
-      expect(after['org.example:lib-b'], isNot(before['org.example:lib-b']));
-    });
+        expect(after['stdlib'], before['stdlib']);
+        expect(
+          after['org.jetbrains.kotlin.native.platform.Foundation'],
+          before['org.jetbrains.kotlin.native.platform.Foundation'],
+        );
+        expect(after['org.example:lib-a'], isNot(before['org.example:lib-a']));
+        expect(after['org.example:lib-b'], isNot(before['org.example:lib-b']));
+      },
+    );
 
     test(
       'builds each cache once, then only the module per-file cache',
@@ -385,40 +412,44 @@ void main() {
           : false,
     );
 
-    test('says how to opt out when a cache is not produced', () async {
-      final plan = fixture.plan();
-      await expectLater(
-        KotlinNativeCaches(
-          files: session.fixtureRunner.host.fileSystem,
-          log: session.fixtureLog,
-          jobs: 1,
-        ).build(
-          plan: plan,
-          prepared: fixture.prepared,
-          klib: fixture.klib,
-          workingDirectory: fixture.root,
-          run:
-              (
-                executable,
-                arguments, {
-                required workingDirectory,
-                required environment,
-              }) async {},
-        ),
-        throwsA(
-          isA<XcrossError>().having(
-            (error) => error.toString(),
-            'message',
-            contains(KotlinNativeCaches.disableVariable),
+    test(
+      testOn: '!windows',
+      'says how to opt out when a cache is not produced',
+      () async {
+        final plan = fixture.plan();
+        await expectLater(
+          KotlinNativeCaches(
+            files: session.fixtureRunner.host.fileSystem,
+            log: session.fixtureLog,
+            jobs: 1,
+          ).build(
+            plan: plan,
+            prepared: fixture.prepared,
+            klib: fixture.klib,
+            workingDirectory: fixture.root,
+            run:
+                (
+                  executable,
+                  arguments, {
+                  required workingDirectory,
+                  required environment,
+                }) async {},
           ),
-        ),
-      );
-      expect(
-        Directory(plan.libraries.first.cacheRoot).existsSync(),
-        isFalse,
-        reason: 'a failed build must not leave a cache that looks complete',
-      );
-    });
+          throwsA(
+            isA<XcrossError>().having(
+              (error) => error.toString(),
+              'message',
+              contains(KotlinNativeCaches.disableVariable),
+            ),
+          ),
+        );
+        expect(
+          Directory(plan.libraries.first.cacheRoot).existsSync(),
+          isFalse,
+          reason: 'a failed build must not leave a cache that looks complete',
+        );
+      },
+    );
 
     test('is on unless XCROSS_NO_KONAN_CACHE=1', () {
       expect(KotlinNativeCaches.enabledIn(const {}), isTrue);

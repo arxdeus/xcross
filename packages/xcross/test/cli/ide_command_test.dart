@@ -164,6 +164,8 @@ void main() {
     });
 
     test(
+      testOn: '!windows',
+
       'creates launch.json and settings.json, then skips when current',
       () async {
         await VscodeCommand(
@@ -200,51 +202,55 @@ void main() {
       },
     );
 
-    test('merges into existing files and fixes stale DAP path', () async {
-      final vscode = Directory(p.join(temp.path, '.vscode'))..createSync();
-      File(p.join(vscode.path, 'launch.json')).writeAsStringSync(
-        jsonEncode({
-          'version': '0.2.0',
-          'configurations': [
-            {'name': 'Flutter', 'type': 'dart', 'request': 'launch'},
-          ],
-        }),
-      );
-      File(p.join(vscode.path, 'settings.json')).writeAsStringSync(
-        jsonEncode({'editor.fontSize': 14, dapPathSetting: 'stale'}),
-      );
+    test(
+      testOn: '!windows',
+      'merges into existing files and fixes stale DAP path',
+      () async {
+        final vscode = Directory(p.join(temp.path, '.vscode'))..createSync();
+        File(p.join(vscode.path, 'launch.json')).writeAsStringSync(
+          jsonEncode({
+            'version': '0.2.0',
+            'configurations': [
+              {'name': 'Flutter', 'type': 'dart', 'request': 'launch'},
+            ],
+          }),
+        );
+        File(p.join(vscode.path, 'settings.json')).writeAsStringSync(
+          jsonEncode({'editor.fontSize': 14, dapPathSetting: 'stale'}),
+        );
 
-      await VscodeCommand(
-        XcrossIdeLauncher(
-          host: LinuxHost(currentDirectory: temp.path),
-          log: testLog(),
-          executable: '/test/xcross',
-        ),
-      ).run();
+        await VscodeCommand(
+          XcrossIdeLauncher(
+            host: LinuxHost(currentDirectory: temp.path),
+            log: testLog(),
+            executable: '/test/xcross',
+          ),
+        ).run();
 
-      final launch =
-          jsonDecode(
-                File(p.join(vscode.path, 'launch.json')).readAsStringSync(),
-              )
-              as Map;
-      final configs = launch['configurations'] as List;
-      final first = configs.first as Map;
-      final last = configs.last as Map;
-      expect(configs, hasLength(2));
-      expect(first['name'], 'Flutter');
-      expect(last['env'], {'XCROSS': 'true'});
+        final launch =
+            jsonDecode(
+                  File(p.join(vscode.path, 'launch.json')).readAsStringSync(),
+                )
+                as Map;
+        final configs = launch['configurations'] as List;
+        final first = configs.first as Map;
+        final last = configs.last as Map;
+        expect(configs, hasLength(2));
+        expect(first['name'], 'Flutter');
+        expect(last['env'], {'XCROSS': 'true'});
 
-      final settings =
-          jsonDecode(
-                File(p.join(vscode.path, 'settings.json')).readAsStringSync(),
-              )
-              as Map;
-      expect(settings['editor.fontSize'], 14);
-      expect(settings[dapPathSetting], dapPathValue);
-      expect(settings[promptErrorsSetting], false);
-    });
+        final settings =
+            jsonDecode(
+                  File(p.join(vscode.path, 'settings.json')).readAsStringSync(),
+                )
+                as Map;
+        expect(settings['editor.fontSize'], 14);
+        expect(settings[dapPathSetting], dapPathValue);
+        expect(settings[promptErrorsSetting], false);
+      },
+    );
 
-    test('refuses to clobber invalid JSONC', () async {
+    test(testOn: '!windows', 'refuses to clobber invalid JSONC', () async {
       final vscode = Directory(p.join(temp.path, '.vscode'))..createSync();
       File(p.join(vscode.path, 'launch.json')).writeAsStringSync('{not json');
 
@@ -309,29 +315,35 @@ void main() {
       temp.deleteSync(recursive: true);
     });
 
-    test('writes .run/xcross_ios_device.run.xml once', () async {
-      await IdeaCommand(
-        XcrossIdeLauncher(
-          host: LinuxHost(currentDirectory: temp.path),
-          log: testLog(),
-          executable: '/test/xcross',
-        ),
-      ).run();
-      final file = File(p.join(temp.path, '.run', 'xcross_ios_device.run.xml'));
-      expect(file.existsSync(), isTrue);
-      final body = file.readAsStringSync();
-      expect(body, contains('DAPConfiguration'));
-      expect(body, contains('*.dart'));
+    test(
+      testOn: '!windows',
+      'writes .run/xcross_ios_device.run.xml once',
+      () async {
+        await IdeaCommand(
+          XcrossIdeLauncher(
+            host: LinuxHost(currentDirectory: temp.path),
+            log: testLog(),
+            executable: '/test/xcross',
+          ),
+        ).run();
+        final file = File(
+          p.join(temp.path, '.run', 'xcross_ios_device.run.xml'),
+        );
+        expect(file.existsSync(), isTrue);
+        final body = file.readAsStringSync();
+        expect(body, contains('DAPConfiguration'));
+        expect(body, contains('*.dart'));
 
-      final before = body;
-      await IdeaCommand(
-        XcrossIdeLauncher(
-          host: LinuxHost(currentDirectory: temp.path),
-          log: testLog(),
-          executable: '/test/xcross',
-        ),
-      ).run();
-      expect(file.readAsStringSync(), before);
-    });
+        final before = body;
+        await IdeaCommand(
+          XcrossIdeLauncher(
+            host: LinuxHost(currentDirectory: temp.path),
+            log: testLog(),
+            executable: '/test/xcross',
+          ),
+        ).run();
+        expect(file.readAsStringSync(), before);
+      },
+    );
   });
 }

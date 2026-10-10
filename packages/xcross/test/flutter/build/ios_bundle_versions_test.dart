@@ -72,6 +72,8 @@ void main() {
   }
 
   test(
+    testOn: '!windows',
+
     'reads versions from the application target, not an extension',
     () async {
       await writePbxproj(_pbxproj);
@@ -83,36 +85,48 @@ void main() {
     },
   );
 
-  test('falls back when the project declares no versions', () async {
-    await writePbxproj('{ objects = { }; }');
+  test(
+    testOn: '!windows',
+    'falls back when the project declares no versions',
+    () async {
+      await writePbxproj('{ objects = { }; }');
 
-    final versions = testIPhoneRuntime().versions.resolve(tmp.path);
+      final versions = testIPhoneRuntime().versions.resolve(tmp.path);
 
-    expect(versions.shortVersion, IosBundleVersions.fallback.shortVersion);
-    expect(versions.bundleVersion, IosBundleVersions.fallback.bundleVersion);
-  });
+      expect(versions.shortVersion, IosBundleVersions.fallback.shortVersion);
+      expect(versions.bundleVersion, IosBundleVersions.fallback.bundleVersion);
+    },
+  );
 
-  test('falls back for a project with no Xcode project at all', () {
-    final versions = testIPhoneRuntime().versions.resolve(tmp.path);
+  test(
+    testOn: '!windows',
+    'falls back for a project with no Xcode project at all',
+    () {
+      final versions = testIPhoneRuntime().versions.resolve(tmp.path);
 
-    expect(versions.shortVersion, '1.0.0');
-    expect(versions.bundleVersion, '1');
-  });
+      expect(versions.shortVersion, '1.0.0');
+      expect(versions.bundleVersion, '1');
+    },
+  );
 
-  test('CLI build-name/build-number win over the project settings', () async {
-    await writePbxproj(_pbxproj);
+  test(
+    testOn: '!windows',
+    'CLI build-name/build-number win over the project settings',
+    () async {
+      await writePbxproj(_pbxproj);
 
-    final versions = testIPhoneRuntime().versions.resolve(
-      tmp.path,
-      buildName: '5.0.0',
-      buildNumber: '500',
-    );
+      final versions = testIPhoneRuntime().versions.resolve(
+        tmp.path,
+        buildName: '5.0.0',
+        buildNumber: '500',
+      );
 
-    expect(versions.shortVersion, '5.0.0');
-    expect(versions.bundleVersion, '500');
-  });
+      expect(versions.shortVersion, '5.0.0');
+      expect(versions.bundleVersion, '500');
+    },
+  );
 
-  test('ignores an unresolved template value', () async {
+  test(testOn: '!windows', 'ignores an unresolved template value', () async {
     await writePbxproj(r'''
 {
 	objects = {
@@ -146,20 +160,26 @@ void main() {
   });
 
   group('fromBuiltPlist', () {
-    test('reads both versions out of a built Info.plist', () async {
-      final plist = File(p.join(tmp.path, 'Info.plist'));
-      await plist.writeAsString(
-        '<dict>\n'
-        '<key>CFBundleShortVersionString</key><string>3.2.1</string>\n'
-        '<key>CFBundleVersion</key><string>42</string>\n'
-        '</dict>',
-      );
+    test(
+      testOn: '!windows',
+      'reads both versions out of a built Info.plist',
+      () async {
+        final plist = File(p.join(tmp.path, 'Info.plist'));
+        await plist.writeAsString(
+          '<dict>\n'
+          '<key>CFBundleShortVersionString</key><string>3.2.1</string>\n'
+          '<key>CFBundleVersion</key><string>42</string>\n'
+          '</dict>',
+        );
 
-      final versions = testIPhoneRuntime().versions.fromBuiltPlist(plist.path);
+        final versions = testIPhoneRuntime().versions.fromBuiltPlist(
+          plist.path,
+        );
 
-      expect(versions?.shortVersion, '3.2.1');
-      expect(versions?.bundleVersion, '42');
-    });
+        expect(versions?.shortVersion, '3.2.1');
+        expect(versions?.bundleVersion, '42');
+      },
+    );
 
     test('returns null for a plist still holding templates', () async {
       final plist = File(p.join(tmp.path, 'Info.plist'));

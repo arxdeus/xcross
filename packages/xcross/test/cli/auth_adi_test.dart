@@ -24,7 +24,7 @@ void main() {
       Abi.windowsX64,
       Abi.windowsArm64,
     ]) {
-      test('accepts $abi', () {
+      test(testOn: '!windows', 'accepts $abi', () {
         expect(() => AuthCommand.requireAppleIdHost(abi), returnsNormally);
       });
     }
@@ -60,6 +60,8 @@ void main() {
 
     for (final style in [p.Style.posix, p.Style.windows]) {
       test(
+        testOn: '!windows',
+
         'ADI lookup uses only selected logical acquisitions on $style',
         () async {
           final fixture = AuthNamespaceFixture(style: style);
@@ -153,7 +155,7 @@ void main() {
       Abi.macosArm64,
       Abi.windowsArm64,
     ]) {
-      test('uses scoped ARM64 cache on $abi', () async {
+      test(testOn: '!windows', 'uses scoped ARM64 cache on $abi', () async {
         final libraries = Directory(p.join(root.path, 'arm64-v8a'));
         _writeLibraries(libraries, 183);
         _writeLibraries(root, 62);
@@ -167,101 +169,125 @@ void main() {
       });
     }
 
-    test('preserves matching legacy flat libraries', () async {
-      _writeLibraries(root, 62);
+    test(
+      testOn: '!windows',
+      'preserves matching legacy flat libraries',
+      () async {
+        _writeLibraries(root, 62);
 
-      expect(
-        await authFixture().resolveAdiLibraryDirectory(
-          cacheDirectory: root.path,
-        ),
-        root.absolute.path,
-      );
-    });
+        expect(
+          await authFixture().resolveAdiLibraryDirectory(
+            cacheDirectory: root.path,
+          ),
+          root.absolute.path,
+        );
+      },
+    );
 
-    test('fetches ARM64 without overwriting legacy x64 libraries', () async {
-      _writeLibraries(root, 62);
-      final original = File(
-        p.join(root.path, 'libCoreADI.so'),
-      ).readAsBytesSync();
-      var fetches = 0;
-      final result = await authFixture(
-        abi: Abi.linuxArm64,
-        createAdiHttpClient: () => MockClient((request) async {
-          fetches++;
-          expect(request.url.toString(), appleMusicApkUrl);
-          return http.Response.bytes(_apkBytes(183, 'arm64-v8a'), 200);
-        }),
-      ).resolveAdiLibraryDirectory(cacheDirectory: root.path);
-      expect(fetches, 1);
-      expect(result, root.absolute.path);
-      expect(
-        File(p.join(root.path, 'arm64-v8a', 'libCoreADI.so')).existsSync(),
-        isTrue,
-      );
-      expect(
-        File(p.join(root.path, 'libCoreADI.so')).readAsBytesSync(),
-        original,
-      );
-    });
+    test(
+      testOn: '!windows',
+      'fetches ARM64 without overwriting legacy x64 libraries',
+      () async {
+        _writeLibraries(root, 62);
+        final original = File(
+          p.join(root.path, 'libCoreADI.so'),
+        ).readAsBytesSync();
+        var fetches = 0;
+        final result = await authFixture(
+          abi: Abi.linuxArm64,
+          createAdiHttpClient: () => MockClient((request) async {
+            fetches++;
+            expect(request.url.toString(), appleMusicApkUrl);
+            return http.Response.bytes(_apkBytes(183, 'arm64-v8a'), 200);
+          }),
+        ).resolveAdiLibraryDirectory(cacheDirectory: root.path);
+        expect(fetches, 1);
+        expect(result, root.absolute.path);
+        expect(
+          File(p.join(root.path, 'arm64-v8a', 'libCoreADI.so')).existsSync(),
+          isTrue,
+        );
+        expect(
+          File(p.join(root.path, 'libCoreADI.so')).readAsBytesSync(),
+          original,
+        );
+      },
+    );
 
-    test('accepts an explicit scoped directory without downloading', () async {
-      final libraries = Directory(p.join(root.path, 'arm64-v8a'));
-      _writeLibraries(libraries, 183);
+    test(
+      testOn: '!windows',
+      'accepts an explicit scoped directory without downloading',
+      () async {
+        final libraries = Directory(p.join(root.path, 'arm64-v8a'));
+        _writeLibraries(libraries, 183);
 
-      expect(
-        await authFixture(abi: Abi.macosArm64).resolveAdiLibraryDirectory(
-          cacheDirectory: Directory.systemTemp.path,
-          configuredDirectory: libraries.path,
-        ),
-        libraries.absolute.path,
-      );
-    });
+        expect(
+          await authFixture(abi: Abi.macosArm64).resolveAdiLibraryDirectory(
+            cacheDirectory: Directory.systemTemp.path,
+            configuredDirectory: libraries.path,
+          ),
+          libraries.absolute.path,
+        );
+      },
+    );
 
-    test('rejects mismatched explicit libraries without downloading', () async {
-      _writeLibraries(root, 62);
+    test(
+      testOn: '!windows',
+      'rejects mismatched explicit libraries without downloading',
+      () async {
+        _writeLibraries(root, 62);
 
-      await expectLater(
-        authFixture(abi: Abi.linuxArm64).resolveAdiLibraryDirectory(
-          cacheDirectory: Directory.systemTemp.path,
-          configuredDirectory: root.path,
-        ),
-        throwsA(isA<XcrossError>()),
-      );
-      expect(Directory(p.join(root.path, 'arm64-v8a')).existsSync(), isFalse);
-    });
+        await expectLater(
+          authFixture(abi: Abi.linuxArm64).resolveAdiLibraryDirectory(
+            cacheDirectory: Directory.systemTemp.path,
+            configuredDirectory: root.path,
+          ),
+          throwsA(isA<XcrossError>()),
+        );
+        expect(Directory(p.join(root.path, 'arm64-v8a')).existsSync(), isFalse);
+      },
+    );
 
-    test('rejects incomplete explicit libraries without downloading', () async {
-      _writeLibraries(root, 183);
-      File(p.join(root.path, 'libstoreservicescore.so')).deleteSync();
+    test(
+      testOn: '!windows',
+      'rejects incomplete explicit libraries without downloading',
+      () async {
+        _writeLibraries(root, 183);
+        File(p.join(root.path, 'libstoreservicescore.so')).deleteSync();
 
-      await expectLater(
-        authFixture(abi: Abi.macosArm64).resolveAdiLibraryDirectory(
-          cacheDirectory: Directory.systemTemp.path,
-          configuredDirectory: root.path,
-        ),
-        throwsA(isA<XcrossError>()),
-      );
-    });
+        await expectLater(
+          authFixture(abi: Abi.macosArm64).resolveAdiLibraryDirectory(
+            cacheDirectory: Directory.systemTemp.path,
+            configuredDirectory: root.path,
+          ),
+          throwsA(isA<XcrossError>()),
+        );
+      },
+    );
 
     for (final (abi, machine, architecture) in const [
       (Abi.windowsX64, 62, 'x86_64'),
       (Abi.windowsArm64, 183, 'arm64-v8a'),
     ]) {
-      test('fetches into the host architecture directory on $abi', () async {
-        final client = ClosingAuthApkClient(_apkBytes(machine, architecture));
-        final result = await authFixture(
-          abi: abi,
-          createAdiHttpClient: () => client,
-        ).resolveAdiLibraryDirectory(cacheDirectory: root.path);
-        expect(result, root.absolute.path);
-        expect(client.closed, isTrue);
-        for (final name in ['libCoreADI.so', 'libstoreservicescore.so']) {
-          expect(
-            File(p.join(root.path, architecture, name)).readAsBytesSync(),
-            _libraryBytes(machine),
-          );
-        }
-      });
+      test(
+        testOn: '!windows',
+        'fetches into the host architecture directory on $abi',
+        () async {
+          final client = ClosingAuthApkClient(_apkBytes(machine, architecture));
+          final result = await authFixture(
+            abi: abi,
+            createAdiHttpClient: () => client,
+          ).resolveAdiLibraryDirectory(cacheDirectory: root.path);
+          expect(result, root.absolute.path);
+          expect(client.closed, isTrue);
+          for (final name in ['libCoreADI.so', 'libstoreservicescore.so']) {
+            expect(
+              File(p.join(root.path, architecture, name)).readAsBytesSync(),
+              _libraryBytes(machine),
+            );
+          }
+        },
+      );
     }
 
     test('rejects unsupported hosts without changing the cache', () async {
@@ -275,6 +301,8 @@ void main() {
     });
 
     test(
+      testOn: '!windows',
+
       'rejects incomplete downloaded APK without producing a library pair',
       () async {
         await expectLater(

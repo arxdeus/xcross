@@ -50,43 +50,49 @@ void main() {
   });
 
   group('xcross flutter clean', () {
-    test('removes device and simulator native assets and SwiftPM '
-        'workspaces', () async {
-      final project = _temp('xcross_clean_project');
-      final cache = _temp('xcross_clean_cache');
-      final env = {'XCROSS_CACHE_DIR': cache.path};
-      final created = <Directory>[];
-      for (final policy in policies) {
-        created
-          ..add(
-            Directory(
-              policy.buildDirectory(project.path, 'xcross-native-assets'),
-            )..createSync(recursive: true),
-          )
-          ..add(
-            Directory(
-              SwiftPmWorkspace.forProject(
-                project.path,
-                policy: policy,
-                environment: env,
-              ).root,
-            )..createSync(recursive: true),
-          );
-      }
+    test(
+      testOn: '!windows',
+      'removes device and simulator native assets and SwiftPM '
+      'workspaces',
+      () async {
+        final project = _temp('xcross_clean_project');
+        final cache = _temp('xcross_clean_cache');
+        final env = {'XCROSS_CACHE_DIR': cache.path};
+        final created = <Directory>[];
+        for (final policy in policies) {
+          created
+            ..add(
+              Directory(
+                policy.buildDirectory(project.path, 'xcross-native-assets'),
+              )..createSync(recursive: true),
+            )
+            ..add(
+              Directory(
+                SwiftPmWorkspace.forProject(
+                  project.path,
+                  policy: policy,
+                  environment: env,
+                ).root,
+              )..createSync(recursive: true),
+            );
+        }
 
-      await FlutterCleanCommand.cleanProject(
-        project.path,
-        policies: policies,
-        log: testLog(),
-        environment: env,
-      );
+        await FlutterCleanCommand.cleanProject(
+          project.path,
+          policies: policies,
+          log: testLog(),
+          environment: env,
+        );
 
-      for (final directory in created) {
-        expect(directory.existsSync(), isFalse, reason: directory.path);
-      }
-    });
+        for (final directory in created) {
+          expect(directory.existsSync(), isFalse, reason: directory.path);
+        }
+      },
+    );
 
     test(
+      testOn: '!windows',
+
       'preserves unrelated build output and shared SwiftPM caches',
       () async {
         final project = _temp('xcross_clean_project');
@@ -109,22 +115,26 @@ void main() {
       },
     );
 
-    test('succeeds when project caches do not exist', () async {
-      final project = _temp('xcross_clean_project');
-      final cache = _temp('xcross_clean_cache');
-      final env = {'XCROSS_CACHE_DIR': cache.path};
-      for (var i = 0; i < 2; i++) {
-        expect(
-          await FlutterCleanCommand.cleanProject(
-            project.path,
-            policies: policies,
-            log: testLog(),
-            environment: env,
-          ),
-          isEmpty,
-        );
-      }
-    });
+    test(
+      testOn: '!windows',
+      'succeeds when project caches do not exist',
+      () async {
+        final project = _temp('xcross_clean_project');
+        final cache = _temp('xcross_clean_cache');
+        final env = {'XCROSS_CACHE_DIR': cache.path};
+        for (var i = 0; i < 2; i++) {
+          expect(
+            await FlutterCleanCommand.cleanProject(
+              project.path,
+              policies: policies,
+              log: testLog(),
+              environment: env,
+            ),
+            isEmpty,
+          );
+        }
+      },
+    );
   });
 
   group('xcross compose clean', () {
@@ -134,46 +144,54 @@ void main() {
       projectRoot: root,
     ).cleanProject();
 
-    test('removes xcross build output and runner objects', () async {
-      final project = _temp('xcross_compose_clean');
-      final directories = [
-        p.join(project.path, 'build', 'xcross-ios', 'konan-caches'),
-        p.join(project.path, 'build', 'xcross-ios-simulator', 'runner'),
-        p.join(project.path, 'build', 'xcross-compose', 'Runner'),
-        p.join(project.path, 'iosApp', '.build', 'runner'),
-      ];
-      for (final path in directories) {
-        Directory(path).createSync(recursive: true);
-      }
+    test(
+      testOn: '!windows',
+      'removes xcross build output and runner objects',
+      () async {
+        final project = _temp('xcross_compose_clean');
+        final directories = [
+          p.join(project.path, 'build', 'xcross-ios', 'konan-caches'),
+          p.join(project.path, 'build', 'xcross-ios-simulator', 'runner'),
+          p.join(project.path, 'build', 'xcross-compose', 'Runner'),
+          p.join(project.path, 'iosApp', '.build', 'runner'),
+        ];
+        for (final path in directories) {
+          Directory(path).createSync(recursive: true);
+        }
 
-      expect(await clean(project.path), hasLength(4));
-      for (final path in directories) {
-        expect(Directory(path).existsSync(), isFalse, reason: path);
-      }
-    });
+        expect(await clean(project.path), hasLength(4));
+        for (final path in directories) {
+          expect(Directory(path).existsSync(), isFalse, reason: path);
+        }
+      },
+    );
 
-    test('preserves Gradle output and iOS app sources', () async {
-      final project = _temp('xcross_compose_clean');
-      final keep = [
-        File(p.join(project.path, 'composeApp', 'build', 'bin', 'keep.txt')),
-        File(p.join(project.path, 'build', 'keep.txt')),
-        File(p.join(project.path, 'iosApp', 'iosApp', 'App.swift')),
-      ];
-      for (final file in keep) {
-        file.createSync(recursive: true);
-      }
-      Directory(
-        p.join(project.path, 'build', 'xcross-ios'),
-      ).createSync(recursive: true);
+    test(
+      testOn: '!windows',
+      'preserves Gradle output and iOS app sources',
+      () async {
+        final project = _temp('xcross_compose_clean');
+        final keep = [
+          File(p.join(project.path, 'composeApp', 'build', 'bin', 'keep.txt')),
+          File(p.join(project.path, 'build', 'keep.txt')),
+          File(p.join(project.path, 'iosApp', 'iosApp', 'App.swift')),
+        ];
+        for (final file in keep) {
+          file.createSync(recursive: true);
+        }
+        Directory(
+          p.join(project.path, 'build', 'xcross-ios'),
+        ).createSync(recursive: true);
 
-      await clean(project.path);
+        await clean(project.path);
 
-      for (final file in keep) {
-        expect(file.existsSync(), isTrue, reason: file.path);
-      }
-    });
+        for (final file in keep) {
+          expect(file.existsSync(), isTrue, reason: file.path);
+        }
+      },
+    );
 
-    test('succeeds when nothing was built', () async {
+    test(testOn: '!windows', 'succeeds when nothing was built', () async {
       final project = _temp('xcross_compose_clean');
       expect(await clean(project.path), isEmpty);
     });
@@ -184,28 +202,32 @@ void main() {
     tearDownAll(sdkContext.close);
     final command = SdkCleanCommand(sdkContext.installer());
 
-    test('removes the SDK, its backup, and staging leftovers', () async {
-      final root = _temp('xcross_sdk_clean');
-      final dest = p.join(root.path, 'xcross-darwin.artifactbundle');
-      Directory(p.join(dest, 'Developer')).createSync(recursive: true);
-      Directory('$dest.previous').createSync();
-      Directory('$dest.staging-abc123').createSync();
-      final sibling = Directory(p.join(root.path, 'other.artifactbundle'))
-        ..createSync();
+    test(
+      testOn: '!windows',
+      'removes the SDK, its backup, and staging leftovers',
+      () async {
+        final root = _temp('xcross_sdk_clean');
+        final dest = p.join(root.path, 'xcross-darwin.artifactbundle');
+        Directory(p.join(dest, 'Developer')).createSync(recursive: true);
+        Directory('$dest.previous').createSync();
+        Directory('$dest.staging-abc123').createSync();
+        final sibling = Directory(p.join(root.path, 'other.artifactbundle'))
+          ..createSync();
 
-      final removed = await command.cleanSdk(dest);
+        final removed = await command.cleanSdk(dest);
 
-      expect(
-        removed,
-        unorderedEquals([dest, '$dest.previous', '$dest.staging-abc123']),
-      );
-      expect(Directory(dest).existsSync(), isFalse);
-      expect(Directory('$dest.previous').existsSync(), isFalse);
-      expect(Directory('$dest.staging-abc123').existsSync(), isFalse);
-      expect(sibling.existsSync(), isTrue);
-    });
+        expect(
+          removed,
+          unorderedEquals([dest, '$dest.previous', '$dest.staging-abc123']),
+        );
+        expect(Directory(dest).existsSync(), isFalse);
+        expect(Directory('$dest.previous').existsSync(), isFalse);
+        expect(Directory('$dest.staging-abc123').existsSync(), isFalse);
+        expect(sibling.existsSync(), isTrue);
+      },
+    );
 
-    test('succeeds when no SDK is installed', () async {
+    test(testOn: '!windows', 'succeeds when no SDK is installed', () async {
       final root = _temp('xcross_sdk_clean');
       final dest = p.join(root.path, 'missing', 'xcross-darwin.artifactbundle');
       expect(await command.cleanSdk(dest), isEmpty);

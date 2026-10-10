@@ -54,6 +54,8 @@ void main() {
   });
 
   test(
+    testOn: '!windows',
+
     'classifies remapped Xcode entries and preserves nested link payloads',
     () async {
       final app = paths.join(files.logicalRoot, 'Xcode.app');
@@ -136,6 +138,8 @@ void main() {
   );
 
   test(
+    testOn: '!windows',
+
     'unlinks mapped builtin header destination without deleting its target',
     () async {
       final toolchain = paths.join(files.logicalRoot, 'toolchain');

@@ -74,6 +74,8 @@ void main() {
     });
 
     test(
+      testOn: '!windows',
+
       'rejects a driver whose resource directory lacks builtin headers',
       () async {
         final empty = Directory(p.join(tmp.path, 'empty-resources'))
@@ -240,14 +242,19 @@ void main() {
   });
 
   group('clang version vs SDK libc++', () {
-    test('derives the minimum clang from the SDK libc++ version', () {
-      final include = Directory(p.join(tmp.path, 'usr', 'include', 'c++', 'v1'))
-        ..createSync(recursive: true);
-      File(
-        p.join(include.path, '__config'),
-      ).writeAsStringSync('#  define _LIBCPP_VERSION 210106\n');
-      expect(resolver.minimumClangForSdk(tmp.path), 19);
-    });
+    test(
+      testOn: '!windows',
+      'derives the minimum clang from the SDK libc++ version',
+      () {
+        final include = Directory(
+          p.join(tmp.path, 'usr', 'include', 'c++', 'v1'),
+        )..createSync(recursive: true);
+        File(
+          p.join(include.path, '__config'),
+        ).writeAsStringSync('#  define _LIBCPP_VERSION 210106\n');
+        expect(resolver.minimumClangForSdk(tmp.path), 19);
+      },
+    );
 
     test('has no minimum without libc++ headers', () {
       expect(resolver.minimumClangForSdk(tmp.path), isNull);
@@ -314,18 +321,22 @@ void main() {
       );
     });
 
-    test('keeps Linux versioned LLVM discovery separate from Homebrew', () {
-      for (final version in ['18', '22', '19.1']) {
-        Directory(p.join(tmp.path, 'llvm-$version')).createSync();
-      }
-      Directory(p.join(tmp.path, 'unrelated')).createSync();
-      final linux = LinuxHost(fileSystem: FixtureFileSystem(tmp.path));
-      expect(LinuxDarwinToolchainLocations(linux).llvmToolDirectories(), [
-        '/usr/lib/llvm-22/bin',
-        '/usr/lib/llvm-19.1/bin',
-        '/usr/lib/llvm-18/bin',
-      ]);
-    });
+    test(
+      testOn: '!windows',
+      'keeps Linux versioned LLVM discovery separate from Homebrew',
+      () {
+        for (final version in ['18', '22', '19.1']) {
+          Directory(p.join(tmp.path, 'llvm-$version')).createSync();
+        }
+        Directory(p.join(tmp.path, 'unrelated')).createSync();
+        final linux = LinuxHost(fileSystem: FixtureFileSystem(tmp.path));
+        expect(LinuxDarwinToolchainLocations(linux).llvmToolDirectories(), [
+          '/usr/lib/llvm-22/bin',
+          '/usr/lib/llvm-19.1/bin',
+          '/usr/lib/llvm-18/bin',
+        ]);
+      },
+    );
 
     test('covers Homebrew lld and llvm prefixes', () {
       expect(
@@ -418,22 +429,26 @@ void main() {
       expect(seen, contains('-dylib'));
     });
 
-    test('links an existing iOS object and removes it afterwards', () async {
-      late String input;
-      late List<int> bytes;
-      await resolver.probeIosSupport(
-        p.join(tmp.path, 'object-ld64.lld'),
-        runProcess: (executable, arguments) async {
-          input = arguments.last;
-          bytes = await File(input).readAsBytes();
-          return const CapturedProcess(0, '', '');
-        },
-      );
-      expect(bytes, DarwinToolchainResolver.iosProbeObject);
-      expect(bytes.sublist(0, 8), [0xcf, 0xfa, 0xed, 0xfe, 0x0c, 0, 0, 1]);
-      expect(bytes.sublist(32, 44), [0x32, 0, 0, 0, 24, 0, 0, 0, 2, 0, 0, 0]);
-      expect(File(input).existsSync(), isFalse);
-    });
+    test(
+      testOn: '!windows',
+      'links an existing iOS object and removes it afterwards',
+      () async {
+        late String input;
+        late List<int> bytes;
+        await resolver.probeIosSupport(
+          p.join(tmp.path, 'object-ld64.lld'),
+          runProcess: (executable, arguments) async {
+            input = arguments.last;
+            bytes = await File(input).readAsBytes();
+            return const CapturedProcess(0, '', '');
+          },
+        );
+        expect(bytes, DarwinToolchainResolver.iosProbeObject);
+        expect(bytes.sublist(0, 8), [0xcf, 0xfa, 0xed, 0xfe, 0x0c, 0, 0, 1]);
+        expect(bytes.sublist(32, 44), [0x32, 0, 0, 0, 24, 0, 0, 0, 2, 0, 0, 0]);
+        expect(File(input).existsSync(), isFalse);
+      },
+    );
   });
 
   group('selectorStubDefect', () {

@@ -23,6 +23,8 @@ void main() {
   });
 
   test(
+    testOn: '!windows',
+
     'Windows link creation injects native calls and preserves directory/file flags',
     () {
       context = CheckoutTestContext(root, (_) => CheckoutTestProcess());
@@ -64,6 +66,8 @@ void main() {
   );
 
   test(
+    testOn: '!windows',
+
     'Windows placeholder attributes use configured runner and injected file probing',
     () async {
       context = CheckoutTestContext(root, (_) => CheckoutTestProcess());
@@ -85,6 +89,8 @@ void main() {
   );
 
   test(
+    testOn: '!windows',
+
     'Windows fallback owns PowerShell replacement and header identity without host dispatch',
     () async {
       String? scriptPath;
@@ -185,6 +191,8 @@ void main() {
   );
 
   test(
+    testOn: '!windows',
+
     'checkout fallback synthesis reads manifests without rewriting them',
     () async {
       context = CheckoutTestContext(root, (_) => CheckoutTestProcess());

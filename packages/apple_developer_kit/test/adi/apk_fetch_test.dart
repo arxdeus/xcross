@@ -32,6 +32,8 @@ class RecordingApkClient extends MockClient {
 
 void main() {
   test(
+    testOn: '!windows',
+
     'mapped filesystem downloads, hashes, extracts and resolves without native bypass',
     () async {
       final fixture = MappedAppleFixture();
@@ -451,23 +453,27 @@ void main() {
     },
   );
 
-  test('accepts matching legacy flat library directories', () {
-    expect(
-      AdiLibraryResolver(
-        hostServices: testHostServices,
-      ).resolve(cache.path, abi: Abi.linuxArm64),
-      isNull,
-    );
-    for (final name in ['libCoreADI.so', 'libstoreservicescore.so']) {
-      File('${cache.path}/$name').writeAsBytesSync(elfFixture(183));
-    }
-    expect(
-      AdiLibraryResolver(
-        hostServices: testHostServices,
-      ).resolve(cache.path, abi: Abi.linuxArm64)?.path,
-      cache.path,
-    );
-  });
+  test(
+    testOn: '!windows',
+    'accepts matching legacy flat library directories',
+    () {
+      expect(
+        AdiLibraryResolver(
+          hostServices: testHostServices,
+        ).resolve(cache.path, abi: Abi.linuxArm64),
+        isNull,
+      );
+      for (final name in ['libCoreADI.so', 'libstoreservicescore.so']) {
+        File('${cache.path}/$name').writeAsBytesSync(elfFixture(183));
+      }
+      expect(
+        AdiLibraryResolver(
+          hostServices: testHostServices,
+        ).resolve(cache.path, abi: Abi.linuxArm64)?.path,
+        cache.path,
+      );
+    },
+  );
 
   for (final mutation in ['magic', 'class', 'endian', 'truncated']) {
     test('rejects $mutation cached ELF safely', () {

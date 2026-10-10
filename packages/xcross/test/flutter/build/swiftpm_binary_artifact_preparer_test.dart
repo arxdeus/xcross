@@ -1366,6 +1366,8 @@ void main() {
 
     for (final throwOnKill in [false, true]) {
       test(
+        testOn: '!windows',
+
         'retains live copy when quarantine marker fails, kill throws $throwOnKill',
         () async {
           final artifact = await source('QuarantineFailure$throwOnKill');

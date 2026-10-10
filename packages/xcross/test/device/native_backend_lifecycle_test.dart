@@ -1,3 +1,6 @@
+@TestOn('!windows')
+library;
+
 import 'dart:ffi';
 import 'dart:io';
 

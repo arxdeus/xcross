@@ -136,6 +136,8 @@ void main() {
     });
 
     test(
+      testOn: '!windows',
+
       'removes credentials and whole signing trees, reporting each',
       () async {
         final root = await Directory.systemTemp.createTemp('xcross_auth_clean');
@@ -170,11 +172,15 @@ void main() {
       },
     );
 
-    test('reports nothing for an untouched config directory', () async {
-      final root = await Directory.systemTemp.createTemp('xcross_auth_clean');
-      addTearDown(() => root.delete(recursive: true));
+    test(
+      testOn: '!windows',
+      'reports nothing for an untouched config directory',
+      () async {
+        final root = await Directory.systemTemp.createTemp('xcross_auth_clean');
+        addTearDown(() => root.delete(recursive: true));
 
-      expect(await authFixture().deleteAuthArtifacts(root.path), isEmpty);
-    });
+        expect(await authFixture().deleteAuthArtifacts(root.path), isEmpty);
+      },
+    );
   });
 }

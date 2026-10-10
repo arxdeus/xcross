@@ -134,150 +134,170 @@ void main() {
 
     const device = Device(name: 'Phone', udid: 'U1', type: ConnectionType.usb);
 
-    test('without a cached profile explains how to get one', () async {
-      final provider = ThrowingSigningSessionProvider(
-        SigningServiceUnavailable.unreachable(
-          const SocketException('Failed host lookup'),
-          identity: identityIn(fixture.path),
-        ),
-      );
-      await expectLater(
-        backendFor(
-          provider,
-        ).install(app, device: device, bundleId: 'com.example.app'),
-        throwsA(
-          isA<XcrossError>().having(
-            (error) => error.message,
-            'message',
-            allOf(
-              contains('unreachable'),
-              contains('No cached signing profile for "com.example.app"'),
-              contains('Run once while connected'),
+    test(
+      testOn: '!windows',
+      'without a cached profile explains how to get one',
+      () async {
+        final provider = ThrowingSigningSessionProvider(
+          SigningServiceUnavailable.unreachable(
+            const SocketException('Failed host lookup'),
+            identity: identityIn(fixture.path),
+          ),
+        );
+        await expectLater(
+          backendFor(
+            provider,
+          ).install(app, device: device, bundleId: 'com.example.app'),
+          throwsA(
+            isA<XcrossError>().having(
+              (error) => error.message,
+              'message',
+              allOf(
+                contains('unreachable'),
+                contains('No cached signing profile for "com.example.app"'),
+                contains('Run once while connected'),
+              ),
             ),
           ),
-        ),
-      );
-    });
+        );
+      },
+    );
 
-    test('picks the qualified App ID the last online run cached', () async {
-      final signing = identityIn(fixture.path);
-      // Only the qualified id was provisioned, so offline must sign as it;
-      // the half-written cache (no cert/key) then stops it before signing.
-      final profile = File(
-        p.join(
-          signing.profilesDir,
-          'XCR-TEAM1.com.example.app',
-          'profile.mobileprovision',
-        ),
-      )..createSync(recursive: true);
-      await expectLater(
-        backendFor(
-          ThrowingSigningSessionProvider(
-            SigningServiceUnavailable.unreachable(
-              const SocketException('offline'),
-              identity: signing,
+    test(
+      testOn: '!windows',
+      'picks the qualified App ID the last online run cached',
+      () async {
+        final signing = identityIn(fixture.path);
+        // Only the qualified id was provisioned, so offline must sign as it;
+        // the half-written cache (no cert/key) then stops it before signing.
+        final profile = File(
+          p.join(
+            signing.profilesDir,
+            'XCR-TEAM1.com.example.app',
+            'profile.mobileprovision',
+          ),
+        )..createSync(recursive: true);
+        await expectLater(
+          backendFor(
+            ThrowingSigningSessionProvider(
+              SigningServiceUnavailable.unreachable(
+                const SocketException('offline'),
+                identity: signing,
+              ),
+            ),
+          ).install(app, device: device, bundleId: 'com.example.app'),
+          throwsA(
+            isA<XcrossError>().having(
+              (error) => error.message,
+              'message',
+              contains('"XCR-TEAM1.com.example.app"'),
             ),
           ),
-        ).install(app, device: device, bundleId: 'com.example.app'),
-        throwsA(
-          isA<XcrossError>().having(
-            (error) => error.message,
-            'message',
-            contains('"XCR-TEAM1.com.example.app"'),
-          ),
-        ),
-      );
-      expect(profile.existsSync(), isTrue);
-      expect(
-        File(p.join(app, 'Info.plist')).readAsStringSync(),
-        contains('XCR-TEAM1.com.example.app'),
-      );
-    });
+        );
+        expect(profile.existsSync(), isTrue);
+        expect(
+          File(p.join(app, 'Info.plist')).readAsStringSync(),
+          contains('XCR-TEAM1.com.example.app'),
+        );
+      },
+    );
 
-    test('honours a saved prefixed App ID choice offline', () async {
-      final signing = identityIn(fixture.path);
-      for (final id in ['com.example.app', 'XCR-TEAM1.com.example.app']) {
+    test(
+      testOn: '!windows',
+      'honours a saved prefixed App ID choice offline',
+      () async {
+        final signing = identityIn(fixture.path);
+        for (final id in ['com.example.app', 'XCR-TEAM1.com.example.app']) {
+          File(
+            p.join(signing.profilesDir, id, 'profile.mobileprovision'),
+          ).createSync(recursive: true);
+        }
         File(
-          p.join(signing.profilesDir, id, 'profile.mobileprovision'),
-        ).createSync(recursive: true);
-      }
-      File(
-        p.join(fixture.path, 'xcross_project.yaml'),
-      ).writeAsStringSync('bundle_id: prefixed\n');
-      await expectLater(
-        backendFor(
-          ThrowingSigningSessionProvider(
-            SigningServiceUnavailable.unreachable(
-              const SocketException('offline'),
-              identity: signing,
+          p.join(fixture.path, 'xcross_project.yaml'),
+        ).writeAsStringSync('bundle_id: prefixed\n');
+        await expectLater(
+          backendFor(
+            ThrowingSigningSessionProvider(
+              SigningServiceUnavailable.unreachable(
+                const SocketException('offline'),
+                identity: signing,
+              ),
+            ),
+          ).install(
+            app,
+            device: device,
+            bundleId: 'com.example.app',
+            projectRoot: fixture.path,
+          ),
+          throwsA(
+            isA<XcrossError>().having(
+              (error) => error.message,
+              'message',
+              contains('"XCR-TEAM1.com.example.app"'),
             ),
           ),
-        ).install(
-          app,
-          device: device,
-          bundleId: 'com.example.app',
-          projectRoot: fixture.path,
-        ),
-        throwsA(
-          isA<XcrossError>().having(
-            (error) => error.message,
-            'message',
-            contains('"XCR-TEAM1.com.example.app"'),
-          ),
-        ),
-      );
-    });
+        );
+      },
+    );
 
-    test('lookup that cannot reach Apple falls back offline', () async {
-      final client = UnreachableProvisioningClient();
-      final anisette = ClosingAnisetteProvider();
-      final signing = identityIn(fixture.path);
-      await expectLater(
-        backendFor(
-          FixedSession(
-            SigningSession(
-              client: client,
-              anisette: anisette,
-              identityId: signing.identityId,
-              identityDir: signing.identityDir,
+    test(
+      testOn: '!windows',
+      'lookup that cannot reach Apple falls back offline',
+      () async {
+        final client = UnreachableProvisioningClient();
+        final anisette = ClosingAnisetteProvider();
+        final signing = identityIn(fixture.path);
+        await expectLater(
+          backendFor(
+            FixedSession(
+              SigningSession(
+                client: client,
+                anisette: anisette,
+                identityId: signing.identityId,
+                identityDir: signing.identityDir,
+              ),
+            ),
+          ).install(app, device: device, bundleId: 'com.example.app'),
+          throwsA(
+            isA<XcrossError>().having(
+              (error) => error.message,
+              'message',
+              allOf(
+                contains('unreachable'),
+                contains('No cached signing profile'),
+              ),
             ),
           ),
-        ).install(app, device: device, bundleId: 'com.example.app'),
-        throwsA(
-          isA<XcrossError>().having(
-            (error) => error.message,
-            'message',
-            allOf(
-              contains('unreachable'),
-              contains('No cached signing profile'),
-            ),
-          ),
-        ),
-      );
-      expect(client.closes, 1);
-      expect(anisette.closes, 1);
-    });
+        );
+        expect(client.closes, 1);
+        expect(anisette.closes, 1);
+      },
+    );
 
-    test('without any saved account keeps the original error', () async {
-      await expectLater(
-        backendFor(
-          ThrowingSigningSessionProvider(
-            SigningServiceUnavailable(
-              reason: 'r',
-              message: 'nothing to fall back on',
-              identity: null,
+    test(
+      testOn: '!windows',
+      'without any saved account keeps the original error',
+      () async {
+        await expectLater(
+          backendFor(
+            ThrowingSigningSessionProvider(
+              SigningServiceUnavailable(
+                reason: 'r',
+                message: 'nothing to fall back on',
+                identity: null,
+              ),
+            ),
+          ).install(app, device: device, bundleId: 'com.example.app'),
+          throwsA(
+            isA<XcrossError>().having(
+              (error) => error.message,
+              'message',
+              'nothing to fall back on',
             ),
           ),
-        ).install(app, device: device, bundleId: 'com.example.app'),
-        throwsA(
-          isA<XcrossError>().having(
-            (error) => error.message,
-            'message',
-            'nothing to fall back on',
-          ),
-        ),
-      );
-    });
+        );
+      },
+    );
   });
 
   group('resolver', () {
@@ -311,26 +331,34 @@ void main() {
       );
     }
 
-    test('XCROSS_OFFLINE uses saved ASC credentials without HTTP', () async {
-      final config = File(
-        p.join(fixture.path, '.config', 'xcross', 'appstoreconnect.json'),
-      )..createSync(recursive: true);
-      config.writeAsStringSync(
-        '{"issuerId": "abcd-1234", "keyId": "K", "privateKeyPath": "/k.p8"}',
-      );
-      await expectLater(
-        resolverWith({SigningSessionResolver.offlineEnvVar: '1'}).resolve(),
-        throwsA(
-          isA<SigningServiceUnavailable>()
-              .having((error) => error.identity?.identityId, 'id', 'abcd-1234')
-              .having(
-                (error) => error.identity?.identityDir,
-                'dir',
-                endsWith(p.join('appstoreconnect-abcd-1234', 'identity')),
-              ),
-        ),
-      );
-    });
+    test(
+      testOn: '!windows',
+      'XCROSS_OFFLINE uses saved ASC credentials without HTTP',
+      () async {
+        final config = File(
+          p.join(fixture.path, '.config', 'xcross', 'appstoreconnect.json'),
+        )..createSync(recursive: true);
+        config.writeAsStringSync(
+          '{"issuerId": "abcd-1234", "keyId": "K", "privateKeyPath": "/k.p8"}',
+        );
+        await expectLater(
+          resolverWith({SigningSessionResolver.offlineEnvVar: '1'}).resolve(),
+          throwsA(
+            isA<SigningServiceUnavailable>()
+                .having(
+                  (error) => error.identity?.identityId,
+                  'id',
+                  'abcd-1234',
+                )
+                .having(
+                  (error) => error.identity?.identityDir,
+                  'dir',
+                  endsWith(p.join('appstoreconnect-abcd-1234', 'identity')),
+                ),
+          ),
+        );
+      },
+    );
 
     test('XCROSS_OFFLINE with no saved account is a plain error', () async {
       await expectLater(

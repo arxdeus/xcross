@@ -295,25 +295,31 @@ void main() {
   });
 
   group('AppExtensionPlist.setAppGroups', () {
-    test('round-trips app groups through a built appex Info.plist', () async {
-      final xml = AppExtensionPlist.setAppGroups('<dict>\n</dict>', const [
-        'group.com.example.Shared',
-        'group.com.example.Other',
-      ]);
+    test(
+      testOn: '!windows',
+      'round-trips app groups through a built appex Info.plist',
+      () async {
+        final xml = AppExtensionPlist.setAppGroups('<dict>\n</dict>', const [
+          'group.com.example.Shared',
+          'group.com.example.Other',
+        ]);
 
-      final dir = await Directory.systemTemp.createTemp('xcross_appex_groups-');
-      addTearDown(() => dir.delete(recursive: true));
-      await File(p.join(dir.path, 'Info.plist')).writeAsString(xml);
+        final dir = await Directory.systemTemp.createTemp(
+          'xcross_appex_groups-',
+        );
+        addTearDown(() => dir.delete(recursive: true));
+        await File(p.join(dir.path, 'Info.plist')).writeAsString(xml);
 
-      // The sign/install stage recovers the groups without the Xcode project.
-      expect(
-        AppExtensionEntitlements(
-          fileSystem: testIPhoneRuntime().host.fileSystem,
-          paths: testIPhoneRuntime().host.paths,
-        ).appGroupsOf(dir.path),
-        ['group.com.example.Shared', 'group.com.example.Other'],
-      );
-    });
+        // The sign/install stage recovers the groups without the Xcode project.
+        expect(
+          AppExtensionEntitlements(
+            fileSystem: testIPhoneRuntime().host.fileSystem,
+            paths: testIPhoneRuntime().host.paths,
+          ).appGroupsOf(dir.path),
+          ['group.com.example.Shared', 'group.com.example.Other'],
+        );
+      },
+    );
 
     test('leaves the plist untouched when there are no groups', () {
       const source = '<dict>\n</dict>';
@@ -396,93 +402,111 @@ void main() {
       return file.path;
     }
 
-    test('keeps localized resources inside their .lproj directory', () async {
-      final english = await writeResource(
-        p.join('en.lproj', 'Localizable.strings'),
-        '"key" = "english";',
-      );
-      final german = await writeResource(
-        p.join('de.lproj', 'Localizable.strings'),
-        '"key" = "german";',
-      );
+    test(
+      testOn: '!windows',
+      'keeps localized resources inside their .lproj directory',
+      () async {
+        final english = await writeResource(
+          p.join('en.lproj', 'Localizable.strings'),
+          '"key" = "english";',
+        );
+        final german = await writeResource(
+          p.join('de.lproj', 'Localizable.strings'),
+          '"key" = "german";',
+        );
 
-      await testExtensionResources().copyResources(
-        extension: _extension(resources: [english, german]),
-        bundleDir: bundle.path,
-      );
+        await testExtensionResources().copyResources(
+          extension: _extension(resources: [english, german]),
+          bundleDir: bundle.path,
+        );
 
-      // Flattening onto the bundle root would make one language overwrite the
-      // other, and iOS would find no localization at all.
-      expect(
-        File(
-          p.join(bundle.path, 'en.lproj', 'Localizable.strings'),
-        ).readAsStringSync(),
-        '"key" = "english";',
-      );
-      expect(
-        File(
-          p.join(bundle.path, 'de.lproj', 'Localizable.strings'),
-        ).readAsStringSync(),
-        '"key" = "german";',
-      );
-    });
+        // Flattening onto the bundle root would make one language overwrite the
+        // other, and iOS would find no localization at all.
+        expect(
+          File(
+            p.join(bundle.path, 'en.lproj', 'Localizable.strings'),
+          ).readAsStringSync(),
+          '"key" = "english";',
+        );
+        expect(
+          File(
+            p.join(bundle.path, 'de.lproj', 'Localizable.strings'),
+          ).readAsStringSync(),
+          '"key" = "german";',
+        );
+      },
+    );
 
-    test('copies unlocalized resources to the bundle root', () async {
-      final resource = await writeResource('config.json', '{}');
+    test(
+      testOn: '!windows',
+      'copies unlocalized resources to the bundle root',
+      () async {
+        final resource = await writeResource('config.json', '{}');
 
-      await testExtensionResources().copyResources(
-        extension: _extension(resources: [resource]),
-        bundleDir: bundle.path,
-      );
+        await testExtensionResources().copyResources(
+          extension: _extension(resources: [resource]),
+          bundleDir: bundle.path,
+        );
 
-      expect(File(p.join(bundle.path, 'config.json')).existsSync(), isTrue);
-    });
+        expect(File(p.join(bundle.path, 'config.json')).existsSync(), isTrue);
+      },
+    );
 
-    test('places a compiled storyboard next to its localization', () async {
-      final storyboard = await writeResource(
-        p.join('Base.lproj', 'MainInterface.storyboard'),
-        '<document/>',
-      );
-      final compiled = Directory(
-        p.join(p.dirname(storyboard), 'MainInterface.storyboardc'),
-      );
-      await compiled.create(recursive: true);
-      await File(p.join(compiled.path, 'Info.plist')).writeAsString('<plist/>');
+    test(
+      testOn: '!windows',
+      'places a compiled storyboard next to its localization',
+      () async {
+        final storyboard = await writeResource(
+          p.join('Base.lproj', 'MainInterface.storyboard'),
+          '<document/>',
+        );
+        final compiled = Directory(
+          p.join(p.dirname(storyboard), 'MainInterface.storyboardc'),
+        );
+        await compiled.create(recursive: true);
+        await File(
+          p.join(compiled.path, 'Info.plist'),
+        ).writeAsString('<plist/>');
 
-      await testExtensionResources().copyResources(
-        extension: _extension(resources: [storyboard]),
-        bundleDir: bundle.path,
-      );
+        await testExtensionResources().copyResources(
+          extension: _extension(resources: [storyboard]),
+          bundleDir: bundle.path,
+        );
 
-      expect(
-        File(
-          p.join(
-            bundle.path,
-            'Base.lproj',
-            'MainInterface.storyboardc',
-            'Info.plist',
-          ),
-        ).existsSync(),
-        isTrue,
-      );
-    });
+        expect(
+          File(
+            p.join(
+              bundle.path,
+              'Base.lproj',
+              'MainInterface.storyboardc',
+              'Info.plist',
+            ),
+          ).existsSync(),
+          isTrue,
+        );
+      },
+    );
 
-    test('skips an uncompiled storyboard rather than shipping it', () async {
-      final storyboard = await writeResource(
-        'MainInterface.storyboard',
-        '<document/>',
-      );
+    test(
+      testOn: '!windows',
+      'skips an uncompiled storyboard rather than shipping it',
+      () async {
+        final storyboard = await writeResource(
+          'MainInterface.storyboard',
+          '<document/>',
+        );
 
-      await testExtensionResources().copyResources(
-        extension: _extension(resources: [storyboard]),
-        bundleDir: bundle.path,
-      );
+        await testExtensionResources().copyResources(
+          extension: _extension(resources: [storyboard]),
+          bundleDir: bundle.path,
+        );
 
-      expect(
-        File(p.join(bundle.path, 'MainInterface.storyboard')).existsSync(),
-        isFalse,
-      );
-    });
+        expect(
+          File(p.join(bundle.path, 'MainInterface.storyboard')).existsSync(),
+          isFalse,
+        );
+      },
+    );
   });
 }
 

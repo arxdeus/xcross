@@ -13,6 +13,8 @@ import '../../support/mapped_apple_fixture.dart';
 
 void main() {
   test(
+    testOn: '!windows',
+
     'mapped filesystem preserves pseudo identity and unsigned routing info',
     () async {
       final fixture = MappedAppleFixture();

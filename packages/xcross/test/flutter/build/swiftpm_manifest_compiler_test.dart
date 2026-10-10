@@ -219,73 +219,50 @@ void main() {
     expect(File(_contents(remote)).readAsStringSync(), contains('Missing'));
   });
 
-  test('installs a stable POSIX manifest compiler script', () async {
-    final directory = p.join(root.path, 'bin');
-    Future<String> install() =>
-        const LinuxSwiftPmHostPolicy().installManifestCompiler(
-          _runtime.host,
-          directory: directory,
-          executable: '/opt/xcross bin/xcross',
-          configuration: '{"policy":"a"}',
-        );
-    final shim = await install();
-    final modified = File(shim).lastModifiedSync();
-    expect(await install(), shim);
-    expect(File(shim).lastModifiedSync(), modified);
-    expect(p.basename(shim), manifestCompilerName);
-    final script = File(shim).readAsStringSync();
-    expect(script, contains("$manifestCompilerVariable='$shim.policy.json'"));
-    expect(script, contains("exec '/opt/xcross bin/xcross' \"\$@\""));
-    expect(File('$shim.policy.json').readAsStringSync(), '{"policy":"a"}');
-  });
+  test(
+    testOn: '!windows',
+    'installs a stable POSIX manifest compiler script',
+    () async {
+      final directory = p.join(root.path, 'bin');
+      Future<String> install() =>
+          const LinuxSwiftPmHostPolicy().installManifestCompiler(
+            _runtime.host,
+            directory: directory,
+            executable: '/opt/xcross bin/xcross',
+            configuration: '{"policy":"a"}',
+          );
+      final shim = await install();
+      final modified = File(shim).lastModifiedSync();
+      expect(await install(), shim);
+      expect(File(shim).lastModifiedSync(), modified);
+      expect(p.basename(shim), manifestCompilerName);
+      final script = File(shim).readAsStringSync();
+      expect(script, contains("$manifestCompilerVariable='$shim.policy.json'"));
+      expect(script, contains("exec '/opt/xcross bin/xcross' \"\$@\""));
+      expect(File('$shim.policy.json').readAsStringSync(), '{"policy":"a"}');
+    },
+  );
 
-  test('exposes one stable manifest compiler to every swift process', () async {
-    final bin = Directory(p.join(root.path, 'toolchain'))..createSync();
-    for (final tool in ['swift', 'swiftc']) {
-      File(p.join(bin.path, tool)).writeAsStringSync('tool');
-      _runtime.host.fileSystem.makeExecutable(p.join(bin.path, tool));
-    }
-    final xcross = p.join(root.path, 'xcross');
-    File(xcross).writeAsStringSync('xcross');
-    final cache = p.join(root.path, 'cache');
-    final environment = {
-      ...Platform.environment,
-      'PATH': bin.path,
-      'XCROSS_CACHE_DIR': cache,
-    };
-    Future<Map<String, String>> resolve() {
-      final runtime = testSwiftPmRuntime(environment: environment);
-      return SwiftPmProcessPolicy(
-        host: runtime.host,
-        hostPolicy: runtime.hostPolicy,
-        runner: runtime.runner,
-        tools: AppleToolShimResolver(
-          runtime.target,
-          runtime.runner,
-          runtime.sdkRepository,
-          runtime.toolchainResolver,
-          hostTools: MacOSNativeHostTools(runtime.host, runtime.runner),
-          executable: xcross,
-        ),
-      ).swiftProcessEnvironment();
-    }
-
-    final first = await resolve();
-    final second = await resolve();
-    final shim = first['SWIFT_EXEC_MANIFEST']!;
-    expect(second, first);
-    expect(p.isWithin(p.join(cache, 'manifest-compiler'), shim), isTrue);
-    expect(first[manifestPolicyVariable], isNotEmpty);
-    final configuration = SwiftPmManifestCompilerConfiguration.fromJson(
-      jsonDecode(File('$shim.policy.json').readAsStringSync())
-          as Map<String, Object?>,
-    );
-    expect(configuration.compiler, p.join(bin.path, 'swiftc'));
-    expect(configuration.policy, first[manifestPolicyVariable]);
-
-    final runtime = testSwiftPmRuntime(environment: environment);
-    final consumed =
-        await SwiftPmProcessPolicy(
+  test(
+    testOn: '!windows',
+    'exposes one stable manifest compiler to every swift process',
+    () async {
+      final bin = Directory(p.join(root.path, 'toolchain'))..createSync();
+      for (final tool in ['swift', 'swiftc']) {
+        File(p.join(bin.path, tool)).writeAsStringSync('tool');
+        _runtime.host.fileSystem.makeExecutable(p.join(bin.path, tool));
+      }
+      final xcross = p.join(root.path, 'xcross');
+      File(xcross).writeAsStringSync('xcross');
+      final cache = p.join(root.path, 'cache');
+      final environment = {
+        ...Platform.environment,
+        'PATH': bin.path,
+        'XCROSS_CACHE_DIR': cache,
+      };
+      Future<Map<String, String>> resolve() {
+        final runtime = testSwiftPmRuntime(environment: environment);
+        return SwiftPmProcessPolicy(
           host: runtime.host,
           hostPolicy: runtime.hostPolicy,
           runner: runtime.runner,
@@ -297,37 +274,68 @@ void main() {
             hostTools: MacOSNativeHostTools(runtime.host, runtime.runner),
             executable: xcross,
           ),
-        ).swiftProcessEnvironment(
-          consumedProducts: {
-            'dependency': {'Product'},
-          },
-        );
-    expect(
-      consumed[manifestPolicyVariable],
-      isNot(first[manifestPolicyVariable]),
-    );
-    expect(
-      SwiftPmManifestCompilerConfiguration.fromJson(
-        jsonDecode(
-              File(
-                '${consumed['SWIFT_EXEC_MANIFEST']!}.policy.json',
-              ).readAsStringSync(),
-            )
-            as Map<String, Object?>,
-      ).consumedProducts,
-      {
-        'dependency': ['Product'],
-      },
-    );
+        ).swiftProcessEnvironment();
+      }
 
-    File(xcross).writeAsStringSync('updated xcross');
-    final updated = await resolve();
-    expect(
-      updated[manifestPolicyVariable],
-      isNot(first[manifestPolicyVariable]),
-    );
-    expect(updated['SWIFT_EXEC_MANIFEST'], isNot(shim));
-  });
+      final first = await resolve();
+      final second = await resolve();
+      final shim = first['SWIFT_EXEC_MANIFEST']!;
+      expect(second, first);
+      expect(p.isWithin(p.join(cache, 'manifest-compiler'), shim), isTrue);
+      expect(first[manifestPolicyVariable], isNotEmpty);
+      final configuration = SwiftPmManifestCompilerConfiguration.fromJson(
+        jsonDecode(File('$shim.policy.json').readAsStringSync())
+            as Map<String, Object?>,
+      );
+      expect(configuration.compiler, p.join(bin.path, 'swiftc'));
+      expect(configuration.policy, first[manifestPolicyVariable]);
+
+      final runtime = testSwiftPmRuntime(environment: environment);
+      final consumed =
+          await SwiftPmProcessPolicy(
+            host: runtime.host,
+            hostPolicy: runtime.hostPolicy,
+            runner: runtime.runner,
+            tools: AppleToolShimResolver(
+              runtime.target,
+              runtime.runner,
+              runtime.sdkRepository,
+              runtime.toolchainResolver,
+              hostTools: MacOSNativeHostTools(runtime.host, runtime.runner),
+              executable: xcross,
+            ),
+          ).swiftProcessEnvironment(
+            consumedProducts: {
+              'dependency': {'Product'},
+            },
+          );
+      expect(
+        consumed[manifestPolicyVariable],
+        isNot(first[manifestPolicyVariable]),
+      );
+      expect(
+        SwiftPmManifestCompilerConfiguration.fromJson(
+          jsonDecode(
+                File(
+                  '${consumed['SWIFT_EXEC_MANIFEST']!}.policy.json',
+                ).readAsStringSync(),
+              )
+              as Map<String, Object?>,
+        ).consumedProducts,
+        {
+          'dependency': ['Product'],
+        },
+      );
+
+      File(xcross).writeAsStringSync('updated xcross');
+      final updated = await resolve();
+      expect(
+        updated[manifestPolicyVariable],
+        isNot(first[manifestPolicyVariable]),
+      );
+      expect(updated['SWIFT_EXEC_MANIFEST'], isNot(shim));
+    },
+  );
 
   test('derives the package identity from the manifest output name', () {
     expect(
@@ -460,43 +468,47 @@ let other: [SwiftSetting] = [.unsafeFlags(["-a"])]
     expect(Directory(p.join(root.path, 'cache')).existsSync(), isFalse);
   });
 
-  test('chains to a manifest compiler the user configured', () async {
-    final bin = Directory(p.join(root.path, 'toolchain'))..createSync();
-    File(p.join(bin.path, 'swift')).writeAsStringSync('tool');
-    _runtime.host.fileSystem.makeExecutable(p.join(bin.path, 'swift'));
-    final custom = p.join(root.path, 'custom-swiftc');
-    File(custom).writeAsStringSync('custom');
-    final xcross = p.join(root.path, 'xcross');
-    File(xcross).writeAsStringSync('xcross');
-    final runtime = testSwiftPmRuntime(
-      environment: {
-        ...Platform.environment,
-        'PATH': bin.path,
-        'XCROSS_CACHE_DIR': p.join(root.path, 'cache'),
-        'SWIFT_EXEC_MANIFEST': custom,
-      },
-    );
-    final environment = await SwiftPmProcessPolicy(
-      host: runtime.host,
-      hostPolicy: runtime.hostPolicy,
-      runner: runtime.runner,
-      tools: AppleToolShimResolver(
-        runtime.target,
-        runtime.runner,
-        runtime.sdkRepository,
-        runtime.toolchainResolver,
-        hostTools: MacOSNativeHostTools(runtime.host, runtime.runner),
-        executable: xcross,
-      ),
-    ).swiftProcessEnvironment();
-    final shim = environment['SWIFT_EXEC_MANIFEST']!;
-    expect(shim, isNot(custom));
-    final configuration = SwiftPmManifestCompilerConfiguration.fromJson(
-      jsonDecode(File('$shim.policy.json').readAsStringSync())
-          as Map<String, Object?>,
-    );
-    expect(configuration.compiler, custom);
-  });
+  test(
+    testOn: '!windows',
+    'chains to a manifest compiler the user configured',
+    () async {
+      final bin = Directory(p.join(root.path, 'toolchain'))..createSync();
+      File(p.join(bin.path, 'swift')).writeAsStringSync('tool');
+      _runtime.host.fileSystem.makeExecutable(p.join(bin.path, 'swift'));
+      final custom = p.join(root.path, 'custom-swiftc');
+      File(custom).writeAsStringSync('custom');
+      final xcross = p.join(root.path, 'xcross');
+      File(xcross).writeAsStringSync('xcross');
+      final runtime = testSwiftPmRuntime(
+        environment: {
+          ...Platform.environment,
+          'PATH': bin.path,
+          'XCROSS_CACHE_DIR': p.join(root.path, 'cache'),
+          'SWIFT_EXEC_MANIFEST': custom,
+        },
+      );
+      final environment = await SwiftPmProcessPolicy(
+        host: runtime.host,
+        hostPolicy: runtime.hostPolicy,
+        runner: runtime.runner,
+        tools: AppleToolShimResolver(
+          runtime.target,
+          runtime.runner,
+          runtime.sdkRepository,
+          runtime.toolchainResolver,
+          hostTools: MacOSNativeHostTools(runtime.host, runtime.runner),
+          executable: xcross,
+        ),
+      ).swiftProcessEnvironment();
+      final shim = environment['SWIFT_EXEC_MANIFEST']!;
+      expect(shim, isNot(custom));
+      final configuration = SwiftPmManifestCompilerConfiguration.fromJson(
+        jsonDecode(File('$shim.policy.json').readAsStringSync())
+            as Map<String, Object?>,
+      );
+      expect(configuration.compiler, custom);
+    },
+  );
 
   test('dispatches the manifest compiler through the tool alias', () async {
     final sidecar = p.join(root.path, 'policy.json');

@@ -36,6 +36,8 @@ void main() {
   });
 
   test(
+    testOn: '!windows',
+
     'layout observations and write probes use the supplied mapped filesystem',
     () {
       final mapped = FixtureMappedFileSystem(prefix);
@@ -69,7 +71,7 @@ void main() {
     },
   );
 
-  test('derives lib/ as the sibling of bin/', () {
+  test(testOn: '!windows', 'derives lib/ as the sibling of bin/', () {
     final layout = InstallLayout.forExecutable(
       p.join(prefix.path, 'bin', _exeName()),
       host: LinuxHost(),
@@ -93,7 +95,7 @@ void main() {
     );
   }, onPlatform: const {'windows': Skip('symlinks need elevation')});
 
-  test('refuses a dart run checkout', () {
+  test(testOn: '!windows', 'refuses a dart run checkout', () {
     final dart = File(p.join(prefix.path, 'bin', 'dart'))
       ..writeAsStringSync('vm');
     expect(
@@ -110,25 +112,29 @@ void main() {
 
   // `dart compile exe -o packages/xcross/bin/xcross` in a source checkout also
   // yields a sibling lib/, holding the package's Dart sources.
-  test('refuses a sibling lib/ that only holds non-native files', () {
-    final lib = Directory(p.join(prefix.path, 'lib'));
-    lib.deleteSync(recursive: true);
-    lib.createSync();
-    File(p.join(lib.path, 'xcross.dart')).writeAsStringSync('library;');
-    expect(
-      () => InstallLayout.forExecutable(
-        p.join(prefix.path, 'bin', _exeName()),
-        host: LinuxHost(),
-      ),
-      throwsA(
-        isA<XcrossError>().having(
-          (e) => e.message,
-          'message',
-          contains('unrecognised xcross installation'),
+  test(
+    testOn: '!windows',
+    'refuses a sibling lib/ that only holds non-native files',
+    () {
+      final lib = Directory(p.join(prefix.path, 'lib'));
+      lib.deleteSync(recursive: true);
+      lib.createSync();
+      File(p.join(lib.path, 'xcross.dart')).writeAsStringSync('library;');
+      expect(
+        () => InstallLayout.forExecutable(
+          p.join(prefix.path, 'bin', _exeName()),
+          host: LinuxHost(),
         ),
-      ),
-    );
-  });
+        throwsA(
+          isA<XcrossError>().having(
+            (e) => e.message,
+            'message',
+            contains('unrecognised xcross installation'),
+          ),
+        ),
+      );
+    },
+  );
 
   test('accepts an empty lib/ so update can repair missing libraries', () {
     final lib = Directory(p.join(prefix.path, 'lib'));
@@ -143,7 +149,7 @@ void main() {
     expect(layout.hasNativeLibraries, isFalse);
   });
 
-  test('reports installed native libraries', () {
+  test(testOn: '!windows', 'reports installed native libraries', () {
     final layout = InstallLayout.forExecutable(
       p.join(prefix.path, 'bin', _exeName()),
       host: LinuxHost(),
@@ -152,7 +158,7 @@ void main() {
     expect(layout.hasNativeLibraries, isTrue);
   });
 
-  test('refuses a layout with no sibling lib/', () {
+  test(testOn: '!windows', 'refuses a layout with no sibling lib/', () {
     Directory(p.join(prefix.path, 'lib')).deleteSync(recursive: true);
     expect(
       () => InstallLayout.forExecutable(
@@ -169,7 +175,7 @@ void main() {
     );
   });
 
-  test('reports a user-owned temp prefix as writable', () {
+  test(testOn: '!windows', 'reports a user-owned temp prefix as writable', () {
     final layout = InstallLayout.forExecutable(
       p.join(prefix.path, 'bin', _exeName()),
       host: LinuxHost(),

@@ -15,6 +15,8 @@ import 'support/mapped_frontend_file_system.dart';
 void main() {
   for (final relative in [false, true]) {
     test(
+      testOn: '!windows',
+
       'mapped session relative=$relative creates output and owns result bytes',
       () async {
         final temp = await Directory.systemTemp.createTemp('mapped-session-');

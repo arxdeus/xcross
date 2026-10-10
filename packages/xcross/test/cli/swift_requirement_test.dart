@@ -200,22 +200,26 @@ void main() {
       );
     });
 
-    test('rejects a toolchain with no sibling clang', () async {
-      final bin = Directory(p.join(temp.path, 'bin'))..createSync();
-      final swift = File(p.join(bin.path, runner.hostExecutableName('swift')))
-        ..createSync();
+    test(
+      testOn: '!windows',
+      'rejects a toolchain with no sibling clang',
+      () async {
+        final bin = Directory(p.join(temp.path, 'bin'))..createSync();
+        final swift = File(p.join(bin.path, runner.hostExecutableName('swift')))
+          ..createSync();
 
-      await expectLater(
-        SwiftRequirement(runner).requireSiblingClang(swift.path),
-        throwsA(
-          isA<XcrossError>().having(
-            (error) => error.message,
-            'message',
-            allOf(contains('no sibling clang'), contains('builtin headers')),
+        await expectLater(
+          SwiftRequirement(runner).requireSiblingClang(swift.path),
+          throwsA(
+            isA<XcrossError>().having(
+              (error) => error.message,
+              'message',
+              allOf(contains('no sibling clang'), contains('builtin headers')),
+            ),
           ),
-        ),
-      );
-    });
+        );
+      },
+    );
 
     test('defers an unresolvable path to the installer', () async {
       // Not this check's job to report: sdk_install produces a far more

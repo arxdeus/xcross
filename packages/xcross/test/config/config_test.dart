@@ -371,44 +371,48 @@ environment:
     }
   });
 
-  test('POSIX decoding preserves case and suffixes through YAML roundtrip', () {
-    final host = LinuxHost();
-    final tool = File(p.join(temporary.path, 'tool'))
-      ..writeAsStringSync('tool');
-    host.fileSystem.makeExecutable(tool.path);
-    final config = XcrossConfig.parse(
-      'tools:\n  clang: ${tool.path}\n  " CLANG.EXE ": ${tool.path}\n',
-      environment: const {},
-      host: host,
-      policy: const PosixConfigHost(),
-    );
-    expect(config.tools, {'clang': tool.path, 'CLANG.EXE': tool.path});
-    expect(config.tool('clang.exe'), isNull);
-    expect(
-      XcrossConfig.parse(
-        config.copyWith().toYaml(),
+  test(
+    testOn: '!windows',
+    'POSIX decoding preserves case and suffixes through YAML roundtrip',
+    () {
+      final host = LinuxHost();
+      final tool = File(p.join(temporary.path, 'tool'))
+        ..writeAsStringSync('tool');
+      host.fileSystem.makeExecutable(tool.path);
+      final config = XcrossConfig.parse(
+        'tools:\n  clang: ${tool.path}\n  " CLANG.EXE ": ${tool.path}\n',
         environment: const {},
         host: host,
         policy: const PosixConfigHost(),
-      ).tools,
-      config.tools,
-    );
-    expect(
-      () => XcrossConfig.parse(
-        'tools:\n  clang: ${tool.path}\n  " clang ": ${tool.path}\n',
-        environment: const {},
-        host: host,
-        policy: const PosixConfigHost(),
-      ),
-      throwsA(
-        isA<XcrossConfigException>().having(
-          (error) => error.message,
-          'message',
-          contains('Duplicate tool after host normalization'),
+      );
+      expect(config.tools, {'clang': tool.path, 'CLANG.EXE': tool.path});
+      expect(config.tool('clang.exe'), isNull);
+      expect(
+        XcrossConfig.parse(
+          config.copyWith().toYaml(),
+          environment: const {},
+          host: host,
+          policy: const PosixConfigHost(),
+        ).tools,
+        config.tools,
+      );
+      expect(
+        () => XcrossConfig.parse(
+          'tools:\n  clang: ${tool.path}\n  " clang ": ${tool.path}\n',
+          environment: const {},
+          host: host,
+          policy: const PosixConfigHost(),
         ),
-      ),
-    );
-  });
+        throwsA(
+          isA<XcrossConfigException>().having(
+            (error) => error.message,
+            'message',
+            contains('Duplicate tool after host normalization'),
+          ),
+        ),
+      );
+    },
+  );
 
   for (final suffix in ['.EXE', '.CMD', '.BAT', '.COM']) {
     test('Windows decoding normalizes mixed case and $suffix on POSIX', () {
@@ -483,6 +487,8 @@ environment:
   });
 
   test(
+    testOn: '!windows',
+
     'store discovers, selects, and atomically saves configuration',
     () async {
       final yaml = File(p.join(temporary.path, 'config.yml'))
@@ -509,16 +515,20 @@ environment:
     },
   );
 
-  test('store defaults to config.yaml when no file is selected', () async {
-    final store = XcrossConfigStore(
-      LinuxHost(environment: const {'HOME': '/home/me'}),
-      directory: temporary.path,
-      policy: const PosixConfigHost(),
-      environment: const {},
-    );
-    final target = await store.save(XcrossConfig());
-    expect(p.basename(target.path), 'config.yaml');
-  });
+  test(
+    testOn: '!windows',
+    'store defaults to config.yaml when no file is selected',
+    () async {
+      final store = XcrossConfigStore(
+        LinuxHost(environment: const {'HOME': '/home/me'}),
+        directory: temporary.path,
+        policy: const PosixConfigHost(),
+        environment: const {},
+      );
+      final target = await store.save(XcrossConfig());
+      expect(p.basename(target.path), 'config.yaml');
+    },
+  );
 
   test(
     'selector for absent file fails and defaults use injected environment',

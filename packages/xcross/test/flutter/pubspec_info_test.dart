@@ -15,7 +15,7 @@ void main() {
   setUp(() => tmp = Directory.systemTemp.createTempSync('xcross_pubspec_'));
   tearDown(() => tmp.deleteSync(recursive: true));
 
-  test('parses assets and fonts sections', () {
+  test(testOn: '!windows', 'parses assets and fonts sections', () {
     File(p.join(tmp.path, 'pubspec.yaml')).writeAsStringSync('''
 name: demo
 flutter:
@@ -51,7 +51,7 @@ flutter:
     });
   });
 
-  test('reads non-dev dependencies from pubspec.lock', () {
+  test(testOn: '!windows', 'reads non-dev dependencies from pubspec.lock', () {
     File(p.join(tmp.path, 'pubspec.yaml')).writeAsStringSync('''
 name: demo
 dependencies:
@@ -75,7 +75,7 @@ packages:
     ]);
   });
 
-  test('parses shaders in string and map form', () {
+  test(testOn: '!windows', 'parses shaders in string and map form', () {
     File(p.join(tmp.path, 'pubspec.yaml')).writeAsStringSync('''
 name: demo
 flutter:
@@ -123,24 +123,31 @@ flutter:
     }
   });
 
-  test('defaults to no assets/fonts when flutter: section is absent', () {
-    File(p.join(tmp.path, 'pubspec.yaml')).writeAsStringSync('name: demo\n');
+  test(
+    testOn: '!windows',
+    'defaults to no assets/fonts when flutter: section is absent',
+    () {
+      File(p.join(tmp.path, 'pubspec.yaml')).writeAsStringSync('name: demo\n');
 
-    final info = testIPhoneRuntime().pubspecs.loadSync(tmp.path);
+      final info = testIPhoneRuntime().pubspecs.loadSync(tmp.path);
 
-    expect(info.usesMaterialDesign, isFalse);
-    expect(info.assets, isEmpty);
-    expect(info.fonts, isEmpty);
-  });
+      expect(info.usesMaterialDesign, isFalse);
+      expect(info.assets, isEmpty);
+      expect(info.fonts, isEmpty);
+    },
+  );
 
-  test('bundles fonts declared by package dependencies', () async {
-    final packageRoot = Directory(p.join(tmp.path, 'package_font'))
-      ..createSync();
-    Directory(p.join(packageRoot.path, 'assets')).createSync();
-    File(
-      p.join(packageRoot.path, 'assets', 'PackageIcons.ttf'),
-    ).writeAsBytesSync([1, 2, 3]);
-    File(p.join(packageRoot.path, 'pubspec.yaml')).writeAsStringSync('''
+  test(
+    testOn: '!windows',
+    'bundles fonts declared by package dependencies',
+    () async {
+      final packageRoot = Directory(p.join(tmp.path, 'package_font'))
+        ..createSync();
+      Directory(p.join(packageRoot.path, 'assets')).createSync();
+      File(
+        p.join(packageRoot.path, 'assets', 'PackageIcons.ttf'),
+      ).writeAsBytesSync([1, 2, 3]);
+      File(p.join(packageRoot.path, 'pubspec.yaml')).writeAsStringSync('''
 name: package_font
 flutter:
   fonts:
@@ -150,68 +157,69 @@ flutter:
           weight: 700
 ''');
 
-    File(p.join(tmp.path, 'pubspec.yaml')).writeAsStringSync('''
+      File(p.join(tmp.path, 'pubspec.yaml')).writeAsStringSync('''
 name: demo
 dependencies:
   package_font: any
 ''');
-    File(p.join(tmp.path, 'pubspec.lock')).writeAsStringSync('''
+      File(p.join(tmp.path, 'pubspec.lock')).writeAsStringSync('''
 packages:
   package_font:
     dependency: direct main
 ''');
-    final dartTool = Directory(p.join(tmp.path, '.dart_tool'))..createSync();
-    File(p.join(dartTool.path, 'package_config.json')).writeAsStringSync(
-      jsonEncode({
-        'configVersion': 2,
-        'packages': [
-          {
-            'name': 'package_font',
-            'rootUri': packageRoot.uri.toString(),
-            'packageUri': 'lib/',
-            'languageVersion': '3.0',
-          },
-        ],
-      }),
-    );
-    final assetsDir = Directory(p.join(tmp.path, 'output'))..createSync();
-    final runtime = testIPhoneRuntime();
-    final bundler = FlutterAssetsCompiler(
-      paths: runtime.host.paths.context,
-      fileSystem: runtime.host.fileSystem,
-      projectRoot: tmp.path,
-      flutterRoot: p.join(tmp.path, 'flutter'),
-    );
+      final dartTool = Directory(p.join(tmp.path, '.dart_tool'))..createSync();
+      File(p.join(dartTool.path, 'package_config.json')).writeAsStringSync(
+        jsonEncode({
+          'configVersion': 2,
+          'packages': [
+            {
+              'name': 'package_font',
+              'rootUri': packageRoot.uri.toString(),
+              'packageUri': 'lib/',
+              'languageVersion': '3.0',
+            },
+          ],
+        }),
+      );
+      final assetsDir = Directory(p.join(tmp.path, 'output'))..createSync();
+      final runtime = testIPhoneRuntime();
+      final bundler = FlutterAssetsCompiler(
+        paths: runtime.host.paths.context,
+        fileSystem: runtime.host.fileSystem,
+        projectRoot: tmp.path,
+        flutterRoot: p.join(tmp.path, 'flutter'),
+      );
 
-    final fonts = await bundler.copyFonts(
-      assetsDir.path,
-      testIPhoneRuntime().pubspecs.loadSync(tmp.path),
-    );
+      final fonts = await bundler.copyFonts(
+        assetsDir.path,
+        testIPhoneRuntime().pubspecs.loadSync(tmp.path),
+      );
 
-    expect(
-      File(
-        p.join(
-          assetsDir.path,
-          'packages',
-          'package_font',
-          'assets',
-          'PackageIcons.ttf',
-        ),
-      ).readAsBytesSync(),
-      [1, 2, 3],
-    );
-    expect(fonts, [
-      {
-        'family': 'packages/package_font/PackageIcons',
-        'fonts': [
-          {
-            'asset': 'packages/package_font/assets/PackageIcons.ttf',
-            'weight': 700,
-          },
-        ],
-      },
-    ]);
-  });
+      expect(
+        File(
+          p.join(
+            assetsDir.path,
+            'packages',
+            'package_font',
+            'assets',
+            'PackageIcons.ttf',
+          ),
+        ).readAsBytesSync(),
+        [1, 2, 3],
+      );
+      expect(fonts, [
+        {
+          'family': 'packages/package_font/PackageIcons',
+          'fonts': [
+            {
+              'asset': 'packages/package_font/assets/PackageIcons.ttf',
+              'weight': 700,
+            },
+          ],
+        },
+      ]);
+    },
+  );
 
   // Regression check for the manifest byte layout FlutterDebugBundler writes:
   // the previous hand-rolled `AssetManifest.bin` bytes didn't decode cleanly

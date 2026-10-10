@@ -80,23 +80,27 @@ void main() {
     });
   }
 
-  test('native loader refuses a mismatched ABI before creating memory', () {
-    switch (Abi.current()) {
-      case Abi.macosX64 || Abi.macosArm64:
-        expect(createLinuxNativeLibraryLoader, throwsUnsupportedError);
-        expect(createWindowsNativeLibraryLoader, throwsUnsupportedError);
-      case Abi.linuxX64 || Abi.linuxArm64:
-        expect(createMacOSNativeLibraryLoader, throwsUnsupportedError);
-        expect(createWindowsNativeLibraryLoader, throwsUnsupportedError);
-      case Abi.windowsX64:
-        expect(createLinuxNativeLibraryLoader, throwsUnsupportedError);
-        expect(createMacOSNativeLibraryLoader, throwsUnsupportedError);
-      default:
-        expect(createLinuxNativeLibraryLoader, throwsUnsupportedError);
-        expect(createMacOSNativeLibraryLoader, throwsUnsupportedError);
-        expect(createWindowsNativeLibraryLoader, throwsUnsupportedError);
-    }
-  });
+  test(
+    testOn: '!windows',
+    'native loader refuses a mismatched ABI before creating memory',
+    () {
+      switch (Abi.current()) {
+        case Abi.macosX64 || Abi.macosArm64:
+          expect(createLinuxNativeLibraryLoader, throwsUnsupportedError);
+          expect(createWindowsNativeLibraryLoader, throwsUnsupportedError);
+        case Abi.linuxX64 || Abi.linuxArm64:
+          expect(createMacOSNativeLibraryLoader, throwsUnsupportedError);
+          expect(createWindowsNativeLibraryLoader, throwsUnsupportedError);
+        case Abi.windowsX64:
+          expect(createLinuxNativeLibraryLoader, throwsUnsupportedError);
+          expect(createMacOSNativeLibraryLoader, throwsUnsupportedError);
+        default:
+          expect(createLinuxNativeLibraryLoader, throwsUnsupportedError);
+          expect(createMacOSNativeLibraryLoader, throwsUnsupportedError);
+          expect(createWindowsNativeLibraryLoader, throwsUnsupportedError);
+      }
+    },
+  );
 
   test('selected hosts own configuration and path identity', () {
     final linux = createLinuxAppleHostServices(
@@ -150,29 +154,33 @@ void main() {
     expect(services.localeName, 'de_DE');
   });
 
-  test('Linux machine identity reads only injected file paths', () async {
-    final directory = Directory.systemTemp.createTempSync(
-      'apple-host-identity-',
-    );
-    addTearDown(() => directory.deleteSync(recursive: true));
-    final first = File(p.join(directory.path, 'first'))
-      ..writeAsStringSync('  ');
-    final second = File(p.join(directory.path, 'second'))
-      ..writeAsStringSync(' stable-id\n');
-    final host = LinuxHost();
-    final identity = LinuxMachineIdentity(
-      host.fileSystem,
-      paths: [first.path, second.path],
-    );
-    expect(await identity.read(), 'stable-id');
-    expect(
-      await LinuxMachineIdentity(
+  test(
+    testOn: '!windows',
+    'Linux machine identity reads only injected file paths',
+    () async {
+      final directory = Directory.systemTemp.createTempSync(
+        'apple-host-identity-',
+      );
+      addTearDown(() => directory.deleteSync(recursive: true));
+      final first = File(p.join(directory.path, 'first'))
+        ..writeAsStringSync('  ');
+      final second = File(p.join(directory.path, 'second'))
+        ..writeAsStringSync(' stable-id\n');
+      final host = LinuxHost();
+      final identity = LinuxMachineIdentity(
         host.fileSystem,
-        paths: [p.join(directory.path, 'missing')],
-      ).read(),
-      '',
-    );
-  });
+        paths: [first.path, second.path],
+      );
+      expect(await identity.read(), 'stable-id');
+      expect(
+        await LinuxMachineIdentity(
+          host.fileSystem,
+          paths: [p.join(directory.path, 'missing')],
+        ).read(),
+        '',
+      );
+    },
+  );
 
   test(
     'macOS identity invokes ioreg through selected process runner',
@@ -212,58 +220,68 @@ void main() {
     );
   });
 
-  test('cipher uses selected environment identity and permissions', () async {
-    final directory = Directory.systemTemp.createTempSync('apple-host-cipher-');
-    addTearDown(() => directory.deleteSync(recursive: true));
-    final permissions = Permissions();
-    final services = AppleHostServices(
-      host: LinuxHost(
-        environment: {LocalCipher.bindingEnvironmentVariable: 'key-only'},
-      ),
-      machineIdentity: Identity('machine-a'),
-      permissions: permissions,
-      abi: Abi.linuxX64,
-    );
-    final cipher = LocalCipher(
-      keyFilePath: p.join(directory.path, 'key'),
-      hostServices: services,
-    );
-    final envelope = await cipher.seal('secret');
-    expect(await cipher.open(envelope), 'secret');
-    expect(envelope, contains('key-only'));
-    expect(permissions.hardened, isNotEmpty);
-  });
+  test(
+    testOn: '!windows',
+    'cipher uses selected environment identity and permissions',
+    () async {
+      final directory = Directory.systemTemp.createTempSync(
+        'apple-host-cipher-',
+      );
+      addTearDown(() => directory.deleteSync(recursive: true));
+      final permissions = Permissions();
+      final services = AppleHostServices(
+        host: LinuxHost(
+          environment: {LocalCipher.bindingEnvironmentVariable: 'key-only'},
+        ),
+        machineIdentity: Identity('machine-a'),
+        permissions: permissions,
+        abi: Abi.linuxX64,
+      );
+      final cipher = LocalCipher(
+        keyFilePath: p.join(directory.path, 'key'),
+        hostServices: services,
+      );
+      final envelope = await cipher.seal('secret');
+      expect(await cipher.open(envelope), 'secret');
+      expect(envelope, contains('key-only'));
+      expect(permissions.hardened, isNotEmpty);
+    },
+  );
 
-  test('secure temp is hardened empty before writing secret bytes', () async {
-    final directory = Directory.systemTemp.createTempSync(
-      'secure-write-order-',
-    );
-    addTearDown(() => directory.deleteSync(recursive: true));
-    final selected = testHostServices;
-    final events = <String>[];
-    final files = SecureWriteFileSystem(selected.host.fileSystem, (file) {
-      events.add('write');
-      expect(events, ['harden', 'write']);
-      expect(file.readAsBytesSync(), isEmpty);
-      if (selected.abi != Abi.windowsX64) {
-        expect(file.statSync().mode & 0x1ff, 0x180);
-      }
-    });
-    final services = AppleHostServices(
-      host: LinuxHost(fileSystem: files),
-      abi: selected.abi,
-      machineIdentity: Identity(''),
-      permissions: SecureWritePermissions(selected.permissions, (file) {
-        events.add('harden');
+  test(
+    testOn: '!windows',
+    'secure temp is hardened empty before writing secret bytes',
+    () async {
+      final directory = Directory.systemTemp.createTempSync(
+        'secure-write-order-',
+      );
+      addTearDown(() => directory.deleteSync(recursive: true));
+      final selected = testHostServices;
+      final events = <String>[];
+      final files = SecureWriteFileSystem(selected.host.fileSystem, (file) {
+        events.add('write');
+        expect(events, ['harden', 'write']);
         expect(file.readAsBytesSync(), isEmpty);
-      }),
-    );
-    final path = p.join(directory.path, 'secret');
-    await SecureFile(hostServices: services).writeString(path, 'private-key');
-    expect(events, ['harden', 'write']);
-    expect(File(path).readAsStringSync(), 'private-key');
-    expect(directory.listSync().length, 1);
-  });
+        if (selected.abi != Abi.windowsX64) {
+          expect(file.statSync().mode & 0x1ff, 0x180);
+        }
+      });
+      final services = AppleHostServices(
+        host: LinuxHost(fileSystem: files),
+        abi: selected.abi,
+        machineIdentity: Identity(''),
+        permissions: SecureWritePermissions(selected.permissions, (file) {
+          events.add('harden');
+          expect(file.readAsBytesSync(), isEmpty);
+        }),
+      );
+      final path = p.join(directory.path, 'secret');
+      await SecureFile(hostServices: services).writeString(path, 'private-key');
+      expect(events, ['harden', 'write']);
+      expect(File(path).readAsStringSync(), 'private-key');
+      expect(directory.listSync().length, 1);
+    },
+  );
 
   test('permission policy delegates mode and preserves failure semantics', () {
     final files = PermissionPolicyFileSystem();

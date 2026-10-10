@@ -54,6 +54,8 @@ void main() {
     }
   });
   test(
+    testOn: '!windows',
+
     'POSIX engine extraction retains executable mode and relative links',
     () async {
       final tmp = await Directory.systemTemp.createTemp(
@@ -94,6 +96,8 @@ void main() {
     },
   );
   test(
+    testOn: '!windows',
+
     'Windows engine extraction materializes links after file entries',
     () async {
       final tmp = await Directory.systemTemp.createTemp(
@@ -166,6 +170,8 @@ void main() {
   });
   tearDown(() => temp.delete(recursive: true));
   test(
+    testOn: '!windows',
+
     'Windows engine framework links resolve deferred ancestor aliases',
     () async {
       final tmp = await Directory.systemTemp.createTemp(
@@ -207,33 +213,40 @@ void main() {
       );
     },
   );
-  test('selects simulator slices without falling back to device engine', () {
-    final framework = p.join(temp.path, 'Flutter.xcframework');
-    Directory(
-      p.join(framework, 'ios-arm64', 'Flutter.framework'),
-    ).createSync(recursive: true);
-    final simulator = IosEngineCache(
-      targetPolicy: SimulatorFlutterTarget(SimulatorTarget(host)),
-      hostTools: hostTools,
-      flutterRoot: flutterRoot,
-      log: _log(),
-      downloader: _downloader(),
-    );
-    expect(cache().flutterSlice(framework), p.join(framework, 'ios-arm64'));
-    expect(
-      () => simulator.flutterSlice(framework),
-      throwsA(isA<FlutterBuildError>()),
-    );
-    for (final identifier in [
-      'ios-arm64-simulator',
-      'ios-arm64_x86_64-simulator',
-    ]) {
+  test(
+    testOn: '!windows',
+    'selects simulator slices without falling back to device engine',
+    () {
+      final framework = p.join(temp.path, 'Flutter.xcframework');
       Directory(
-        p.join(framework, identifier, 'Flutter.framework'),
+        p.join(framework, 'ios-arm64', 'Flutter.framework'),
       ).createSync(recursive: true);
-      expect(simulator.flutterSlice(framework), p.join(framework, identifier));
-    }
-  });
+      final simulator = IosEngineCache(
+        targetPolicy: SimulatorFlutterTarget(SimulatorTarget(host)),
+        hostTools: hostTools,
+        flutterRoot: flutterRoot,
+        log: _log(),
+        downloader: _downloader(),
+      );
+      expect(cache().flutterSlice(framework), p.join(framework, 'ios-arm64'));
+      expect(
+        () => simulator.flutterSlice(framework),
+        throwsA(isA<FlutterBuildError>()),
+      );
+      for (final identifier in [
+        'ios-arm64-simulator',
+        'ios-arm64_x86_64-simulator',
+      ]) {
+        Directory(
+          p.join(framework, identifier, 'Flutter.framework'),
+        ).createSync(recursive: true);
+        expect(
+          simulator.flutterSlice(framework),
+          p.join(framework, identifier),
+        );
+      }
+    },
+  );
   final macArm = MacOSHost(architecture: 'arm64');
   final macX64 = MacOSHost(architecture: 'x64');
   final linuxX64 = LinuxHost(architecture: 'x64');
@@ -319,6 +332,8 @@ void main() {
         ),
       ]) {
     test(
+      testOn: '!windows',
+
       '$artifact preserves separate download and canonical SDK cache names',
       () {
         final engine = IosEngineCache(
@@ -414,7 +429,7 @@ void main() {
       throwsA(isA<FlutterBuildError>()),
     );
   });
-  test('does not reuse Linux x64 artifacts for ARM64', () {
+  test(testOn: '!windows', 'does not reuse Linux x64 artifacts for ARM64', () {
     final wrong = p.join(
       flutterRoot,
       'bin',
@@ -451,37 +466,47 @@ void main() {
       sdk = p.join(flutterRoot, 'bin', 'cache', 'artifacts', 'engine');
     });
 
-    test('reuses SDK iOS engine built for the current engine', () {
-      _writeEngineFramework(
-        p.join(sdk, 'ios', 'Flutter.xcframework', 'ios-arm64'),
-        folded: false,
-        engineRevision: 'engine-hash',
-      );
-      writeStamp('ios-sdk', 'older-hash');
-      final engine = cache();
-      expect(engine.sdkIosEngineRevision, 'engine-hash');
-      expect(
-        engine.flutterXcframework,
-        p.join(sdk, 'ios', 'Flutter.xcframework'),
-      );
-    });
-
-    test('skips SDK iOS engine whose framework names an older engine', () {
-      _writeEngineFramework(
-        p.join(sdk, 'ios', 'Flutter.xcframework', 'ios-arm64'),
-        folded: false,
-        engineRevision: 'older-hash',
-      );
-      writeStamp('ios-sdk', 'engine-hash');
-      final engine = cache();
-      expect(engine.sdkIosEngineRevision, 'older-hash');
-      expect(
-        engine.flutterXcframework,
-        p.join(userEngine('ios'), 'Flutter.xcframework'),
-      );
-    });
+    test(
+      testOn: '!windows',
+      'reuses SDK iOS engine built for the current engine',
+      () {
+        _writeEngineFramework(
+          p.join(sdk, 'ios', 'Flutter.xcframework', 'ios-arm64'),
+          folded: false,
+          engineRevision: 'engine-hash',
+        );
+        writeStamp('ios-sdk', 'older-hash');
+        final engine = cache();
+        expect(engine.sdkIosEngineRevision, 'engine-hash');
+        expect(
+          engine.flutterXcframework,
+          p.join(sdk, 'ios', 'Flutter.xcframework'),
+        );
+      },
+    );
 
     test(
+      testOn: '!windows',
+      'skips SDK iOS engine whose framework names an older engine',
+      () {
+        _writeEngineFramework(
+          p.join(sdk, 'ios', 'Flutter.xcframework', 'ios-arm64'),
+          folded: false,
+          engineRevision: 'older-hash',
+        );
+        writeStamp('ios-sdk', 'engine-hash');
+        final engine = cache();
+        expect(engine.sdkIosEngineRevision, 'older-hash');
+        expect(
+          engine.flutterXcframework,
+          p.join(userEngine('ios'), 'Flutter.xcframework'),
+        );
+      },
+    );
+
+    test(
+      testOn: '!windows',
+
       'ignores ios-sdk.stamp where Flutter does not manage iOS artifacts',
       () {
         _writeEngineFramework(
@@ -498,72 +523,80 @@ void main() {
       },
     );
 
-    test('falls back to ios-sdk.stamp where Flutter manages iOS artifacts', () {
-      _writeEngineFramework(
-        p.join(sdk, 'ios', 'Flutter.xcframework', 'ios-arm64'),
-        folded: false,
-      );
-      IosEngineCache<MacOSHost> mac() => IosEngineCache(
-        targetPolicy: IPhoneFlutterTarget(IPhoneTarget(macArm)),
-        hostTools: MacOSNativeHostTools(
-          macArm,
-          ProcessRunner(
+    test(
+      testOn: '!windows',
+      'falls back to ios-sdk.stamp where Flutter manages iOS artifacts',
+      () {
+        _writeEngineFramework(
+          p.join(sdk, 'ios', 'Flutter.xcframework', 'ios-arm64'),
+          folded: false,
+        );
+        IosEngineCache<MacOSHost> mac() => IosEngineCache(
+          targetPolicy: IPhoneFlutterTarget(IPhoneTarget(macArm)),
+          hostTools: MacOSNativeHostTools(
             macArm,
-            log: _log(),
-            stdinStream: const Stream<List<int>>.empty(),
-            stdoutSink: sink(),
-            stderrSink: sink(),
+            ProcessRunner(
+              macArm,
+              log: _log(),
+              stdinStream: const Stream<List<int>>.empty(),
+              stdoutSink: sink(),
+              stderrSink: sink(),
+            ),
           ),
-        ),
-        flutterRoot: flutterRoot,
-        cacheRoot: cacheRoot,
-        log: _log(),
-        downloader: _downloader(),
-      );
-      expect(mac().hostTools.flutterManagesIosEngineArtifacts, isTrue);
-      // SDKs predating the stamp keep working as before.
-      expect(
-        mac().flutterXcframework,
-        p.join(sdk, 'ios', 'Flutter.xcframework'),
-      );
-      writeStamp('ios-sdk', 'older-hash');
-      expect(
-        mac().flutterXcframework,
-        p.join(userEngine('ios'), 'Flutter.xcframework'),
-      );
-      writeStamp('ios-sdk', 'engine-hash');
-      expect(
-        mac().flutterXcframework,
-        p.join(sdk, 'ios', 'Flutter.xcframework'),
-      );
-    });
-
-    test('warns once per process even across cache instances', () async {
-      writeSdkCommon();
-      writeStamp('flutter_sdk', 'older-hash');
-      Directory(
-        userEngine('common/flutter_patched_sdk'),
-      ).createSync(recursive: true);
-      _writeHostArtifacts(userEngine('linux-arm64'), (name) => name);
-      _writeEngineFramework(
-        p.join(userEngine('ios'), 'Flutter.xcframework', 'ios-arm64'),
-        folded: false,
-      );
-      final output = RecordingTestLogOutput();
-      for (var i = 0; i < 3; i++) {
-        await IosEngineCache(
-          targetPolicy: policy,
-          hostTools: hostTools,
           flutterRoot: flutterRoot,
           cacheRoot: cacheRoot,
-          log: Log(output: output),
+          log: _log(),
           downloader: _downloader(),
-        ).ensureArtifactsAvailable();
-      }
-      expect(output.stderrLines, hasLength(1));
-    });
+        );
+        expect(mac().hostTools.flutterManagesIosEngineArtifacts, isTrue);
+        // SDKs predating the stamp keep working as before.
+        expect(
+          mac().flutterXcframework,
+          p.join(sdk, 'ios', 'Flutter.xcframework'),
+        );
+        writeStamp('ios-sdk', 'older-hash');
+        expect(
+          mac().flutterXcframework,
+          p.join(userEngine('ios'), 'Flutter.xcframework'),
+        );
+        writeStamp('ios-sdk', 'engine-hash');
+        expect(
+          mac().flutterXcframework,
+          p.join(sdk, 'ios', 'Flutter.xcframework'),
+        );
+      },
+    );
 
-    test('reads binary framework plists', () {
+    test(
+      testOn: '!windows',
+      'warns once per process even across cache instances',
+      () async {
+        writeSdkCommon();
+        writeStamp('flutter_sdk', 'older-hash');
+        Directory(
+          userEngine('common/flutter_patched_sdk'),
+        ).createSync(recursive: true);
+        _writeHostArtifacts(userEngine('linux-arm64'), (name) => name);
+        _writeEngineFramework(
+          p.join(userEngine('ios'), 'Flutter.xcframework', 'ios-arm64'),
+          folded: false,
+        );
+        final output = RecordingTestLogOutput();
+        for (var i = 0; i < 3; i++) {
+          await IosEngineCache(
+            targetPolicy: policy,
+            hostTools: hostTools,
+            flutterRoot: flutterRoot,
+            cacheRoot: cacheRoot,
+            log: Log(output: output),
+            downloader: _downloader(),
+          ).ensureArtifactsAvailable();
+        }
+        expect(output.stderrLines, hasLength(1));
+      },
+    );
+
+    test(testOn: '!windows', 'reads binary framework plists', () {
       final slice = p.join(sdk, 'ios', 'Flutter.xcframework', 'ios-arm64');
       _writeEngineFramework(slice, folded: false);
       File(p.join(slice, 'Flutter.framework', 'Info.plist')).writeAsBytesSync(
@@ -576,148 +609,181 @@ void main() {
       expect(cache().sdkIosEngineRevision, 'older-hash');
     });
 
-    test('skips SDK host snapshots and patched SDK from an older engine', () {
-      writeSdkCommon();
-      writeStamp('flutter_sdk', 'older-hash');
-      final engine = cache();
-      expect(engine.patchedSdkRoot, userEngine('common/flutter_patched_sdk'));
-      expect(p.dirname(engine.vmSnapshotData), userEngine('linux-arm64'));
-      writeStamp('flutter_sdk', 'engine-hash');
-      expect(
-        cache().patchedSdkRoot,
-        p.join(sdk, 'common', 'flutter_patched_sdk'),
-      );
-      expect(p.dirname(cache().vmSnapshotData), p.join(sdk, 'linux-arm64'));
-    });
+    test(
+      testOn: '!windows',
+      'skips SDK host snapshots and patched SDK from an older engine',
+      () {
+        writeSdkCommon();
+        writeStamp('flutter_sdk', 'older-hash');
+        final engine = cache();
+        expect(engine.patchedSdkRoot, userEngine('common/flutter_patched_sdk'));
+        expect(p.dirname(engine.vmSnapshotData), userEngine('linux-arm64'));
+        writeStamp('flutter_sdk', 'engine-hash');
+        expect(
+          cache().patchedSdkRoot,
+          p.join(sdk, 'common', 'flutter_patched_sdk'),
+        );
+        expect(p.dirname(cache().vmSnapshotData), p.join(sdk, 'linux-arm64'));
+      },
+    );
 
-    test('warns about every stale SDK artifact set before building', () async {
+    test(
+      testOn: '!windows',
+      'warns about every stale SDK artifact set before building',
+      () async {
+        _writeEngineFramework(
+          p.join(sdk, 'ios', 'Flutter.xcframework', 'ios-arm64'),
+          folded: false,
+          engineRevision: 'older-hash',
+        );
+        writeSdkCommon();
+        writeStamp('flutter_sdk', 'older-hash');
+        writeStamp('engine-dart-sdk', 'older-hash');
+        _writeEngineFramework(
+          p.join(userEngine('ios'), 'Flutter.xcframework', 'ios-arm64'),
+          folded: false,
+          engineRevision: 'engine-hash',
+        );
+        Directory(
+          userEngine('common/flutter_patched_sdk'),
+        ).createSync(recursive: true);
+        _writeHostArtifacts(userEngine('linux-arm64'), (name) => name);
+        final output = RecordingTestLogOutput();
+        final engine = IosEngineCache(
+          targetPolicy: policy,
+          hostTools: hostTools,
+          flutterRoot: flutterRoot,
+          cacheRoot: cacheRoot,
+          log: Log(output: output),
+          downloader: _downloader(),
+        );
+        await engine.ensureArtifactsAvailable();
+        final warnings = output.stderrLines.join('\n');
+        expect(
+          warnings,
+          contains('iOS engine artifacts are from engine older'),
+        );
+        expect(
+          warnings,
+          contains('host engine artifacts are from engine older'),
+        );
+        expect(warnings, contains('Dart SDK is from engine older-hash'));
+        expect(warnings, contains('Invalid SDK hash'));
+      },
+    );
+
+    test(
+      testOn: '!windows',
+      'stays quiet when SDK artifacts match the engine',
+      () async {
+        _writeEngineFramework(
+          p.join(sdk, 'ios', 'Flutter.xcframework', 'ios-arm64'),
+          folded: false,
+          engineRevision: 'engine-hash',
+        );
+        writeSdkCommon();
+        for (final name in ['ios-sdk', 'flutter_sdk', 'engine-dart-sdk']) {
+          writeStamp(name, 'engine-hash');
+        }
+        final output = RecordingTestLogOutput();
+        await IosEngineCache(
+          targetPolicy: policy,
+          hostTools: hostTools,
+          flutterRoot: flutterRoot,
+          cacheRoot: cacheRoot,
+          log: Log(output: output),
+          downloader: _downloader(),
+        ).ensureArtifactsAvailable();
+        expect(output.stderrLines, isEmpty);
+      },
+    );
+  });
+  test(
+    testOn: '!windows',
+    'prefers SDK artifacts, otherwise uses explicit user cache',
+    () {
+      final engine = cache();
+      expect(
+        engine.flutterXcframework,
+        p.join(
+          cacheRoot,
+          'engine-hash',
+          'artifacts',
+          'engine',
+          'ios',
+          'Flutter.xcframework',
+        ),
+      );
+      final sdk = p.join(flutterRoot, 'bin', 'cache', 'artifacts', 'engine');
       _writeEngineFramework(
         p.join(sdk, 'ios', 'Flutter.xcframework', 'ios-arm64'),
-        folded: false,
-        engineRevision: 'older-hash',
-      );
-      writeSdkCommon();
-      writeStamp('flutter_sdk', 'older-hash');
-      writeStamp('engine-dart-sdk', 'older-hash');
-      _writeEngineFramework(
-        p.join(userEngine('ios'), 'Flutter.xcframework', 'ios-arm64'),
         folded: false,
         engineRevision: 'engine-hash',
       );
       Directory(
-        userEngine('common/flutter_patched_sdk'),
+        p.join(sdk, 'common', 'flutter_patched_sdk'),
       ).createSync(recursive: true);
-      _writeHostArtifacts(userEngine('linux-arm64'), (name) => name);
-      final output = RecordingTestLogOutput();
-      final engine = IosEngineCache(
-        targetPolicy: policy,
-        hostTools: hostTools,
-        flutterRoot: flutterRoot,
-        cacheRoot: cacheRoot,
-        log: Log(output: output),
-        downloader: _downloader(),
+      expect(
+        engine.flutterXcframework,
+        p.join(sdk, 'ios', 'Flutter.xcframework'),
       );
-      await engine.ensureArtifactsAvailable();
-      final warnings = output.stderrLines.join('\n');
-      expect(warnings, contains('iOS engine artifacts are from engine older'));
-      expect(warnings, contains('host engine artifacts are from engine older'));
-      expect(warnings, contains('Dart SDK is from engine older-hash'));
-      expect(warnings, contains('Invalid SDK hash'));
-    });
-
-    test('stays quiet when SDK artifacts match the engine', () async {
+      expect(
+        engine.patchedSdkRoot,
+        p.join(sdk, 'common', 'flutter_patched_sdk'),
+      );
+    },
+  );
+  test(
+    testOn: '!windows',
+    'ignores SDK engine artifacts whose names were case-folded',
+    () {
+      final sdk = p.join(flutterRoot, 'bin', 'cache', 'artifacts', 'engine');
       _writeEngineFramework(
         p.join(sdk, 'ios', 'Flutter.xcframework', 'ios-arm64'),
-        folded: false,
-        engineRevision: 'engine-hash',
+        folded: true,
       );
-      writeSdkCommon();
-      for (final name in ['ios-sdk', 'flutter_sdk', 'engine-dart-sdk']) {
-        writeStamp(name, 'engine-hash');
-      }
-      final output = RecordingTestLogOutput();
-      await IosEngineCache(
-        targetPolicy: policy,
-        hostTools: hostTools,
-        flutterRoot: flutterRoot,
-        cacheRoot: cacheRoot,
-        log: Log(output: output),
-        downloader: _downloader(),
-      ).ensureArtifactsAvailable();
-      expect(output.stderrLines, isEmpty);
-    });
-  });
-  test('profile and release use the device AOT engine and platform kernel', () {
-    String user(String leaf) =>
-        p.join(cacheRoot, 'engine-hash', 'artifacts', 'engine', leaf);
-    final release = cache(mode: FlutterBuildMode.release);
-    expect(release.engineArtifact, 'ios-release');
-    expect(
-      release.flutterXcframework,
-      p.join(user('ios-release'), 'Flutter.xcframework'),
-    );
-    expect(
-      release.patchedSdkRoot,
-      p.join(user('common'), 'flutter_patched_sdk_product'),
-    );
-    final profile = cache(mode: FlutterBuildMode.profile);
-    expect(profile.engineArtifact, 'ios-profile');
-    expect(
-      profile.flutterXcframework,
-      p.join(user('ios-profile'), 'Flutter.xcframework'),
-    );
-    expect(
-      profile.patchedSdkRoot,
-      p.join(user('common'), 'flutter_patched_sdk'),
-    );
-    expect(cache().engineArtifact, 'ios');
-  });
-  test('prefers SDK artifacts, otherwise uses explicit user cache', () {
-    final engine = cache();
-    expect(
-      engine.flutterXcframework,
-      p.join(
-        cacheRoot,
-        'engine-hash',
-        'artifacts',
-        'engine',
-        'ios',
-        'Flutter.xcframework',
-      ),
-    );
-    final sdk = p.join(flutterRoot, 'bin', 'cache', 'artifacts', 'engine');
-    _writeEngineFramework(
-      p.join(sdk, 'ios', 'Flutter.xcframework', 'ios-arm64'),
-      folded: false,
-      engineRevision: 'engine-hash',
-    );
-    Directory(
-      p.join(sdk, 'common', 'flutter_patched_sdk'),
-    ).createSync(recursive: true);
-    expect(
-      engine.flutterXcframework,
-      p.join(sdk, 'ios', 'Flutter.xcframework'),
-    );
-    expect(engine.patchedSdkRoot, p.join(sdk, 'common', 'flutter_patched_sdk'));
-  });
-  test('ignores SDK engine artifacts whose names were case-folded', () {
-    final sdk = p.join(flutterRoot, 'bin', 'cache', 'artifacts', 'engine');
-    _writeEngineFramework(
-      p.join(sdk, 'ios', 'Flutter.xcframework', 'ios-arm64'),
-      folded: true,
-    );
-    expect(
-      cache().flutterXcframework,
-      p.join(
-        cacheRoot,
-        'engine-hash',
-        'artifacts',
-        'engine',
-        'ios',
-        'Flutter.xcframework',
-      ),
-    );
-  });
+      expect(
+        cache().flutterXcframework,
+        p.join(
+          cacheRoot,
+          'engine-hash',
+          'artifacts',
+          'engine',
+          'ios',
+          'Flutter.xcframework',
+        ),
+      );
+    },
+  );
+  test(
+    testOn: '!windows',
+    'profile and release use the device AOT engine and platform kernel',
+    () {
+      String user(String leaf) =>
+          p.join(cacheRoot, 'engine-hash', 'artifacts', 'engine', leaf);
+      final release = cache(mode: FlutterBuildMode.release);
+      expect(release.engineArtifact, 'ios-release');
+      expect(
+        release.flutterXcframework,
+        p.join(user('ios-release'), 'Flutter.xcframework'),
+      );
+      expect(
+        release.patchedSdkRoot,
+        p.join(user('common'), 'flutter_patched_sdk_product'),
+      );
+      final profile = cache(mode: FlutterBuildMode.profile);
+      expect(profile.engineArtifact, 'ios-profile');
+      expect(
+        profile.flutterXcframework,
+        p.join(user('ios-profile'), 'Flutter.xcframework'),
+      );
+      expect(
+        profile.patchedSdkRoot,
+        p.join(user('common'), 'flutter_patched_sdk'),
+      );
+      expect(cache().engineArtifact, 'ios');
+    },
+  );
 }
 
 void _writeHostArtifacts(

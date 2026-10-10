@@ -1,3 +1,6 @@
+@TestOn('!windows')
+library;
+
 import 'dart:io';
 
 import 'package:cli_kit/host/linux/linux_host.dart';

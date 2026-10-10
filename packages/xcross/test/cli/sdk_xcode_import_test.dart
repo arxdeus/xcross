@@ -40,6 +40,8 @@ void main() {
     tearDown(() => root.deleteSync(recursive: true));
 
     test(
+      testOn: '!windows',
+
       'copies both SDKs and descriptors without changing the source',
       () async {
         final sources = [
@@ -78,26 +80,30 @@ void main() {
       },
     );
 
-    test('rejects non-Xcode directories before touching the install', () async {
-      Directory(app).createSync();
-      final runner = CommandRunner<void>('xcross', 'test')
-        ..addCommand(SdkCommand(installer));
-      await expectLater(
-        runner.run(['sdk', 'install', app]),
-        throwsA(
-          isA<XcrossError>().having(
-            (error) => error.message,
-            'message',
-            contains('No Xcode Developer directory'),
+    test(
+      testOn: '!windows',
+      'rejects non-Xcode directories before touching the install',
+      () async {
+        Directory(app).createSync();
+        final runner = CommandRunner<void>('xcross', 'test')
+          ..addCommand(SdkCommand(installer));
+        await expectLater(
+          runner.run(['sdk', 'install', app]),
+          throwsA(
+            isA<XcrossError>().having(
+              (error) => error.message,
+              'message',
+              contains('No Xcode Developer directory'),
+            ),
           ),
-        ),
-      );
-      expect(Directory(destination).existsSync(), isFalse);
-      await expectLater(
-        installer.xcodeAppEntries(app).toList(),
-        throwsA(isA<XcrossError>()),
-      );
-    });
+        );
+        expect(Directory(destination).existsSync(), isFalse);
+        await expectLater(
+          installer.xcodeAppEntries(app).toList(),
+          throwsA(isA<XcrossError>()),
+        );
+      },
+    );
 
     Map<String, String> snapshot(String path) => {
       for (final entity in Directory(path).listSync(recursive: true))
@@ -113,6 +119,8 @@ void main() {
         'missing resources',
       ]) {
         test(
+          testOn: '!windows',
+
           'failed ${archive ? 'XIP' : 'app'} import preserves SDK and source: $partial',
           () async {
             const swift =

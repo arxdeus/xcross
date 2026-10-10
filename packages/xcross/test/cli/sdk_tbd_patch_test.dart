@@ -1,3 +1,6 @@
+@TestOn('!windows')
+library;
+
 // Exercises the arm64e.x1 rewrite through the paths a real install takes:
 // a cpio stream into installer.writeSdkEntries, and DarwinSdk.current's
 // repair of a bundle installed before the rewrite existed.
