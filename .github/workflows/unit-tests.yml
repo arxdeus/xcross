@@ -1,0 +1,80 @@
+name: Unit Tests
+
+on:
+  push:
+    branches:
+      - "**"
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: unit-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: dart test (${{ matrix.name }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-x64
+            runner: ubuntu-24.04
+            architecture: x64
+          - name: linux-arm64
+            runner: ubuntu-24.04-arm
+            architecture: arm64
+          - name: macos-arm64
+            runner: macos-15
+            architecture: arm64
+          - name: windows-x64
+            runner: windows-2022
+            architecture: x64
+          - name: windows-arm64
+            runner: windows-11-arm
+            architecture: arm64
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+          submodules: true
+
+      - name: Set up Dart
+        # v1
+        uses: dart-lang/setup-dart@65eb853c7ba17dde3be364c3d2858773e7144260
+        with:
+          sdk: stable
+          architecture: ${{ matrix.architecture }}
+
+      - name: Resolve dependencies
+        run: dart pub get
+
+      # Run each package from its own directory: `dart test <path>` from the
+      # workspace root does not run that package's build hooks, so native
+      # assets (the ADI bridge) would be missing.
+      - name: Test packages
+        shell: bash
+        run: |
+          set -uo pipefail
+          failed=()
+          for package in xcross cli_kit apple_developer_kit darwin_sdk_kit \
+            dart_mobile_device frontend_server_kit open_apple_macros; do
+            echo "::group::dart test packages/$package"
+            (cd "packages/$package" && dart test) || failed+=("$package")
+            echo "::endgroup::"
+          done
+          if [ "${#failed[@]}" -gt 0 ]; then
+            echo "::error::dart test failed in: ${failed[*]}"
+            exit 1
+          fi
+
+      - name: Test repo analyzer plugin
+        working-directory: tool/repo_analyzer
+        run: dart test

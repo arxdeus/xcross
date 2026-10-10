@@ -47,14 +47,16 @@ jobs:
       - name: Analyze
         run: dart analyze
 
+      # Run each package from its own directory: `dart test <path>` from the
+      # workspace root does not run that package's build hooks, so native
+      # assets (the ADI bridge) would be missing.
       - name: Test
         run: |
-          dart test packages/xcross
-          dart test packages/cli_kit
-          dart test packages/apple_developer_kit
-          dart test packages/darwin_sdk_kit
-          dart test packages/dart_mobile_device
-          dart test packages/frontend_server_kit
+          set -euo pipefail
+          for package in xcross cli_kit apple_developer_kit darwin_sdk_kit \
+            dart_mobile_device frontend_server_kit open_apple_macros; do
+            (cd "packages/$package" && dart test)
+          done
 
       - name: Validate pub.dev package
         working-directory: packages/xcross
@@ -187,12 +189,10 @@ jobs:
           set -euo pipefail
           dart pub get
           dart analyze
-          dart test packages/xcross
-          dart test packages/cli_kit
-          (cd packages/apple_developer_kit && dart test)
-          dart test packages/darwin_sdk_kit
-          dart test packages/dart_mobile_device
-          dart test packages/frontend_server_kit
+          for package in xcross cli_kit apple_developer_kit darwin_sdk_kit \
+            dart_mobile_device frontend_server_kit open_apple_macros; do
+            (cd "packages/$package" && dart test)
+          done
 
       - name: Build xcross
         shell: pwsh
