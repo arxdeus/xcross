@@ -116,9 +116,12 @@ final class RuleScope {
     if (uri.scheme == 'dart') return null;
     final path = library.firstFragment.source.fullName;
     final workspace = workspaceRoot;
-    if (workspace == null || !path.startsWith('$workspace/')) return null;
-    if (uri.scheme == 'package') return SourceLocation.ofPackageUri(uri);
     final provider = context.definingUnit.file.provider;
+    // Analyzer paths use the host separator (`\` on Windows).
+    if (workspace == null || !provider.pathContext.isWithin(workspace, path)) {
+      return null;
+    }
+    if (uri.scheme == 'package') return SourceLocation.ofPackageUri(uri);
     final owner = _packageRootOf(provider.getFile(path).parent);
     return SourceLocation.of(path, packageRoot: owner);
   }
