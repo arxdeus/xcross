@@ -27,7 +27,6 @@ def entries(staged):
             "screenshot": screenshot,
             "slug": re.sub(r"[^A-Za-z0-9._-]+", "-", f"{kind}-{host}-{app}"),
             "ready": result.get("ready_marker_found"),
-            "launch_retries": len(result.get("launch_retries") or []),
         })
     return found
 
@@ -59,14 +58,12 @@ def section(title, found, links):
     lines = [f"### {title}", ""]
     if not found:
         return lines + [f"No {title} simulator screenshots were staged.", ""]
-    lines += ["| Host | App | Status | Launch retries | Screenshot |", "| :--- | :--- | :--- | :---: | :--- |"]
+    lines += ["| Host | App | Status | Screenshot |", "| :--- | :--- | :--- | :--- |"]
     for entry in found:
         status = STATUS.get(entry["ready"], STATUS[None])
         link = links.get(artifact_name(entry))
         shot = f"🖼️ [Open image]({link})" if link else "_unavailable_"
-        lines.append(
-            f"| **{entry['platform']}** | `{entry['app']}` | {status} | {entry['launch_retries']} | {shot} |"
-        )
+        lines.append(f"| **{entry['platform']}** | `{entry['app']}` | {status} | {shot} |")
     return lines + [""]
 
 
