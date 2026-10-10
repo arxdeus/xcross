@@ -99,9 +99,12 @@ final class FlutterAssetsCompiler {
     Map<String, List<String>> manifest,
   ) async {
     final sources = <String, String>{};
-    void declare(String key, String source, String owner) {
+    Future<void> declare(String shader, String root, String? package) async {
+      final (:key, :source) = await _resolveEntry(shader, root, package);
       if (!fileSystem.file(source).existsSync()) {
-        throw FlutterBuildError('$owner/pubspec.yaml: shader not found: $key');
+        throw FlutterBuildError(
+          '${package ?? '.'}/pubspec.yaml: shader not found: $key',
+        );
       }
       sources[key] = source;
       manifest[key] = [key];
@@ -109,16 +112,12 @@ final class FlutterAssetsCompiler {
 
     for (final shader in _selected(pubspec, 'pubspec.yaml')) {
       _rejectShaderAsset(pubspec, shader, 'pubspec.yaml');
-      declare(shader, paths.join(projectRoot, shader), '.');
+      await declare(shader, projectRoot, null);
     }
     for (final (:name, :root, :info) in await _dependencyPubspecs(pubspec)) {
       for (final shader in _selected(info, '$name/pubspec.yaml')) {
         _rejectShaderAsset(info, shader, '$name/pubspec.yaml');
-        declare(
-          p.url.join('packages', name, shader),
-          paths.join(root, shader),
-          name,
-        );
+        await declare(shader, root, name);
       }
     }
     for (final MapEntry(:key, :value) in frameworkShaders().entries) {
@@ -167,6 +166,45 @@ final class FlutterAssetsCompiler {
       }
     }
   }
+
+  /// Resolve a pubspec path [entry] declared by [package] (`null` for the
+  /// app) rooted at [root] into its bundle key and source file.
+  ///
+  /// Mirrors flutter_tools' `_resolvePackageAsset`: an entry spelled
+  /// `packages/<pkg>/<path>` that is not a file under [root] names `<path>`
+  /// inside `<pkg>`'s `lib/` directory and keeps its key verbatim (e.g.
+  /// material_ui's `packages/material_ui/shaders/ink_sparkle.frag`).
+  Future<({String key, String source})> _resolveEntry(
+    String entry,
+    String root,
+    String? package,
+  ) async {
+    final segments = p.url.split(entry);
+    final local = paths.joinAll([root, ...segments]);
+    if (segments.length > 2 &&
+        segments.first == 'packages' &&
+        !fileSystem.file(local).existsSync()) {
+      final config = await _packageConfig();
+      final target = config[segments[1]]?.packageUriRoot;
+      if (target != null && target.scheme == 'file') {
+        return (
+          key: entry,
+          source: paths.joinAll([paths.fromUri(target), ...segments.skip(2)]),
+        );
+      }
+    }
+    return (
+      key: package == null ? entry : p.url.join('packages', package, entry),
+      source: local,
+    );
+  }
+
+  PackageConfig? _cachedPackageConfig;
+
+  Future<PackageConfig> _packageConfig() async =>
+      _cachedPackageConfig ??= await loadPackageConfig(
+        fileSystem.file(await packageConfigs.require(projectRoot)),
+      );
 
   Future<void> _copyDataAssets(
     String assetsDir,
@@ -272,14 +310,18 @@ final class FlutterAssetsCompiler {
   ) async {
     for (final family in pubspec.fonts) {
       for (final font in family.fonts) {
-        final src = paths.join(projectRoot, font.asset);
+        final (:key, source: src) = await _resolveEntry(
+          font.asset,
+          projectRoot,
+          null,
+        );
         final srcExists = fileSystem.file(src).existsSync();
         if (!srcExists) {
           throw FlutterBuildError(
             'pubspec.yaml: font asset not found: ${font.asset}',
           );
         }
-        await _copyAssetFile(src, assetsDir, font.asset);
+        await _copyAssetFile(src, assetsDir, key);
       }
       fonts.add(family.descriptor);
     }
@@ -298,10 +340,7 @@ final class FlutterAssetsCompiler {
   /// Local dependencies with a `pubspec.yaml`, in [pubspec]'s order.
   Future<List<({String name, String root, PubspecInfo info})>>
   _dependencyPubspecs(PubspecInfo pubspec) async {
-    final packageConfigPath = await packageConfigs.require(projectRoot);
-    final packageConfig = await loadPackageConfig(
-      fileSystem.file(packageConfigPath),
-    );
+    final packageConfig = await _packageConfig();
     final reader = PubspecInfoReader(fileSystem, paths);
     return [
       for (final packageName in pubspec.dependencies)
@@ -329,8 +368,11 @@ final class FlutterAssetsCompiler {
     for (final family in packageInfo.fonts) {
       final descriptors = <Map<String, Object>>[];
       for (final font in family.fonts) {
-        final key = p.url.join('packages', packageName, font.asset);
-        final src = paths.join(packageRoot, font.asset);
+        final (:key, source: src) = await _resolveEntry(
+          font.asset,
+          packageRoot,
+          packageName,
+        );
         final srcExists = fileSystem.file(src).existsSync();
         if (!srcExists) {
           throw FlutterBuildError(
