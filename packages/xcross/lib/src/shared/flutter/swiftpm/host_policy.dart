@@ -26,6 +26,12 @@ abstract interface class SwiftPmHostPolicy {
 
   bool get captureBuildOutput;
 
+  /// Whether the plugins package gets a target that pre-builds the SDK's
+  /// implicit Clang modules in one process before the parallel build. Only
+  /// needed where implicit module locks are disabled (see
+  /// `SwiftPmModuleWarmup`).
+  bool get warmsImplicitModules;
+
   Map<String, String> bundledToolEnvironment(
     String executable,
     Map<String, String> environment,

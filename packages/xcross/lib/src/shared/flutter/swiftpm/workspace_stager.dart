@@ -19,6 +19,7 @@ import 'package:xcross/src/shared/flutter/swiftpm/host_source_normalizer.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/manifest.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/manifest_dependencies.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/manifest_lexer.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/module_warmup.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/plugin_overlay.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/source_fallback_state.dart';
 
@@ -248,6 +249,24 @@ final class SwiftPmWorkspaceStager<T extends PlatformHostInterface> {
     final sourcesDir = p.join(pluginsDir, 'Sources', pluginsProductName);
     await artifactFileSystem.directory(sourcesDir).create(recursive: true);
 
+    final moduleWarmup = hostPolicy.warmsImplicitModules;
+    if (moduleWarmup) {
+      await artifactFileSystem
+          .directory(SwiftPmModuleWarmup.sourcesDir(pluginsDir))
+          .create(recursive: true);
+      // The module list comes from the resolved checkouts, which do not
+      // exist yet. Seed the target with the modules every plugin imports so
+      // the manifest stays valid; the build driver widens it once the plugin
+      // graph is resolved.
+      final seed = SwiftPmModuleWarmup.sourceFile(pluginsDir);
+      if (!artifactFileSystem.file(seed).existsSync()) {
+        await filesystem.writeStable(
+          seed,
+          SwiftPmModuleWarmup.source(SwiftPmModuleWarmup.baselineModules),
+        );
+      }
+    }
+
     await filesystem.writeStable(
       p.join(pluginsDir, 'Package.swift'),
       SwiftPmManifest.pluginsManifest(
@@ -255,6 +274,7 @@ final class SwiftPmWorkspaceStager<T extends PlatformHostInterface> {
         frameworkDir,
         pluginPackageDirs: pluginPackageDirs,
         deploymentTarget: deploymentTarget,
+        moduleWarmup: moduleWarmup,
       ),
     );
 
