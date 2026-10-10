@@ -216,16 +216,26 @@ class ArchitectureWorkflowTests(unittest.TestCase):
         self.assertIn(f"      AOT_HOSTS: {' '.join(hosts)}", parity)
         self.assertIn('      AOT_APPS: smoke plugins', parity)
         steps = workflow_steps(parity)
-        for mode, sections in (('release', None), ('profile', '--sections=__text,Flutter.__text ||')):
+        for mode, smoke, plugins in (
+            ('release', '__text,__const,Flutter.__text', '__text,Flutter.__text'),
+            ('profile', '__text,Flutter.__text', 'Flutter.__text'),
+        ):
             compare = [name for name in steps if name.startswith(f'Compare {mode} ')]
             self.assertEqual(len(compare), 1)
             script = self.required_step(steps, compare[0])
             self.assertIn('for app in $AOT_APPS; do', script)
+            self.assertIn(f'sections={smoke}', script)
+            self.assertIn(f'[ "$app" = plugins ] && sections={plugins}', script)
             self.assertIn('dart run packages/xcross/tool/verify_flutter_aot.dart \\', script)
             self.assertIn(f'"$RUNNER_TEMP/cross/flutter-aot-digests-$host/$app-{mode}.json" \\', script)
-            self.assertIn(f'"--expect=$RUNNER_TEMP/reference/$app-{mode}.json"' + (' \\' if sections else ' ||'), script)
-            self.assertEqual(sections is not None, sections in script)
+            self.assertIn(f'"--expect=$RUNNER_TEMP/reference/$app-{mode}.json" \\', script)
+            self.assertIn('"--sections=$sections" ||', script)
             self.assertIn('exit "$failed"', script)
+        registrant = self.required_step(steps, 'Compare the Dart plugin registrant with flutter build ios')
+        self.assertIn('diff -u "$RUNNER_TEMP/reference/plugins-registrant.dart" \\', registrant)
+        self.assertIn('"$RUNNER_TEMP/cross/flutter-aot-digests-$host/plugins-registrant.dart" ||', registrant)
+        self.assertIn('{ echo "::error::$host Dart plugin registrant differs from flutter build ios"; failed=1; }', registrant)
+        self.assertIn('exit "$failed"', registrant)
         build = workflow_steps(jobs['flutter-build'])
         linux = build['Build precompiled Flutter apps on Linux']['script']
         windows = build['Build precompiled Flutter apps on Windows']['script']
@@ -238,6 +248,13 @@ class ArchitectureWorkflowTests(unittest.TestCase):
         self.assertIn('cp -R .github/fixtures/aot_plugins "$RUNNER_TEMP/aot-plugins"', reference)
         self.assertIn('"$RUNNER_TEMP/aot-$app/build/xcross-ios" --dsym=required \\', linux)
         self.assertIn('"$env:RUNNER_TEMP/aot-$app/build/xcross-ios" --dsym=optional `', windows)
+        registrant = '.dart_tool/flutter_build/dart_plugin_registrant.dart'
+        self.assertIn(f'cp "$RUNNER_TEMP/aot-plugins/{registrant}" \\', linux)
+        self.assertIn('"$RUNNER_TEMP/aot-digests/plugins-registrant.dart"', linux)
+        self.assertIn(f'Copy-Item "$env:RUNNER_TEMP/aot-plugins/{registrant}" `', windows)
+        self.assertIn('"$env:RUNNER_TEMP/aot-digests/plugins-registrant.dart"', windows)
+        self.assertIn(f'cp "$RUNNER_TEMP/aot-plugins/{registrant}" \\', reference)
+        self.assertIn('"$RUNNER_TEMP/aot-reference/plugins-registrant.dart"', reference)
 
     def test_aot_parity_compares_every_host_with_the_digest_verifier(self):
         self.check_aot_parity((ROOT / '.github/workflows/integration.yml').read_text())
@@ -249,7 +266,9 @@ class ArchitectureWorkflowTests(unittest.TestCase):
             ('      AOT_HOSTS: ubuntu-24.04 ubuntu-24.04-arm windows-2022 windows-11-arm\n', '      AOT_HOSTS: ubuntu-24.04\n'),
             ('      AOT_APPS: smoke plugins\n', '      AOT_APPS: smoke\n'),
             ('          for app in smoke plugins; do\n            for mode in release profile; do\n              (cd "$RUNNER_TEMP/aot-$app" && flutter build ios', '          for app in smoke; do\n            for mode in release profile; do\n              (cd "$RUNNER_TEMP/aot-$app" && flutter build ios'),
-            ('              --sections=__text,Flutter.__text ||\n', '              --sections=__text ||\n'),
+            ('              [ "$app" = plugins ] && sections=Flutter.__text\n', '              [ "$app" = plugins ] && sections=\n'),
+            ('              sections=__text,__const,Flutter.__text\n', '              sections=__text\n'),
+            ('              { echo "::error::$host Dart plugin registrant differs from flutter build ios"; failed=1; }\n', '              true\n'),
             ('          exit "$failed"\n', '          exit 0\n'),
             ('--dsym=required', '--dsym=optional'),
         ):

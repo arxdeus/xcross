@@ -657,6 +657,8 @@ jobs:
 
       # aot_plugins resolves Dart plugin classes on every platform, so its
       # kernel only matches flutter build ios with flutter_tools' registrant.
+      # Its snapshot embeds the app's absolute `file:` URIs, so the registrant
+      # itself is compared across hosts.
       - name: Build precompiled Flutter apps on Linux
         if: runner.os == 'Linux' && steps.darwin.outputs.available == 'true'
         shell: bash
@@ -674,6 +676,8 @@ jobs:
                 "--write=$RUNNER_TEMP/aot-digests/$app-$mode.json"
             done
           done
+          cp "$RUNNER_TEMP/aot-plugins/.dart_tool/flutter_build/dart_plugin_registrant.dart" \
+            "$RUNNER_TEMP/aot-digests/plugins-registrant.dart"
 
       # The pinned LLVM Windows installers ship no dsymutil and the Swift
       # toolchain's asserts build crashes on gen_snapshot's DWARF, so a dSYM is
@@ -702,6 +706,8 @@ jobs:
               if ($LASTEXITCODE -ne 0) { throw "Precompiled $mode aot-$app is invalid" }
             }
           }
+          Copy-Item "$env:RUNNER_TEMP/aot-plugins/.dart_tool/flutter_build/dart_plugin_registrant.dart" `
+            "$env:RUNNER_TEMP/aot-digests/plugins-registrant.dart"
 
       - name: Upload precompiled app digests
         if: steps.darwin.outputs.available == 'true'
@@ -753,38 +759,55 @@ jobs:
           pattern: flutter-aot-digests-*
           path: ${{ runner.temp }}/cross
 
-      - name: Compare release App __text, __const and Flutter __text with flutter build ios
+      - name: Compare release digests with flutter build ios (App __const of aot_plugins embeds its absolute path)
         shell: bash
         run: |
           set -uo pipefail
           failed=0
           for host in $AOT_HOSTS; do
             for app in $AOT_APPS; do
+              sections=__text,__const,Flutter.__text
+              [ "$app" = plugins ] && sections=__text,Flutter.__text
               echo "::group::$host $app release"
               dart run packages/xcross/tool/verify_flutter_aot.dart \
                 "$RUNNER_TEMP/cross/flutter-aot-digests-$host/$app-release.json" \
-                "--expect=$RUNNER_TEMP/reference/$app-release.json" ||
+                "--expect=$RUNNER_TEMP/reference/$app-release.json" \
+                "--sections=$sections" ||
                 { echo "::error::$host $app release differs from flutter build ios"; failed=1; }
               echo '::endgroup::'
             done
           done
           exit "$failed"
 
-      - name: Compare profile App and Flutter __text only (profile App __const embeds absolute SDK file URIs)
+      - name: Compare profile digests with flutter build ios (profile App embeds absolute file URIs)
         shell: bash
         run: |
           set -uo pipefail
           failed=0
           for host in $AOT_HOSTS; do
             for app in $AOT_APPS; do
+              sections=__text,Flutter.__text
+              [ "$app" = plugins ] && sections=Flutter.__text
               echo "::group::$host $app profile"
               dart run packages/xcross/tool/verify_flutter_aot.dart \
                 "$RUNNER_TEMP/cross/flutter-aot-digests-$host/$app-profile.json" \
                 "--expect=$RUNNER_TEMP/reference/$app-profile.json" \
-                --sections=__text,Flutter.__text ||
+                "--sections=$sections" ||
                 { echo "::error::$host $app profile differs from flutter build ios"; failed=1; }
               echo '::endgroup::'
             done
+          done
+          exit "$failed"
+
+      - name: Compare the Dart plugin registrant with flutter build ios
+        shell: bash
+        run: |
+          set -uo pipefail
+          failed=0
+          for host in $AOT_HOSTS; do
+            diff -u "$RUNNER_TEMP/reference/plugins-registrant.dart" \
+              "$RUNNER_TEMP/cross/flutter-aot-digests-$host/plugins-registrant.dart" ||
+              { echo "::error::$host Dart plugin registrant differs from flutter build ios"; failed=1; }
           done
           exit "$failed"
 
@@ -833,6 +856,8 @@ jobs:
                 "--write=$RUNNER_TEMP/aot-reference/$app-$mode.json"
             done
           done
+          cp "$RUNNER_TEMP/aot-plugins/.dart_tool/flutter_build/dart_plugin_registrant.dart" \
+            "$RUNNER_TEMP/aot-reference/plugins-registrant.dart"
 
       - name: Upload digests
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
