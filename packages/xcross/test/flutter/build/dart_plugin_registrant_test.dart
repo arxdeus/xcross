@@ -255,6 +255,20 @@ void main() {
   });
 
   group('resolution errors match flutter_tools', () {
+    test('a dev dependency is not a direct dependency', () async {
+      final app = stageFixture('federated_registrant', withGraph: false);
+      final pubspec = File(p.join(app, 'pubspec.yaml'));
+      pubspec.writeAsStringSync(
+        pubspec.readAsStringSync().replaceFirst(
+          'dev_dependencies:',
+          'dev_dependencies:\n  chooser_a:\n    path: ../packages/chooser_a',
+        ),
+      );
+      expect(
+        File((await generate(app))!).readAsStringSync(),
+        golden('federated_registrant'),
+      );
+    });
     test('conflicting direct implementations', () async {
       final app = stageFixture('federated_registrant', withGraph: false);
       final pubspec = File(p.join(app, 'pubspec.yaml'));
