@@ -45,6 +45,22 @@ struct Probe {
 }
 SWIFT
 
+if [ -n "${WINDIR:-}" ]; then
+	echo "Bundled lib/:"
+	ls -la "$(dirname "$server")"
+	# A server missing a DLL dies before speaking the plugin protocol; run it
+	# alone with stdin closed so the loader error is visible.
+	set +e
+	PATH="$(dirname "$server"):/c/Windows/System32:/c/Windows" "$server" </dev/null
+	status=$?
+	set -e
+	echo "standalone server exit: $status"
+	if [ "$status" -ne 0 ]; then
+		echo "bundled server cannot start on its own (0xC0000135 = missing DLL)" >&2
+		exit 1
+	fi
+fi
+
 # Run the server with the Swift toolchain off PATH so a Windows bundle has to
 # load its runtime DLLs from lib/, exactly as on a user's machine.
 swiftc=$(command -v swiftc)

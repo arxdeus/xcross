@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:cli_kit/composition/native_host.dart';
 import 'package:cli_kit/shared/logging/logging.dart';
@@ -145,29 +146,60 @@ Future<int> buildXcross({
   }
 }
 
-/// Swift runtime libraries a Windows `OpenAppleMacrosServer.exe` may import.
+/// DLL names imported by the PE image [bytes], including delay-loaded ones.
 ///
 /// Windows has no static Swift standard library, so the release ships the
-/// toolchain's runtime DLLs beside the server. Only the ones present in the
-/// toolchain's runtime directory are copied.
+/// Swift runtime DLLs the server actually imports. Reading the import table
+/// keeps that set exact across Swift releases instead of guessing names.
 @internal
-const windowsSwiftRuntimeLibraries = [
-  'swiftCore.dll',
-  'swiftCRT.dll',
-  'swiftWinSDK.dll',
-  'swift_Concurrency.dll',
-  'swift_StringProcessing.dll',
-  'swift_RegexParser.dll',
-  'swiftDispatch.dll',
-  'swiftSynchronization.dll',
-  'swift_Volatile.dll',
-  'dispatch.dll',
-  'BlocksRuntime.dll',
-  'Foundation.dll',
-  'FoundationEssentials.dll',
-  'FoundationInternationalization.dll',
-  '_FoundationICU.dll',
-];
+List<String> peImportedLibraries(List<int> bytes) {
+  final data = ByteData.sublistView(Uint8List.fromList(bytes));
+  int u16(int offset) => data.getUint16(offset, Endian.little);
+  int u32(int offset) => data.getUint32(offset, Endian.little);
+  final pe = u32(0x3C);
+  if (u32(pe) != 0x00004550) throw const FormatException('not a PE image');
+  final sections = u16(pe + 6);
+  final optional = pe + 24;
+  final optionalSize = u16(pe + 20);
+  final dataDirectories = optional + (u16(optional) == 0x20B ? 112 : 96);
+  final sectionTable = optional + optionalSize;
+  int fileOffset(int rva) {
+    for (var index = 0; index < sections; index++) {
+      final section = sectionTable + index * 40;
+      final virtualSize = u32(section + 8);
+      final virtualAddress = u32(section + 12);
+      final rawSize = u32(section + 16);
+      final size = virtualSize > rawSize ? virtualSize : rawSize;
+      if (rva >= virtualAddress && rva < virtualAddress + size) {
+        return rva - virtualAddress + u32(section + 20);
+      }
+    }
+    throw FormatException('RVA 0x${rva.toRadixString(16)} is not mapped');
+  }
+
+  String name(int rva) {
+    final start = fileOffset(rva);
+    var end = start;
+    while (bytes[end] != 0) {
+      end++;
+    }
+    return String.fromCharCodes(bytes.sublist(start, end));
+  }
+
+  final names = <String>{};
+  // Data directory 1 is the import table (20-byte descriptors, name at +12);
+  // 13 is the delay-load table (32-byte descriptors, name at +4).
+  for (final (directory, stride, nameOffset) in [(1, 20, 12), (13, 32, 4)]) {
+    final rva = u32(dataDirectories + directory * 8);
+    if (rva == 0) continue;
+    for (var entry = fileOffset(rva); ; entry += stride) {
+      final nameRva = u32(entry + nameOffset);
+      if (nameRva == 0) break;
+      names.add(name(nameRva));
+    }
+  }
+  return names.toList();
+}
 
 Future<int> _bundleOpenAppleMacros(
   ProcessRunner runner,
@@ -232,7 +264,8 @@ String _staticLinuxSdk(String architecture) => switch (architecture) {
   _ => throw UnsupportedError('No static Linux SDK for $architecture'),
 };
 
-/// Copies the Swift runtime DLLs found beside `swiftCore.dll`.
+/// Copies every Swift runtime DLL the bundled server needs, transitively,
+/// from the toolchain's runtime directory into [libDirectory].
 Future<void> _copyWindowsSwiftRuntime(
   ProcessRunner runner,
   String swift,
@@ -254,13 +287,36 @@ Future<void> _copyWindowsSwiftRuntime(
       'Could not find the Swift runtime (swiftCore.dll) for $swift',
     ),
   );
-  for (final library in windowsSwiftRuntimeLibraries) {
-    final file = File(p.join(runtime, library));
-    if (file.existsSync()) {
-      await file.copy(p.join(libDirectory, library));
+  final available = {
+    for (final file in Directory(runtime).listSync().whereType<File>())
+      if (file.path.toLowerCase().endsWith('.dll'))
+        p.basename(file.path).toLowerCase(): file,
+  };
+  final pending = [
+    File(p.join(libDirectory, runner.host.paths.executableName(_server))),
+  ];
+  final copied = <String>{};
+  while (pending.isNotEmpty) {
+    final image = pending.removeLast();
+    for (final library in peImportedLibraries(image.readAsBytesSync())) {
+      final key = library.toLowerCase();
+      final source = available[key];
+      // System and MSVC runtime DLLs are not in the Swift runtime directory.
+      if (source == null || !copied.add(key)) continue;
+      final destination = File(p.join(libDirectory, p.basename(source.path)));
+      await source.copy(destination.path);
+      pending.add(destination);
     }
   }
+  if (!copied.contains('swiftcore.dll')) {
+    throw StateError('$_server imports no swiftCore.dll from $runtime');
+  }
+  runner.log.logInfo(
+    'Bundled Swift runtime for $_server: ${(copied.toList()..sort()).join(', ')}',
+  );
 }
+
+const _server = 'OpenAppleMacrosServer';
 
 Future<int> _buildCliExecutable(
   BuildCliRun run,
