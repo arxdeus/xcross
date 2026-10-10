@@ -65,7 +65,7 @@ jobs:
           set -uo pipefail
           failed=()
           for package in xcross cli_kit apple_developer_kit darwin_sdk_kit \
-            dart_mobile_device frontend_server_kit open_apple_macros; do
+            dart_mobile_device frontend_server_kit; do
             echo "::group::dart test packages/$package"
             (cd "packages/$package" && dart test) || failed+=("$package")
             echo "::endgroup::"

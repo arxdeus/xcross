@@ -9,6 +9,15 @@ on:
 permissions:
   contents: read
 
+env:
+  # Pinned toolchain that builds the bundled OpenAppleMacrosServer. Keep in
+  # sync with integration.yml.
+  SWIFT_VERSION: 6.4.0
+  SWIFT_WINDOWS_X64_SHA256: >-
+    76169A85BCBA82854A0CD8F9655FFB74B3758D60C35A245457510095F2823C03
+  SWIFT_WINDOWS_ARM64_SHA256: >-
+    F48E393634995CB589F547E40D64673BC641CA76B099697BA8227A8904BE4A49
+
 jobs:
   build:
     name: Build ${{ matrix.asset }}
@@ -54,13 +63,20 @@ jobs:
         run: |
           set -euo pipefail
           for package in xcross cli_kit apple_developer_kit darwin_sdk_kit \
-            dart_mobile_device frontend_server_kit open_apple_macros; do
+            dart_mobile_device frontend_server_kit; do
             (cd "packages/$package" && dart test)
           done
 
       - name: Validate pub.dev package
         working-directory: packages/xcross
         run: dart pub publish --dry-run
+
+      - name: Set up Swift
+        uses: ./.github/actions/setup-swift
+        with:
+          version: ${{ env.SWIFT_VERSION }}
+          windows-x64-sha256: ${{ env.SWIFT_WINDOWS_X64_SHA256 }}
+          windows-arm64-sha256: ${{ env.SWIFT_WINDOWS_ARM64_SHA256 }}
 
       - name: Build xcross
         working-directory: packages/xcross
@@ -71,14 +87,26 @@ jobs:
           dart run
           "-DXCROSS_VERSION=${XCROSS_BUILD_VERSION}"
           "-DXCROSS_RELEASED=${XCROSS_BUILD_RELEASED}"
+          -DXCROSS_BUNDLE_MACROS=true
           tool/build_xcross.dart
+
+      - name: Smoke-test bundled OpenAppleMacrosServer
+        run: bash .github/scripts/smoke_open_apple_macros.sh packages/xcross/build/cli/*/bundle
 
       - name: Compile binary
         run: |
           mkdir -p dist
-          # Bundle layout is bin/ + lib/ (native assets). Ship as tar.gz.
-          tar -C packages/xcross/build/cli/*/bundle \
-            -czf "dist/${{ matrix.asset }}.tar.gz" bin lib
+          # Bundle layout is bin/ + lib/ (native assets and the macro
+          # server) plus third-party notices. Ship as tar.gz.
+          bundle=$(echo packages/xcross/build/cli/*/bundle)
+          mkdir -p "$bundle/THIRD_PARTY_LICENSES"
+          cp third_party/OpenAppleMacros/LICENSE.md \
+            "$bundle/THIRD_PARTY_LICENSES/OpenAppleMacros.txt"
+          curl --fail --location --retry 3 \
+            https://raw.githubusercontent.com/swiftlang/swift/main/LICENSE.txt \
+            -o "$bundle/THIRD_PARTY_LICENSES/swift.txt"
+          tar -C "$bundle" \
+            -czf "dist/${{ matrix.asset }}.tar.gz" bin lib THIRD_PARTY_LICENSES
 
       - name: Attest build provenance
         if: startsWith(github.ref, 'refs/tags/')
@@ -190,9 +218,16 @@ jobs:
           dart pub get
           dart analyze
           for package in xcross cli_kit apple_developer_kit darwin_sdk_kit \
-            dart_mobile_device frontend_server_kit open_apple_macros; do
+            dart_mobile_device frontend_server_kit; do
             (cd "packages/$package" && dart test)
           done
+
+      - name: Set up Swift
+        uses: ./.github/actions/setup-swift
+        with:
+          version: ${{ env.SWIFT_VERSION }}
+          windows-x64-sha256: ${{ env.SWIFT_WINDOWS_X64_SHA256 }}
+          windows-arm64-sha256: ${{ env.SWIFT_WINDOWS_ARM64_SHA256 }}
 
       - name: Build xcross
         shell: pwsh
@@ -204,7 +239,12 @@ jobs:
           dart run `
             "-DXCROSS_VERSION=$env:XCROSS_BUILD_VERSION" `
             "-DXCROSS_RELEASED=$env:XCROSS_BUILD_RELEASED" `
+            -DXCROSS_BUNDLE_MACROS=true `
             tool/build_xcross.dart
+
+      - name: Smoke-test bundled OpenAppleMacrosServer
+        shell: bash
+        run: bash .github/scripts/smoke_open_apple_macros.sh "packages/xcross/build/cli/${{ matrix.cli-dir }}/bundle"
 
       - name: Compile binary
         shell: pwsh
@@ -227,6 +267,15 @@ jobs:
           Copy-Item `
             packages/apple_developer_kit/ADI_LICENSE `
             dist/THIRD_PARTY_LICENSES/provision-dart.txt
+          Copy-Item `
+            third_party/OpenAppleMacros/LICENSE.md `
+            dist/THIRD_PARTY_LICENSES/OpenAppleMacros.txt
+          # The bundled server statically includes swift-syntax and, on
+          # Windows, ships the Swift runtime DLLs: both Apache 2.0 with the
+          # Runtime Library Exception.
+          Invoke-WebRequest `
+            https://raw.githubusercontent.com/swiftlang/swift/main/LICENSE.txt `
+            -OutFile dist/THIRD_PARTY_LICENSES/swift.txt
           Compress-Archive -Path dist/* -DestinationPath "${{ matrix.asset }}.zip"
 
       - name: Smoke-test Windows archive
@@ -234,24 +283,32 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           Expand-Archive "${{ matrix.asset }}.zip" smoke
-          $expected = @(
+          $required = @(
             'LICENSE'
+            'THIRD_PARTY_LICENSES/OpenAppleMacros.txt'
             'THIRD_PARTY_LICENSES/provision-dart.txt'
+            'THIRD_PARTY_LICENSES/swift.txt'
             'bin/xcross.exe'
             'bin/xcrun.exe'
+            'lib/OpenAppleMacrosServer.exe'
+            'lib/swiftCore.dll'
             'lib/sysv_abi_bridge.dll'
           ) | Sort-Object
           $root = Resolve-Path smoke
           $actual = Get-ChildItem smoke -File -Recurse | ForEach-Object {
             [IO.Path]::GetRelativePath($root, $_.FullName).Replace('\', '/')
           } | Sort-Object
-          if (Compare-Object $expected $actual) {
-            throw "Unexpected archive contents: $actual"
-          }
+          $missing = $required | Where-Object { $_ -notin $actual }
+          if ($missing) { throw "Archive is missing: $missing" }
+          # Anything beyond the required set must be a Swift runtime DLL the
+          # bundled server loads from lib/.
+          $extra = $actual | Where-Object { $_ -notin $required }
+          $unexpected = $extra | Where-Object { $_ -notmatch '^lib/[^/]+\.dll$' }
+          if ($unexpected) { throw "Unexpected archive contents: $unexpected" }
 
           # IMAGE_FILE_HEADER.Machine: 0x8664 is x64, 0xAA64 is ARM64.
           $expectedMachine = @{ x64 = 0x8664; arm64 = 0xAA64 }['${{ matrix.architecture }}']
-          foreach ($binary in $expected | Where-Object { $_ -match '\.(exe|dll)$' }) {
+          foreach ($binary in $actual | Where-Object { $_ -match '\.(exe|dll)$' }) {
             $bytes = [IO.File]::ReadAllBytes((Join-Path $root $binary))
             $peOffset = [BitConverter]::ToInt32($bytes, 0x3C)
             $machine = [BitConverter]::ToUInt16($bytes, $peOffset + 4)

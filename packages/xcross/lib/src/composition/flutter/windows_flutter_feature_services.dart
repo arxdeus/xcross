@@ -154,6 +154,7 @@ final class WindowsFlutterFeatureServices<T extends WindowsHostInterface>
     executable: resolution.executable,
     launcher: resolution.launcher,
     xcrun: resolution.xcrun,
+    openAppleMacrosServer: resolution.openAppleMacrosServer,
     declarative: resolution.declarative,
   );
 

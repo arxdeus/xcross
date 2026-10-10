@@ -1,0 +1,128 @@
+name: Set up pinned Swift
+description: >-
+  Install the pinned Swift toolchain for the runner's native architecture
+  (signature-checked on Linux, SHA-256-checked on Windows) and export it on
+  PATH, with SDKROOT on Windows. Shared by the release and unit test jobs that
+  build OpenAppleMacrosServer.
+
+inputs:
+  version:
+    description: Swift release, e.g. 6.4.0.
+    required: true
+  windows-x64-sha256:
+    description: SHA-256 of the Windows x64 installer.
+    required: true
+  windows-arm64-sha256:
+    description: SHA-256 of the Windows ARM64 installer.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Install Swift on Linux
+      if: runner.os == 'Linux'
+      shell: bash
+      env:
+        SWIFT_VERSION: ${{ inputs.version }}
+      run: |
+        set -euo pipefail
+        case "$RUNNER_ARCH" in
+          ARM64) arch=aarch64; platform=ubuntu2404-aarch64; suffix=-aarch64 ;;
+          X64) arch=x86_64; platform=ubuntu2404; suffix= ;;
+          *) echo "Unsupported runner architecture: $RUNNER_ARCH"; exit 1 ;;
+        esac
+        tag="(swift-${SWIFT_VERSION%.0}-RELEASE)"
+        current="$(swift --version 2>/dev/null || true)"
+        if ! grep -Fq "$tag" <<< "$current" ||
+            ! grep -Eq "Target: $arch-.*linux" <<< "$current"; then
+          sudo apt-get update
+          sudo apt-get install -y \
+            binutils git gnupg2 libc6-dev libcurl4-openssl-dev libedit2 \
+            libgcc-13-dev libncurses-dev libpython3-dev libsqlite3-0 \
+            libstdc++-13-dev libxml2-dev libz3-dev pkg-config tzdata \
+            zip unzip zlib1g-dev
+          release="swift-$SWIFT_VERSION-release"
+          version="swift-$SWIFT_VERSION-RELEASE"
+          archive="$version-ubuntu24.04$suffix.tar.gz"
+          base="https://download.swift.org/$release/$platform/$version"
+          download="$RUNNER_TEMP/swift-download"
+          mkdir -p "$download/gnupg" "$RUNNER_TEMP/swift"
+          chmod 700 "$download/gnupg"
+          curl --fail --location --retry 3 "$base/$archive" -o "$download/$archive"
+          curl --fail --location --retry 3 "$base/$archive.sig" -o "$download/$archive.sig"
+          curl --fail --location --compressed --retry 3 https://www.swift.org/keys/all-keys.asc \
+            -o "$download/all-keys.asc"
+          gzip -dcf "$download/all-keys.asc" > "$download/all-keys.txt"
+          gpg --batch --homedir "$download/gnupg" --import "$download/all-keys.txt"
+          gpg --batch --homedir "$download/gnupg" \
+            --verify "$download/$archive.sig" "$download/$archive"
+          tar -xzf "$download/$archive" -C "$RUNNER_TEMP/swift" --strip-components=1
+          echo "$RUNNER_TEMP/swift/usr/bin" >> "$GITHUB_PATH"
+          export PATH="$RUNNER_TEMP/swift/usr/bin:$PATH"
+        fi
+        swift --version | tee "$RUNNER_TEMP/swift-version.txt"
+        grep -Fq "$tag" "$RUNNER_TEMP/swift-version.txt"
+        grep -Eq "Target: $arch-.*linux" "$RUNNER_TEMP/swift-version.txt"
+
+    - name: Install Swift on Windows
+      if: runner.os == 'Windows'
+      shell: pwsh
+      env:
+        SWIFT_VERSION: ${{ inputs.version }}
+        SWIFT_WINDOWS_X64_SHA256: ${{ inputs.windows-x64-sha256 }}
+        SWIFT_WINDOWS_ARM64_SHA256: ${{ inputs.windows-arm64-sha256 }}
+      run: |
+        $ErrorActionPreference = 'Stop'
+        switch ($env:RUNNER_ARCH) {
+          'ARM64' {
+            $platform = 'windows10-arm64'
+            $sha256 = $env:SWIFT_WINDOWS_ARM64_SHA256
+            $hostTriple = 'aarch64-unknown-windows-msvc'
+          }
+          'X64' {
+            $platform = 'windows10'
+            $sha256 = $env:SWIFT_WINDOWS_X64_SHA256
+            $hostTriple = 'x86_64-unknown-windows-msvc'
+          }
+          default { throw "Unsupported runner architecture: $env:RUNNER_ARCH" }
+        }
+        $release = "swift-$env:SWIFT_VERSION-release"
+        $version = "swift-$env:SWIFT_VERSION-RELEASE"
+        $installer = "$env:RUNNER_TEMP\swift-installer.exe"
+        $url = "https://download.swift.org/$release/$platform/$version/$version-$platform.exe"
+        Invoke-WebRequest $url -OutFile $installer
+        $hash = (Get-FileHash $installer -Algorithm SHA256).Hash
+        if ($hash -ne $sha256) { throw "Swift installer checksum mismatch: $hash" }
+        $process = Start-Process $installer `
+          -ArgumentList '/quiet', '/norestart' -PassThru -Wait
+        if ($process.ExitCode -notin 0, 3010) {
+          throw "Swift installer failed: $($process.ExitCode)"
+        }
+        # The installer registers Runtimes, Toolchains and Tools on the
+        # persisted PATH, which this job's environment predates.
+        $swiftRoot = "$env:LOCALAPPDATA\Programs\Swift"
+        $swiftDirs = @(
+          [Environment]::GetEnvironmentVariable('Path', 'Machine')
+          [Environment]::GetEnvironmentVariable('Path', 'User')
+        ) -join ';' -split ';' |
+          Where-Object { $_ } |
+          ForEach-Object { $_.TrimEnd('\') } |
+          Where-Object { $_ -like "$swiftRoot*" } |
+          Select-Object -Unique
+        $swiftDirs | Out-File $env:GITHUB_PATH -Encoding utf8 -Append
+        $env:Path = "$($swiftDirs -join ';');$env:Path"
+        # SwiftPM compiles Package.swift for the host through SDKROOT.
+        $sdkRoot = @(
+          [Environment]::GetEnvironmentVariable('SDKROOT', 'User')
+          [Environment]::GetEnvironmentVariable('SDKROOT', 'Machine')
+        ) | Where-Object { $_ } | Select-Object -First 1
+        if (-not $sdkRoot -or -not (Test-Path $sdkRoot)) {
+          throw 'Swift installer did not register SDKROOT'
+        }
+        "SDKROOT=$sdkRoot" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
+        $swiftVersion = (& swift --version 2>&1 | Out-String)
+        if ($LASTEXITCODE -ne 0) { throw "swift --version failed with $LASTEXITCODE" }
+        Write-Host $swiftVersion
+        if ($swiftVersion -notmatch "Target:\s+$([regex]::Escape($hostTriple))") {
+          throw "Swift is not the native $hostTriple toolchain"
+        }

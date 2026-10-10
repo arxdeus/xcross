@@ -525,7 +525,7 @@ jobs:
           path: |
             ${{ runner.os == 'Windows' && '~/AppData/Local' || '~/.cache' }}/xcross/open-apple-macros/*/identity.json
             ${{ runner.os == 'Windows' && '~/AppData/Local' || '~/.cache' }}/xcross/open-apple-macros/*/OpenAppleMacrosServer*
-          key: open-apple-macros-${{ runner.os }}-${{ runner.arch }}-swift-${{ env.SWIFT_VERSION }}-${{ hashFiles('packages/open_apple_macros/swift/**', 'packages/open_apple_macros/lib/**') }}
+          key: open-apple-macros-${{ runner.os }}-${{ runner.arch }}-swift-${{ env.SWIFT_VERSION }}-${{ hashFiles('.gitmodules', 'packages/xcross/lib/src/shared/flutter/swiftpm/open_apple_macros.dart') }}
 
       - name: Build Flutter example on Linux
         if: runner.os == 'Linux' && steps.darwin.outputs.available == 'true'
@@ -551,7 +551,7 @@ jobs:
           path: |
             ${{ runner.os == 'Windows' && '~/AppData/Local' || '~/.cache' }}/xcross/open-apple-macros/*/identity.json
             ${{ runner.os == 'Windows' && '~/AppData/Local' || '~/.cache' }}/xcross/open-apple-macros/*/OpenAppleMacrosServer*
-          key: open-apple-macros-${{ runner.os }}-${{ runner.arch }}-swift-${{ env.SWIFT_VERSION }}-${{ hashFiles('packages/open_apple_macros/swift/**', 'packages/open_apple_macros/lib/**') }}
+          key: open-apple-macros-${{ runner.os }}-${{ runner.arch }}-swift-${{ env.SWIFT_VERSION }}-${{ hashFiles('.gitmodules', 'packages/xcross/lib/src/shared/flutter/swiftpm/open_apple_macros.dart') }}
 
       - name: Inspect Flutter example artifact on Linux
         if: runner.os == 'Linux' && steps.darwin.outputs.available == 'true'
@@ -684,7 +684,7 @@ jobs:
           path: |
             ${{ runner.temp }}/xcross-cache/open-apple-macros/*/identity.json
             ${{ runner.temp }}/xcross-cache/open-apple-macros/*/OpenAppleMacrosServer
-          key: open-apple-macros-${{ runner.os }}-${{ runner.arch }}-${{ steps.xcode.outputs.app }}-${{ hashFiles('packages/open_apple_macros/swift/**', 'packages/open_apple_macros/lib/**') }}
+          key: open-apple-macros-${{ runner.os }}-${{ runner.arch }}-${{ steps.xcode.outputs.app }}-${{ hashFiles('.gitmodules', 'packages/xcross/lib/src/shared/flutter/swiftpm/open_apple_macros.dart') }}
 
       - name: Install native Flutter and LLVM toolchains
         shell: bash
@@ -755,7 +755,7 @@ jobs:
           path: |
             ${{ runner.temp }}/xcross-cache/open-apple-macros/*/identity.json
             ${{ runner.temp }}/xcross-cache/open-apple-macros/*/OpenAppleMacrosServer
-          key: open-apple-macros-${{ runner.os }}-${{ runner.arch }}-${{ steps.xcode.outputs.app }}-${{ hashFiles('packages/open_apple_macros/swift/**', 'packages/open_apple_macros/lib/**') }}
+          key: open-apple-macros-${{ runner.os }}-${{ runner.arch }}-${{ steps.xcode.outputs.app }}-${{ hashFiles('.gitmodules', 'packages/xcross/lib/src/shared/flutter/swiftpm/open_apple_macros.dart') }}
 
       - name: Boot install launch and observe Flutter example headlessly
         shell: bash

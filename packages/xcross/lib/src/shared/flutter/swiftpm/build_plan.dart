@@ -3,12 +3,12 @@ import 'dart:async';
 import 'package:cli_kit/shared/platform/platform_host.dart';
 import 'package:cli_kit/shared/process/process.dart';
 import 'package:meta/meta.dart';
-import 'package:open_apple_macros/shared/open_apple_macros_server.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/shared/flutter/build/ios_linker_compatibility.dart';
 import 'package:xcross/src/shared/flutter/errors.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/filesystem.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/host_policy.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/open_apple_macros.dart';
 
 @internal
 const String flutterFrameworkPackageName = 'FlutterFramework';

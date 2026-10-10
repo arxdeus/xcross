@@ -17,6 +17,13 @@ const _encodedVersion = String.fromEnvironment(
 // ignore: do_not_use_environment
 const _released = bool.fromEnvironment('XCROSS_RELEASED');
 
+/// Builds `OpenAppleMacrosServer` from this checkout's
+/// `third_party/OpenAppleMacros` submodule and ships it in the bundle's
+/// `lib/`. Off by default so source builds need no Swift toolchain; release.yml
+/// turns it on.
+// ignore: do_not_use_environment
+const _bundleMacros = bool.fromEnvironment('XCROSS_BUNDLE_MACROS');
+
 @internal
 typedef BuildCliRun =
     Future<int> Function(
@@ -49,6 +56,9 @@ Future<void> main() async {
     packageRoot: Directory.current,
     encodedVersion: _encodedVersion,
     released: _released,
+    // The environment flips this per build; it only looks constant here.
+    // ignore: avoid_redundant_argument_values
+    bundleMacros: _bundleMacros,
   );
 }
 
@@ -61,6 +71,7 @@ Future<int> buildXcross({
   required Directory packageRoot,
   required String encodedVersion,
   required bool released,
+  bool bundleMacros = false,
   BuildCliRun? runBuild,
 }) async {
   final version = _normalizeVersion(Uri.decodeComponent(encodedVersion));
@@ -120,9 +131,125 @@ Future<int> buildXcross({
       executable,
     );
     await File(source).copy(destination);
+    if (bundleMacros) {
+      return await _bundleOpenAppleMacros(
+        runner,
+        run,
+        packageRoot: packageRoot,
+        libDirectory: p.join(xcrossBuild, 'bundle', 'lib'),
+      );
+    }
     return 0;
   } finally {
     await generated.writeAsBytes(original, flush: true);
+  }
+}
+
+/// Swift runtime libraries a Windows `OpenAppleMacrosServer.exe` may import.
+///
+/// Windows has no static Swift standard library, so the release ships the
+/// toolchain's runtime DLLs beside the server. Only the ones present in the
+/// toolchain's runtime directory are copied.
+@internal
+const windowsSwiftRuntimeLibraries = [
+  'swiftCore.dll',
+  'swiftCRT.dll',
+  'swiftWinSDK.dll',
+  'swift_Concurrency.dll',
+  'swift_StringProcessing.dll',
+  'swift_RegexParser.dll',
+  'swiftDispatch.dll',
+  'swiftSynchronization.dll',
+  'swift_Volatile.dll',
+  'dispatch.dll',
+  'BlocksRuntime.dll',
+  'Foundation.dll',
+  'FoundationEssentials.dll',
+  'FoundationInternationalization.dll',
+  '_FoundationICU.dll',
+];
+
+Future<int> _bundleOpenAppleMacros(
+  ProcessRunner runner,
+  BuildCliRun run, {
+  required Directory packageRoot,
+  required String libDirectory,
+}) async {
+  final repository = packageRoot.parent.parent;
+  final source = p.join(repository.path, 'third_party', 'OpenAppleMacros');
+  if (!File(p.join(source, 'Package.swift')).existsSync()) {
+    throw StateError(
+      'third_party/OpenAppleMacros is missing; run '
+      '`git submodule update --init third_party/OpenAppleMacros`',
+    );
+  }
+  final swift = await runner.locateTool('swift');
+  final scratch = p.join(packageRoot.path, 'build', 'open-apple-macros');
+  final windows = runner.host.name == 'windows';
+  final linux = runner.host.name == 'linux';
+  final arguments = [
+    'build',
+    '--package-path',
+    source,
+    '--scratch-path',
+    scratch,
+    '--configuration',
+    'release',
+    '--product',
+    'OpenAppleMacrosServer',
+    // Linux links the Swift runtime statically so the server runs on any
+    // glibc distribution without a Swift installation.
+    if (linux) '--static-swift-stdlib',
+  ];
+  final built = await run(swift, arguments, workingDirectory: source);
+  if (built != 0) return built;
+  final binPath = await runner.run(swift, [
+    ...arguments.where((argument) => argument != '--static-swift-stdlib'),
+    '--show-bin-path',
+  ], workingDirectory: source);
+  final bin = binPath.stdout.trim().split('\n').last.trim();
+  final name = runner.host.paths.executableName('OpenAppleMacrosServer');
+  final server = File(p.join(bin, name));
+  if (binPath.exitCode != 0 || !server.existsSync()) {
+    throw StateError('swift build did not produce ${server.path}');
+  }
+  await Directory(libDirectory).create(recursive: true);
+  final destination = p.join(libDirectory, name);
+  await server.copy(destination);
+  runner.makeExecutable(destination);
+  if (windows) {
+    await _copyWindowsSwiftRuntime(runner, swift, libDirectory);
+  }
+  return 0;
+}
+
+/// Copies the Swift runtime DLLs found beside `swiftCore.dll`.
+Future<void> _copyWindowsSwiftRuntime(
+  ProcessRunner runner,
+  String swift,
+  String libDirectory,
+) async {
+  final info = await runner.run(swift, ['-print-target-info']);
+  final decoded = jsonDecode(info.stdout) as Map<String, Object?>;
+  final paths = decoded['paths']! as Map<String, Object?>;
+  final runtimeLibraryPaths = (paths['runtimeLibraryPaths'] as List<Object?>?)
+      ?.cast<String>();
+  final pathDirectories =
+      (runner.host.environment.lookup(runner.effectiveEnvironment, 'PATH') ??
+              '')
+          .split(';');
+  final candidates = [...?runtimeLibraryPaths, ...pathDirectories];
+  final runtime = candidates.firstWhere(
+    (directory) => File(p.join(directory, 'swiftCore.dll')).existsSync(),
+    orElse: () => throw StateError(
+      'Could not find the Swift runtime (swiftCore.dll) for $swift',
+    ),
+  );
+  for (final library in windowsSwiftRuntimeLibraries) {
+    final file = File(p.join(runtime, library));
+    if (file.existsSync()) {
+      await file.copy(p.join(libDirectory, library));
+    }
   }
 }
 

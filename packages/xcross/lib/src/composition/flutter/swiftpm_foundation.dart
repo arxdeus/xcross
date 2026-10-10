@@ -3,7 +3,6 @@ import 'package:cli_kit/shared/process/process.dart';
 import 'package:darwin_sdk_kit/shared/sdk/darwin_sdk_repository.dart';
 import 'package:darwin_sdk_kit/shared/toolchain/darwin_toolchain_resolver.dart';
 import 'package:meta/meta.dart';
-import 'package:open_apple_macros/shared/open_apple_macros_server.dart';
 import 'package:xcross/src/shared/flutter/build/internal/apple_tool_shims.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_copy_policy.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_filesystem.dart';
@@ -24,6 +23,7 @@ import 'package:xcross/src/shared/flutter/swiftpm/host_policy.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/interop_consumer_repair.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/librarian_resolver.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/network_retry.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/open_apple_macros.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/package_metadata.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/plan_reader.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/process_policy.dart';
@@ -88,6 +88,9 @@ SwiftPmFoundation<T> prepareSwiftPmFoundation<T extends PlatformHostInterface>({
   final macroServer = OpenAppleMacrosServer<T>(
     runner: runner,
     layout: tools.hostTools.toolchainPluginLayout,
+    executable: tools.executable,
+    launcher: tools.launcher,
+    configured: tools.openAppleMacrosServer,
   );
   final planReader = SwiftPmPlanReader(
     fileSystem: artifactFileSystem,

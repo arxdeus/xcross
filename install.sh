@@ -258,6 +258,14 @@ run_privileged cp -a "$staging_dir/lib/." "$NATIVE_LIB_DIR/"
 
 # 0644: world-readable, non-executable — the right mode for a text notice.
 run_privileged install -m 0644 "$staging_dir/$LICENSE_ASSET" "$installed_license"
+# Release archives also carry notices for the bundled OpenAppleMacrosServer
+# (OpenAppleMacros, swift-syntax and the Swift runtime).
+if [ -d "$staging_dir/THIRD_PARTY_LICENSES" ]; then
+	for notice in "$staging_dir"/THIRD_PARTY_LICENSES/*; do
+		[ -f "$notice" ] || continue
+		run_privileged install -m 0644 "$notice" "$LICENSE_DIR/$(basename "$notice")"
+	done
+fi
 
 # ---------------------------------------------------------------------------
 # Step 5 — verify the installed binary actually runs

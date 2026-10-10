@@ -47,6 +47,38 @@ void main() {
   tearDown(() => sandbox.deleteSync(recursive: true));
 
   test(
+    'leaves the macro server out unless the release build asks for it',
+    () async {
+      seed();
+      final targets = <String>[];
+      final result = await buildXcross(
+        output: fixtureSink(),
+        errors: fixtureSink(),
+        runner: fixtureRunner(
+          LinuxHost(architecture: 'x64'),
+          log: fixtureLog(),
+        ),
+        dartExecutable: '/fixture/dart',
+        packageRoot: sandbox,
+        encodedVersion: 'unreleased',
+        released: false,
+        runBuild: (executable, arguments, {required workingDirectory}) async {
+          targets.add(executable);
+          return 0;
+        },
+      );
+      expect(result, 0);
+      expect(targets, everyElement('/fixture/dart'));
+      expect(
+        Directory(
+          p.join(sandbox.path, 'build', 'cli', 'linux_x64', 'bundle', 'lib'),
+        ).existsSync(),
+        isFalse,
+      );
+    },
+  );
+
+  test(
     'copies xcrun only beside the xcross bundle from this invocation',
     () async {
       seed();

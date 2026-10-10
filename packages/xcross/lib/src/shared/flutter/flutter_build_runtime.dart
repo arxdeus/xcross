@@ -42,6 +42,7 @@ final class FlutterResolutionConfiguration {
     this.tool,
     this.launcher,
     this.xcrun,
+    this.openAppleMacrosServer,
   });
   final bool declarative;
   final String? root;
@@ -50,6 +51,7 @@ final class FlutterResolutionConfiguration {
   final String executable;
   final String? launcher;
   final String? xcrun;
+  final String? openAppleMacrosServer;
 }
 
 @internal
@@ -193,6 +195,7 @@ final class FlutterBuildRuntime<T extends PlatformHostInterface> {
     executable: resolution.executable,
     launcher: resolution.launcher,
     xcrun: resolution.xcrun,
+    openAppleMacrosServer: resolution.openAppleMacrosServer,
     declarative: resolution.declarative,
   );
 }

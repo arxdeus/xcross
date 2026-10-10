@@ -61,6 +61,7 @@ final class AppleToolShimResolver<T extends PlatformHostInterface> {
     required this.hostTools,
     this.launcher,
     this.xcrun,
+    this.openAppleMacrosServer,
     this.declarative = false,
   }) {
     if (!identical(host, runner.host) ||
@@ -80,6 +81,7 @@ final class AppleToolShimResolver<T extends PlatformHostInterface> {
   final NativeHostTools<T> hostTools;
   final String? launcher;
   final String? xcrun;
+  final String? openAppleMacrosServer;
   final bool declarative;
   final String executable;
 
