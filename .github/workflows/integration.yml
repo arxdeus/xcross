@@ -780,6 +780,13 @@ jobs:
           if-no-files-found: warn
           retention-days: 1
 
+      - name: Upload the screenshot for the report link
+        if: success()
+        uses: ./.github/actions/simulator-screenshot
+        with:
+          screenshot: ${{ runner.temp }}/ios-simulator-smoke/flutter-example/screenshot.png
+          slug: flutter-native-flutter-example
+
       - name: Upload simulator evidence
         if: failure() || cancelled()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -847,6 +854,13 @@ jobs:
             ${{ runner.temp }}/ios-simulator-smoke/*/result.json
           if-no-files-found: warn
           retention-days: 1
+
+      - name: Upload the screenshot for the report link
+        if: success()
+        uses: ./.github/actions/simulator-screenshot
+        with:
+          screenshot: ${{ runner.temp }}/ios-simulator-smoke/flutter-example/screenshot.png
+          slug: flutter-${{ matrix.host }}-flutter-example
 
       - name: Upload simulator evidence
         if: failure() || cancelled()
@@ -969,6 +983,13 @@ jobs:
             ${{ runner.temp }}/ios-simulator-smoke/*/result.json
           if-no-files-found: warn
           retention-days: 1
+
+      - name: Upload the screenshot for the report link
+        if: success()
+        uses: ./.github/actions/simulator-screenshot
+        with:
+          screenshot: ${{ runner.temp }}/ios-simulator-smoke/compose/screenshot.png
+          slug: compose-native-compose
 
       - name: Upload simulator evidence
         if: failure() || cancelled()
@@ -1340,7 +1361,7 @@ jobs:
     if: ${{ !cancelled() && needs.gate.outputs.trusted == 'true' }}
     runs-on: ubuntu-24.04
     permissions:
-      contents: write
+      contents: read
       actions: read
       issues: write
       pull-requests: write
@@ -1359,7 +1380,7 @@ jobs:
           pattern: simulator-report-*
           path: ${{ runner.temp }}/simulator-report
 
-      - name: Publish screenshots and write the run report
+      - name: Link screenshots and write the run report
         uses: ./.github/actions/simulator-report
         with:
           staged: ${{ runner.temp }}/simulator-report

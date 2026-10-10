@@ -7,7 +7,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from simulator_report import MARKER, entries, publish, render
+from simulator_report import MARKER, artifact_links, artifact_name, entries, render
 
 
 class SimulatorReportTests(unittest.TestCase):
@@ -39,33 +39,36 @@ class SimulatorReportTests(unittest.TestCase):
         )
         self.assertEqual(len({entry["slug"] for entry in found}), 3)
 
-    def test_publishes_one_png_per_entry_under_its_slug(self):
-        self.stage("simulator-report-flutter-ubuntu-24.04", "flutter-example")
-        self.stage("simulator-report-compose-native", "compose")
-        destination = self.root / "publish" / "123" / "1"
-        found = entries(self.staged)
-        publish(found, destination)
-        self.assertEqual(sorted(path.name for path in destination.iterdir()),
-                         sorted(f"{entry['slug']}.png" for entry in found))
-        for entry in found:
-            self.assertEqual((destination / f"{entry['slug']}.png").read_bytes(), entry["screenshot"].read_bytes())
-
-    def test_report_embeds_each_screenshot_inline_in_separate_tables(self):
+    def test_links_each_entry_to_its_unzipped_screenshot_artifact(self):
         self.stage("simulator-report-flutter-native", "flutter-example", {"ready_marker_found": True})
         self.stage("simulator-report-flutter-windows-2022", "flutter-example", {"ready_marker_found": True})
         self.stage("simulator-report-compose-native", "compose", {"ready_marker_found": False})
         found = entries(self.staged)
-        report = render(found, "Integration simulator report", "https://raw.example/sha/runs/1/1")
+        self.assertEqual(
+            sorted(artifact_name(entry) for entry in found),
+            ["simulator-compose-native-compose.png", "simulator-flutter-native-flutter-example.png",
+             "simulator-flutter-windows-2022-flutter-example.png"],
+        )
+        links = artifact_links([
+            {"id": 11, "name": "simulator-flutter-native-flutter-example.png"},
+            {"id": 12, "name": "simulator-compose-native-compose.png"},
+            {"id": 13, "name": "simulator-flutter-windows-2022-flutter-example.png", "expired": True},
+            {"id": 14, "name": "simulator-report-flutter-native"},
+            {"id": 15, "name": "flutter-example-simulator-ubuntu-24.04"},
+        ], "https://github.com/o/xcross", "77")
+        self.assertEqual(links, {
+            "simulator-flutter-native-flutter-example.png": "https://github.com/o/xcross/actions/runs/77/artifacts/11",
+            "simulator-compose-native-compose.png": "https://github.com/o/xcross/actions/runs/77/artifacts/12",
+        })
+        report = render(found, "Integration simulator report", links)
         self.assertTrue(report.startswith(MARKER + "\n## Integration simulator report\n"))
-        for entry in found:
-            self.assertIn(f'<img src="https://raw.example/sha/runs/1/1/{entry["slug"]}.png" width="220">', report)
-        self.assertEqual(report.count("<img "), 3)
-        self.assertEqual(report.count("<table>"), 2)
+        self.assertNotIn("<img", report)
+        self.assertNotIn("raw.githubusercontent", report)
         flutter, compose = report.split("### Flutter\n", 1)[1].split("### Compose\n", 1)
-        self.assertIn("| windows-2022 | flutter-example | ✅ | 0 |", flutter)
-        self.assertIn("compose-native-compose.png", compose)
-        self.assertNotIn("compose-native-compose.png", flutter)
-        self.assertIn("| macos-15 (native) | compose | ❌ | 0 |", compose)
+        self.assertIn("| macos-15 (native) | flutter-example | ✅ | 0 | [view](https://github.com/o/xcross/actions/runs/77/artifacts/11) |", flutter)
+        self.assertIn("| windows-2022 | flutter-example | ✅ | 0 | n/a |", flutter)
+        self.assertIn("| macos-15 (native) | compose | ❌ | 0 | [view](https://github.com/o/xcross/actions/runs/77/artifacts/12) |", compose)
+        self.assertNotIn("artifacts/12", flutter)
         self.assertNotIn("found", report)
 
     def test_report_names_the_exact_xcross_and_examples_commits(self):
@@ -78,15 +81,14 @@ class SimulatorReportTests(unittest.TestCase):
         self.assertIn(f"xcross_examples: [`{'b' * 12}`](https://github.com/arxdeus/xcross_examples/commit/{'b' * 40})", report)
         self.assertIn("xcross_examples: unknown", render([], "Report", None, (("xcross_examples", "", ""),)))
 
-    def test_report_without_published_images_says_so_instead_of_linking(self):
+    def test_report_without_artifact_links_still_lists_every_result(self):
         self.stage("simulator-report-compose-native", "compose")
-        report = render(entries(self.staged), "Report", None)
-        self.assertNotIn("<img", report)
-        self.assertIn("could not be published", report)
+        report = render(entries(self.staged), "Report")
+        self.assertIn("| macos-15 (native) | compose | n/a | 0 | n/a |", report)
 
     def test_empty_staging_renders_an_explicit_note_per_section(self):
         self.staged.mkdir()
-        report = render([], "Report", "https://x")
+        report = render([], "Report")
         self.assertIn("No Flutter simulator screenshots were staged.", report)
         self.assertIn("No Compose simulator screenshots were staged.", report)
 

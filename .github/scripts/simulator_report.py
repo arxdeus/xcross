@@ -2,7 +2,6 @@ import argparse
 import json
 import os
 import re
-import shutil
 from pathlib import Path
 
 MARKER = "<!-- xcross-integration-report -->"
@@ -32,10 +31,19 @@ def entries(staged):
     return found
 
 
-def publish(found, destination):
-    destination.mkdir(parents=True, exist_ok=True)
-    for entry in found:
-        shutil.copyfile(entry["screenshot"], destination / f"{entry['slug']}.png")
+def artifact_name(entry):
+    return f"simulator-{entry['slug']}.png"
+
+
+def artifact_links(artifacts, repository_url, run_id):
+    """Map unzipped screenshot artifact names to their browser URLs."""
+    return {
+        artifact["name"]: f"{repository_url}/actions/runs/{run_id}/artifacts/{artifact['id']}"
+        for artifact in artifacts
+        if artifact.get("name", "").startswith("simulator-")
+        and artifact["name"].endswith(".png")
+        and not artifact.get("expired")
+    }
 
 
 def commit_link(label, repository_url, sha):
@@ -46,58 +54,51 @@ def commit_link(label, repository_url, sha):
     return f"{label}: [`{sha[:12]}`]({repository_url.removesuffix('.git')}/commit/{sha})"
 
 
-def section(title, found, image_base):
+def section(title, found, links):
     lines = [f"### {title}", ""]
     if not found:
         return lines + [f"No {title} simulator screenshots were staged.", ""]
-    lines += ["| Host | App | Ready marker | Launch retries |", "| --- | --- | :---: | :---: |"]
+    lines += ["| Host | App | Ready marker | Launch retries | Screenshot |", "| --- | --- | :---: | :---: | :---: |"]
     for entry in found:
         ready = {True: "✅", False: "❌"}.get(entry["ready"], "n/a")
-        lines.append(f"| {entry['platform']} | {entry['app']} | {ready} | {entry['launch_retries']} |")
-    lines.append("")
-    if image_base is None:
-        return lines + ["Screenshots could not be published; they stay in the staged artifacts.", ""]
-    cells = [
-        f'<td align="center"><b>{entry["platform"]}</b><br>{entry["app"]}<br>'
-        f'<img src="{image_base}/{entry["slug"]}.png" width="220"></td>'
-        for entry in found
-    ]
-    lines.append("<table>")
-    for start in range(0, len(cells), 4):
-        lines.append("<tr>" + "".join(cells[start:start + 4]) + "</tr>")
-    lines += ["</table>", ""]
-    return lines
+        link = links.get(artifact_name(entry))
+        shot = f"[view]({link})" if link else "n/a"
+        lines.append(f"| {entry['platform']} | {entry['app']} | {ready} | {entry['launch_retries']} | {shot} |")
+    return lines + [""]
 
 
-def render(found, title, image_base, commits=()):
+def render(found, title, links=None, commits=()):
+    links = links or {}
     lines = [MARKER, f"## {title}", ""]
     if commits:
         lines += [" · ".join(commit_link(*commit) for commit in commits), ""]
     for kind, heading in SECTIONS:
-        lines += section(heading, [entry for entry in found if entry["kind"] == kind], image_base)
+        lines += section(heading, [entry for entry in found if entry["kind"] == kind], links)
+    if found:
+        lines += ["Screenshots are expiring Actions artifacts of this run and open directly in the browser.", ""]
     return "\n".join(lines).rstrip("\n") + "\n"
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Publish simulator screenshots and render a run report.")
+    parser = argparse.ArgumentParser(description="Render a run report that links each simulator screenshot artifact.")
     parser.add_argument("staged", type=Path)
     parser.add_argument("--title", required=True)
-    parser.add_argument("--publish-dir", type=Path)
-    parser.add_argument("--image-base")
+    parser.add_argument("--artifacts", type=Path, help="JSON list of this run's artifacts from the Actions API.")
+    parser.add_argument("--run-id", default="")
     parser.add_argument("--commit", default="")
     parser.add_argument("--repository-url", default="")
     parser.add_argument("--examples-commit", default="")
     parser.add_argument("--examples-url", default="")
     args = parser.parse_args()
     found = entries(args.staged) if args.staged.is_dir() else []
-    if args.publish_dir is not None:
-        publish(found, args.publish_dir)
-        return
+    links = {}
+    if args.artifacts is not None and args.artifacts.is_file():
+        links = artifact_links(json.loads(args.artifacts.read_text()), args.repository_url, args.run_id)
     commits = (
         ("xcross", args.repository_url, args.commit),
         ("xcross_examples", args.examples_url, args.examples_commit),
     )
-    report = render(found, args.title, args.image_base, commits)
+    report = render(found, args.title, links, commits)
     summary = os.environ.get("GITHUB_STEP_SUMMARY")
     if summary:
         with open(summary, "a", encoding="utf-8") as output:
