@@ -3,11 +3,19 @@ import 'dart:io';
 import 'package:xcross/src/composition/native_runtime.dart';
 
 Future<void> main(List<String> arguments) async {
+  var code = 0;
   try {
     final context = createNativeXcrossContext();
-    exitCode = await context.xcrun.run(arguments);
+    code = await context.xcrun.run(arguments);
   } on Object catch (error) {
     stderr.writeln('xcrun: $error');
-    exitCode = 1;
+    code = 1;
   }
+  try {
+    await Future.wait([stdout.flush(), stderr.flush()])
+        .timeout(const Duration(seconds: 2));
+  } on Object {
+    // Best effort; never block termination on a wedged stream.
+  }
+  exit(code);
 }
