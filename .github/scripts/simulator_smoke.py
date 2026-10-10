@@ -27,6 +27,10 @@ class CommandTimeout(RuntimeError):
 
 INSTALL_ERROR = re.compile(r"error|fail|denied|invalid", re.IGNORECASE)
 HOME_SCREEN_SERVICE = "system/com.apple.SpringBoard"
+# File mtimes come from the kernel's coarse clock, which can lag time.time() by
+# a few milliseconds (notably on Linux). Without slack, a report written right
+# after the run starts can look older than the run and be silently dropped.
+MTIME_SLACK_SECONDS = 1.0
 
 
 def app_size(app):
@@ -309,7 +313,7 @@ class Smoke:
             for path in root.rglob("*"):
                 if (path.is_file() and path.name.startswith(self.executable + "-")
                         and path.suffix in (".ips", ".crash")
-                        and path.stat().st_mtime >= self.started
+                        and path.stat().st_mtime >= self.started - MTIME_SLACK_SECONDS
                         and (index == 1 or self.attributed_crash(path))):
                     if str(path) in self.crashes:
                         continue
