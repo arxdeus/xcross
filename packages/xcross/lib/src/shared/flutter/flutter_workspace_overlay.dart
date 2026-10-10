@@ -165,8 +165,10 @@ final class FlutterWorkspaceOverlay<T extends PlatformHostInterface> {
       ),
       FlutterWorkspaceDirectory(paths.join(engine, 'common'), exact: true),
       // Only the mode's own platform kernel, so another mode downloading
-      // its kernel next to it leaves this workspace intact.
-      ..._leaves(
+      // its kernel next to it leaves this workspace intact. The kernel
+      // directory itself is real: frontend_server checks `--sdk-root` with a
+      // trailing separator, which a Windows junction fails.
+      ..._tree(
         paths.dirname(engineCache.patchedSdkRoot),
         paths.join(engine, 'common'),
         skip: {
@@ -240,6 +242,35 @@ final class FlutterWorkspaceOverlay<T extends PlatformHostInterface> {
           paths.join(destination, paths.basename(entity.path)),
           entity.path,
         ),
+    ];
+  }
+
+  /// Mirrors the read-only [source] with real directories down to linked
+  /// files.
+  List<FlutterWorkspaceEntry> _tree(
+    String source,
+    String destination, {
+    Set<String> skip = const {},
+  }) {
+    final directory = fileSystem.directory(source);
+    if (!directory.existsSync()) return const [];
+    return [
+      for (final entity in _sorted(directory, skip: skip))
+        if (fileSystem.typeSync(entity.path) ==
+            FileSystemEntityType.directory) ...[
+          FlutterWorkspaceDirectory(
+            paths.join(destination, paths.basename(entity.path)),
+            exact: true,
+          ),
+          ..._tree(
+            entity.path,
+            paths.join(destination, paths.basename(entity.path)),
+          ),
+        ] else
+          FlutterWorkspaceLink(
+            paths.join(destination, paths.basename(entity.path)),
+            entity.path,
+          ),
     ];
   }
 

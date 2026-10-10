@@ -129,7 +129,9 @@ IosEngineCache workspaceSdk(
     mode: mode,
   );
   Directory(cache.flutterXcframework).createSync(recursive: true);
-  Directory(cache.patchedSdkRoot).createSync(recursive: true);
+  File(p.join(cache.patchedSdkRoot, 'source'))
+    ..createSync(recursive: true)
+    ..writeAsStringSync(label);
   File(cache.vmSnapshotData)
     ..createSync(recursive: true)
     ..writeAsStringSync(sdkLocalEngine ? label : 'host');

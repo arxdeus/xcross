@@ -114,6 +114,7 @@ void main() {
         'engine',
         'common',
         'flutter_patched_sdk',
+        'source',
       ),
       false,
     ),
@@ -190,11 +191,16 @@ void main() {
             ).resolveSymbolicLinks(),
             await Directory(cache.flutterXcframework).resolveSymbolicLinks(),
           );
+          final patchedSdk = p.join(engine, 'common', 'flutter_patched_sdk');
           expect(
-            await Directory(
-              p.join(engine, 'common', 'flutter_patched_sdk'),
+            FileSystemEntity.typeSync(patchedSdk, followLinks: false),
+            FileSystemEntityType.directory,
+          );
+          expect(
+            await File(p.join(patchedSdk, 'source')).resolveSymbolicLinks(),
+            await File(
+              p.join(cache.patchedSdkRoot, 'source'),
             ).resolveSymbolicLinks(),
-            await Directory(cache.patchedSdkRoot).resolveSymbolicLinks(),
           );
           expectSelfContainedWorkspace(second, cache);
         } finally {

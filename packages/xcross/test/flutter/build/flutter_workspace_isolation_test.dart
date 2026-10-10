@@ -181,6 +181,28 @@ void main() {
   });
 
   group('per build mode', () {
+    test('serves the platform kernel from a real directory', () async {
+      final cache = engine(FlutterBuildMode.release);
+      final workspace = await create(cache);
+      final kernel = p.join(
+        workspaceEngine(workspace, 'common'),
+        p.basename(cache.patchedSdkRoot),
+      );
+      // frontend_server checks `--sdk-root` with a trailing separator,
+      // which a Windows junction fails.
+      expect(
+        FileSystemEntity.typeSync(kernel, followLinks: false),
+        FileSystemEntityType.directory,
+      );
+      expect(links(kernel), isNotEmpty);
+      for (final link in links(kernel)) {
+        expect(
+          FileSystemEntity.typeSync(p.join(kernel, link)),
+          FileSystemEntityType.file,
+          reason: '$link must be a file',
+        );
+      }
+    });
     test('keeps one workspace per mode and reuses each', () async {
       final roots = <FlutterBuildMode, String>{};
       for (final mode in FlutterBuildMode.values) {
