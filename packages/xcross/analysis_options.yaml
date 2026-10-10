@@ -11,3 +11,4 @@ analyzer:
     - windows/**
     - macos/**
     - linux/**
+    - test/flutter/fixtures/*_registrant/**

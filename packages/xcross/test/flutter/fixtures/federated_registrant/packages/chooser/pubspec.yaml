@@ -1,0 +1,13 @@
+name: chooser
+version: 1.0.0
+environment:
+  sdk: ^3.4.0
+  flutter: '>=3.0.0'
+dependencies:
+  chooser_a:
+    path: ../chooser_a
+flutter:
+  plugin:
+    platforms:
+      linux:
+        dartPluginClass: ChooserLinux

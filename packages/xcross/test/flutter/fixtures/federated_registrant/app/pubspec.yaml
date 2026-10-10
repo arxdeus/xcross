@@ -1,0 +1,20 @@
+name: registrant_app
+publish_to: none
+environment:
+  sdk: ^3.6.0
+dependencies:
+  flutter:
+    sdk: flutter
+  fed:
+    path: ../packages/fed
+  old_desktop:
+    path: ../packages/old_desktop
+  chooser:
+    path: ../packages/chooser
+  chooser_b:
+    path: ../packages/chooser_b
+  legacy:
+    path: ../packages/legacy
+dev_dependencies:
+  dev_tool:
+    path: ../packages/dev_tool
