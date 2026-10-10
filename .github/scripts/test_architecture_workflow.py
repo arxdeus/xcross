@@ -98,13 +98,15 @@ class ArchitectureWorkflowTests(unittest.TestCase):
         text = '\n'.join(lines)
         self.assertIn(f"    needs: [gate, {', '.join(simulator_jobs)}]", lines)
         self.assertIn("    if: ${{ !cancelled() && needs.gate.outputs.trusted == 'true' }}", lines)
-        self.assertIn('      contents: write', lines)
+        self.assertIn('      contents: read', lines)
+        self.assertNotIn('      contents: write', lines)
+        self.assertIn('      actions: read', lines)
         self.assertIn('      pull-requests: write', lines)
         steps = workflow_steps(lines)
         download = step_body(lines, 'Download staged simulator screenshots')
         self.assertIn('uses: actions/download-artifact@', download)
         self.assertIn('pattern: simulator-report-*', download)
-        report = step_body(lines, 'Publish screenshots and write the run report')
+        report = step_body(lines, 'Link screenshots and write the run report')
         self.assertIn('uses: ./.github/actions/simulator-report', report)
         self.assertIn(f'title: {title}', report)
         self.assertIn('sha: ${{ needs.gate.outputs.sha }}', report)
@@ -141,18 +143,38 @@ class ArchitectureWorkflowTests(unittest.TestCase):
         for context in ('Integration Tests', 'Compose Integration Tests'):
             self.assertIn(f'context: {context}\n          state: pending', gate)
 
-    def test_report_action_publishes_to_a_dedicated_branch_and_writes_the_summary(self):
+    def test_report_action_links_artifacts_and_never_writes_to_the_repository(self):
         action = (ROOT / '.github/actions/simulator-report/action.yml').read_text()
-        self.assertIn('branch=simulator-reports', action)
-        self.assertIn('--publish-dir "$work/$REPORT_PATH"', action)
-        self.assertIn('REPORT_PATH: ${{ github.run_id }}/${{ github.run_attempt }}/${{ github.job }}', action)
-        self.assertIn('https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/${commit}/${REPORT_PATH}', action)
-        self.assertIn('--image-base "$BASE"', action)
+        self.assertIn('actions/runs/${GITHUB_RUN_ID}/artifacts', action)
+        self.assertIn('--artifacts "$ARTIFACTS"', action)
         self.assertIn('if: inputs.pr != \'\'', action)
         self.assertIn('python3 .github/scripts/report_comment.py', action)
         self.assertIn('contents/examples?ref=${SHA}', action)
         self.assertIn('--examples-commit "$EXAMPLES_SHA"', action)
-        self.assertNotIn('gh-pages', action)
+        for forbidden in ('git ', 'push', 'refs/', 'raw.githubusercontent', 'gh-pages', 'contents: write'):
+            self.assertNotIn(forbidden, action)
+
+    def test_screenshot_action_uploads_one_unzipped_expiring_artifact(self):
+        action = (ROOT / '.github/actions/simulator-screenshot/action.yml').read_text()
+        self.assertIn('cp "$SCREENSHOT" "$directory/simulator-$SLUG.png"', action)
+        self.assertIn('uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9', action)
+        self.assertIn('archive: false', action)
+        self.assertIn('retention-days: 30', action)
+        self.assertNotIn('push', action)
+
+    def test_every_simulator_job_uploads_its_screenshot_under_the_report_slug(self):
+        jobs = workflow_jobs((ROOT / '.github/workflows/integration.yml').read_text())
+        for job, app, slug in (
+            ('flutter-simulator', 'flutter-example', 'flutter-native-flutter-example'),
+            ('flutter-example-simulator-run', 'flutter-example', 'flutter-${{ matrix.host }}-flutter-example'),
+            ('compose-simulator', 'compose', 'compose-native-compose'),
+        ):
+            with self.subTest(job=job):
+                body = step_body(jobs[job], 'Upload the screenshot for the report link')
+                self.assertIn('        if: success()', body)
+                self.assertIn('uses: ./.github/actions/simulator-screenshot', body)
+                self.assertIn(f'screenshot: ${{{{ runner.temp }}}}/ios-simulator-smoke/{app}/screenshot.png', body)
+                self.assertIn(f'slug: {slug}', body)
 
     def test_broadened_or_unconditional_simulator_uploads_are_rejected(self):
         for name, job, artifact, staged in SIMULATOR_JOBS:
