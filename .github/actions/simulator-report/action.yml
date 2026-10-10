@@ -1,8 +1,8 @@
 name: Simulator report
 description: >-
-  Publish staged simulator screenshots to the hidden refs/ci/simulator-reports
-  ref (not a branch, so it never shows up in the branch list) and write one run
-  summary that shows every Flutter and Compose screenshot inline.
+  Write one run summary for every Flutter and Compose simulator smoke, linking
+  each screenshot to its unzipped, expiring Actions artifact. Nothing is
+  written to the repository.
 
 inputs:
   staged:
@@ -22,47 +22,20 @@ inputs:
 runs:
   using: composite
   steps:
-    - name: Publish screenshots
-      id: publish
+    - name: List this run's screenshot artifacts
+      id: artifacts
       shell: bash
       env:
         GH_TOKEN: ${{ github.token }}
-        STAGED: ${{ inputs.staged }}
-        TITLE: ${{ inputs.title }}
-        REPORT_PATH: ${{ github.run_id }}/${{ github.run_attempt }}/${{ github.job }}
       run: |
         set -euo pipefail
-        ref=refs/ci/simulator-reports
-        work="$RUNNER_TEMP/simulator-reports"
-        rm -rf "$work"
-        git init -q "$work"
-        git -C "$work" remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
-        if git -C "$work" fetch -q --depth 1 origin "$ref"; then
-          git -C "$work" checkout -q -B reports FETCH_HEAD
+        list="$RUNNER_TEMP/simulator-artifacts.json"
+        if gh api --paginate --slurp "repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/artifacts?per_page=100" \
+            | jq '[.[].artifacts[]]' > "$list"; then
+          echo "list=$list" >> "$GITHUB_OUTPUT"
         else
-          git -C "$work" checkout -q --orphan reports
+          echo "::warning::Could not list simulator screenshot artifacts"
         fi
-        python3 .github/scripts/simulator_report.py "$STAGED" --title "$TITLE" \
-          --publish-dir "$work/$REPORT_PATH"
-        if [ -z "$(git -C "$work" status --porcelain)" ]; then
-          echo "published=false" >> "$GITHUB_OUTPUT"
-          exit 0
-        fi
-        git -C "$work" add -A
-        git -C "$work" -c user.name=github-actions -c user.email=actions@github.com \
-          commit -q -m "simulator screenshots for run ${REPORT_PATH}"
-        for attempt in 1 2 3; do
-          if git -C "$work" push -q origin "HEAD:$ref"; then
-            commit=$(git -C "$work" rev-parse HEAD)
-            echo "published=true" >> "$GITHUB_OUTPUT"
-            echo "base=https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/${commit}/${REPORT_PATH}" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          git -C "$work" fetch -q --depth 1 origin "$ref"
-          git -C "$work" rebase -q FETCH_HEAD
-        done
-        echo "::warning::Could not publish simulator screenshots"
-        echo "published=false" >> "$GITHUB_OUTPUT"
 
     - name: Resolve the xcross_examples commit
       id: examples
@@ -84,8 +57,7 @@ runs:
       env:
         STAGED: ${{ inputs.staged }}
         TITLE: ${{ inputs.title }}
-        PUBLISHED: ${{ steps.publish.outputs.published }}
-        BASE: ${{ steps.publish.outputs.base }}
+        ARTIFACTS: ${{ steps.artifacts.outputs.list }}
         SHA: ${{ inputs.sha }}
         REPOSITORY_URL: ${{ github.server_url }}/${{ github.repository }}
         EXAMPLES_SHA: ${{ steps.examples.outputs.sha }}
@@ -93,9 +65,9 @@ runs:
       run: |
         set -euo pipefail
         args=(--title "$TITLE" --commit "$SHA" --repository-url "$REPOSITORY_URL"
-          --examples-commit "$EXAMPLES_SHA" --examples-url "$EXAMPLES_URL")
-        if [ "$PUBLISHED" = true ]; then
-          args+=(--image-base "$BASE")
+          --examples-commit "$EXAMPLES_SHA" --examples-url "$EXAMPLES_URL" --run-id "$GITHUB_RUN_ID")
+        if [ -n "$ARTIFACTS" ]; then
+          args+=(--artifacts "$ARTIFACTS")
         fi
         python3 .github/scripts/simulator_report.py "$STAGED" "${args[@]}" > "$RUNNER_TEMP/simulator-report.md"
 
