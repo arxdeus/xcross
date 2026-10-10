@@ -65,9 +65,9 @@ class SimulatorReportTests(unittest.TestCase):
         self.assertNotIn("<img", report)
         self.assertNotIn("raw.githubusercontent", report)
         flutter, compose = report.split("### Flutter\n", 1)[1].split("### Compose\n", 1)
-        self.assertIn("| macos-15 (native) | flutter-example | ✅ | 0 | [view](https://github.com/o/xcross/actions/runs/77/artifacts/11) |", flutter)
-        self.assertIn("| windows-2022 | flutter-example | ✅ | 0 | n/a |", flutter)
-        self.assertIn("| macos-15 (native) | compose | ❌ | 0 | [view](https://github.com/o/xcross/actions/runs/77/artifacts/12) |", compose)
+        self.assertIn("| **macos-15 (native)** | `flutter-example` | ✅ Ready | 0 | 🖼️ [Open image](https://github.com/o/xcross/actions/runs/77/artifacts/11) |", flutter)
+        self.assertIn("| **windows-2022** | `flutter-example` | ✅ Ready | 0 | _unavailable_ |", flutter)
+        self.assertIn("| **macos-15 (native)** | `compose` | ❌ Not ready | 0 | 🖼️ [Open image](https://github.com/o/xcross/actions/runs/77/artifacts/12) |", compose)
         self.assertNotIn("artifacts/12", flutter)
         self.assertNotIn("found", report)
 
@@ -84,7 +84,7 @@ class SimulatorReportTests(unittest.TestCase):
     def test_report_without_artifact_links_still_lists_every_result(self):
         self.stage("simulator-report-compose-native", "compose")
         report = render(entries(self.staged), "Report")
-        self.assertIn("| macos-15 (native) | compose | n/a | 0 | n/a |", report)
+        self.assertIn("| **macos-15 (native)** | `compose` | ⚪ Unknown | 0 | _unavailable_ |", report)
 
     def test_empty_staging_renders_an_explicit_note_per_section(self):
         self.staged.mkdir()

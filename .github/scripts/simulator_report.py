@@ -7,6 +7,7 @@ from pathlib import Path
 MARKER = "<!-- xcross-integration-report -->"
 SECTIONS = (("flutter", "Flutter"), ("compose", "Compose"))
 HOSTS = {"native": "macos-15 (native)"}
+STATUS = {True: "✅ Ready", False: "❌ Not ready", None: "⚪ Unknown"}
 
 
 def entries(staged):
@@ -58,12 +59,14 @@ def section(title, found, links):
     lines = [f"### {title}", ""]
     if not found:
         return lines + [f"No {title} simulator screenshots were staged.", ""]
-    lines += ["| Host | App | Ready marker | Launch retries | Screenshot |", "| --- | --- | :---: | :---: | :---: |"]
+    lines += ["| Host | App | Status | Launch retries | Screenshot |", "| :--- | :--- | :--- | :---: | :--- |"]
     for entry in found:
-        ready = {True: "✅", False: "❌"}.get(entry["ready"], "n/a")
+        status = STATUS.get(entry["ready"], STATUS[None])
         link = links.get(artifact_name(entry))
-        shot = f"[view]({link})" if link else "n/a"
-        lines.append(f"| {entry['platform']} | {entry['app']} | {ready} | {entry['launch_retries']} | {shot} |")
+        shot = f"🖼️ [Open image]({link})" if link else "_unavailable_"
+        lines.append(
+            f"| **{entry['platform']}** | `{entry['app']}` | {status} | {entry['launch_retries']} | {shot} |"
+        )
     return lines + [""]
 
 
@@ -75,7 +78,7 @@ def render(found, title, links=None, commits=()):
     for kind, heading in SECTIONS:
         lines += section(heading, [entry for entry in found if entry["kind"] == kind], links)
     if found:
-        lines += ["Screenshots are expiring Actions artifacts of this run and open directly in the browser.", ""]
+        lines += ["<sub>Screenshots are Actions artifacts of this run. They open in the browser and expire after 30 days.</sub>", ""]
     return "\n".join(lines).rstrip("\n") + "\n"
 
 
