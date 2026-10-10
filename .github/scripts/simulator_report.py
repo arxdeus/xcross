@@ -58,12 +58,12 @@ def section(title, found, links):
     lines = [f"### {title}", ""]
     if not found:
         return lines + [f"No {title} simulator screenshots were staged.", ""]
-    lines += ["| Host | App | Status | Screenshot |", "| :--- | :--- | :--- | :--- |"]
+    lines += ["| Host | Status | Screenshot |", "| :--- | :--- | :--- |"]
     for entry in found:
         status = STATUS.get(entry["ready"], STATUS[None])
         link = links.get(artifact_name(entry))
         shot = f"🖼️ [Open image]({link})" if link else "_unavailable_"
-        lines.append(f"| **{entry['platform']}** | `{entry['app']}` | {status} | {shot} |")
+        lines.append(f"| **{entry['platform']}** | {status} | {shot} |")
     return lines + [""]
 
 
