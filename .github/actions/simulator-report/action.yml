@@ -1,7 +1,8 @@
 name: Simulator report
 description: >-
-  Publish staged simulator screenshots to the simulator-reports branch and
-  write one run summary that shows every Flutter and Compose screenshot inline.
+  Publish staged simulator screenshots to the hidden refs/ci/simulator-reports
+  ref (not a branch, so it never shows up in the branch list) and write one run
+  summary that shows every Flutter and Compose screenshot inline.
 
 inputs:
   staged:
@@ -31,15 +32,15 @@ runs:
         REPORT_PATH: ${{ github.run_id }}/${{ github.run_attempt }}/${{ github.job }}
       run: |
         set -euo pipefail
-        branch=simulator-reports
-        work="$RUNNER_TEMP/simulator-reports-branch"
+        ref=refs/ci/simulator-reports
+        work="$RUNNER_TEMP/simulator-reports"
         rm -rf "$work"
         git init -q "$work"
         git -C "$work" remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
-        if git -C "$work" fetch -q --depth 1 origin "$branch"; then
-          git -C "$work" checkout -q -B "$branch" FETCH_HEAD
+        if git -C "$work" fetch -q --depth 1 origin "$ref"; then
+          git -C "$work" checkout -q -B reports FETCH_HEAD
         else
-          git -C "$work" checkout -q --orphan "$branch"
+          git -C "$work" checkout -q --orphan reports
         fi
         python3 .github/scripts/simulator_report.py "$STAGED" --title "$TITLE" \
           --publish-dir "$work/$REPORT_PATH"
@@ -51,13 +52,13 @@ runs:
         git -C "$work" -c user.name=github-actions -c user.email=actions@github.com \
           commit -q -m "simulator screenshots for run ${REPORT_PATH}"
         for attempt in 1 2 3; do
-          if git -C "$work" push -q origin "HEAD:$branch"; then
+          if git -C "$work" push -q origin "HEAD:$ref"; then
             commit=$(git -C "$work" rev-parse HEAD)
             echo "published=true" >> "$GITHUB_OUTPUT"
             echo "base=https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/${commit}/${REPORT_PATH}" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          git -C "$work" fetch -q --depth 1 origin "$branch"
+          git -C "$work" fetch -q --depth 1 origin "$ref"
           git -C "$work" rebase -q FETCH_HEAD
         done
         echo "::warning::Could not publish simulator screenshots"

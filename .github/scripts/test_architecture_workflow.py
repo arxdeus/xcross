@@ -141,9 +141,12 @@ class ArchitectureWorkflowTests(unittest.TestCase):
         for context in ('Integration Tests', 'Compose Integration Tests'):
             self.assertIn(f'context: {context}\n          state: pending', gate)
 
-    def test_report_action_publishes_to_a_dedicated_branch_and_writes_the_summary(self):
+    def test_report_action_publishes_to_a_hidden_ref_and_writes_the_summary(self):
         action = (ROOT / '.github/actions/simulator-report/action.yml').read_text()
-        self.assertIn('branch=simulator-reports', action)
+        self.assertIn('ref=refs/ci/simulator-reports', action)
+        self.assertIn('push -q origin "HEAD:$ref"', action)
+        self.assertNotIn('refs/heads/', action)
+        self.assertNotIn('branch=', action)
         self.assertIn('--publish-dir "$work/$REPORT_PATH"', action)
         self.assertIn('REPORT_PATH: ${{ github.run_id }}/${{ github.run_attempt }}/${{ github.job }}', action)
         self.assertIn('https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/${commit}/${REPORT_PATH}', action)
