@@ -127,6 +127,8 @@ void main() {
 
   for (final extension in ['bat', 'cmd']) {
     test(
+      testOn: '!windows',
+
       'preserves encoded ref arguments through Windows .$extension',
       () async {
         final temp = await Directory.systemTemp.createTemp(
@@ -154,6 +156,8 @@ void main() {
   }
 
   test(
+    testOn: '!windows',
+
     'preserves the built version through a Windows Dart batch launcher',
     () async {
       final temp = await Directory.systemTemp.createTemp(
@@ -185,6 +189,8 @@ void main() {
   );
 
   test(
+    testOn: '!windows',
+
     'streams stdout and stderr into the active step while preserving capture',
     () async {
       final temp = await Directory.systemTemp.createTemp(

@@ -49,40 +49,58 @@ void main() {
       temp.deleteSync(recursive: true);
     });
 
-    test('finds a standalone project package config', () async {
-      _writePackageConfig(temp.path);
+    test(
+      testOn: '!windows',
+      'finds a standalone project package config',
+      () async {
+        _writePackageConfig(temp.path);
 
-      final result = await resolver.find(temp.path);
+        final result = await resolver.find(temp.path);
 
-      expect(result, p.join(temp.path, '.dart_tool', 'package_config.json'));
-    });
-
-    test('finds a workspace package config in an ancestor', () async {
-      final app = Directory(p.join(temp.path, 'apps', 'example'))
-        ..createSync(recursive: true);
-      _writePackageConfig(temp.path);
-
-      final result = await resolver.find(app.path);
-
-      expect(result, p.join(temp.path, '.dart_tool', 'package_config.json'));
-    });
-
-    test('prefers a local package config over an ancestor', () async {
-      final app = Directory(p.join(temp.path, 'apps', 'example'))
-        ..createSync(recursive: true);
-      _writePackageConfig(temp.path);
-      _writePackageConfig(app.path);
-
-      final result = await resolver.find(app.path);
-
-      expect(result, p.join(app.path, '.dart_tool', 'package_config.json'));
-    });
-
-    test('find returns null when no package config exists', () async {
-      expect(await resolver.find(temp.path), isNull);
-    });
+        expect(result, p.join(temp.path, '.dart_tool', 'package_config.json'));
+      },
+    );
 
     test(
+      testOn: '!windows',
+      'finds a workspace package config in an ancestor',
+      () async {
+        final app = Directory(p.join(temp.path, 'apps', 'example'))
+          ..createSync(recursive: true);
+        _writePackageConfig(temp.path);
+
+        final result = await resolver.find(app.path);
+
+        expect(result, p.join(temp.path, '.dart_tool', 'package_config.json'));
+      },
+    );
+
+    test(
+      testOn: '!windows',
+      'prefers a local package config over an ancestor',
+      () async {
+        final app = Directory(p.join(temp.path, 'apps', 'example'))
+          ..createSync(recursive: true);
+        _writePackageConfig(temp.path);
+        _writePackageConfig(app.path);
+
+        final result = await resolver.find(app.path);
+
+        expect(result, p.join(app.path, '.dart_tool', 'package_config.json'));
+      },
+    );
+
+    test(
+      testOn: '!windows',
+      'find returns null when no package config exists',
+      () async {
+        expect(await resolver.find(temp.path), isNull);
+      },
+    );
+
+    test(
+      testOn: '!windows',
+
       'legacy packages files remain excluded without a version override',
       () async {
         File(p.join(temp.path, '.packages')).writeAsStringSync('legacy:lib/');
@@ -90,16 +108,28 @@ void main() {
       },
     );
 
-    test('require reports the directory and recovery command', () async {
-      await expectLater(
-        resolver.require(temp.path),
-        throwsA(
-          isA<FlutterBuildError>()
-              .having((error) => error.message, 'message', contains(temp.path))
-              .having((error) => error.message, 'message', contains('pub get')),
-        ),
-      );
-    });
+    test(
+      testOn: '!windows',
+      'require reports the directory and recovery command',
+      () async {
+        await expectLater(
+          resolver.require(temp.path),
+          throwsA(
+            isA<FlutterBuildError>()
+                .having(
+                  (error) => error.message,
+                  'message',
+                  contains(temp.path),
+                )
+                .having(
+                  (error) => error.message,
+                  'message',
+                  contains('pub get'),
+                ),
+          ),
+        );
+      },
+    );
   });
 
   test(

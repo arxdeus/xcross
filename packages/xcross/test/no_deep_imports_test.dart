@@ -4,6 +4,7 @@ import 'dart:isolate';
 import 'package:analyzer/dart/analysis/utilities.dart';
 import 'package:analyzer/dart/ast/ast.dart';
 import 'package:meta/meta.dart';
+import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
 final String _repoRoot = Directory.fromUri(
@@ -117,8 +118,9 @@ void main() {
       'rev-parse',
       '--show-toplevel',
     ], workingDirectory: _repoRoot);
+    // git prints forward slashes on Windows, so compare canonical paths.
     if (repository.exitCode != 0 ||
-        (repository.stdout as String).trim() != _repoRoot) {
+        !p.equals((repository.stdout as String).trim(), _repoRoot)) {
       throw StateError(
         'Owned source inventory requires the exact repository root',
       );

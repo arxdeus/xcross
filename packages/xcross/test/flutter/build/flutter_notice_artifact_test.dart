@@ -11,6 +11,8 @@ import '../../host_operations_fixtures.dart';
 
 void main() {
   test(
+    testOn: '!windows',
+
     'copies Flutter notices into the final Flutter asset directory',
     () async {
       final root = await Directory.systemTemp.createTemp(

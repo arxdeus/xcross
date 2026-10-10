@@ -21,6 +21,8 @@ void main() {
   );
 
   test(
+    testOn: '!windows',
+
     'links only native frameworks needed by SwiftPM plugin symbols',
     () async {
       final root = Directory.systemTemp.createTempSync('xcross-native-links-');
@@ -79,86 +81,96 @@ void main() {
     },
   );
 
-  test('ignores imports already bound to another dylib', () async {
-    final root = Directory.systemTemp.createTempSync('xcross-bound-import-');
-    addTearDown(() => root.deleteSync(recursive: true));
-    final framework = p.join(root.path, 'unrelated.framework');
-    Directory(framework).createSync();
-    _writeMachO(
-      p.join(framework, 'unrelated'),
-      '_shared',
-      undefined: false,
-      fileSystem: frameworkService.fileSystem,
-    );
-    final boundPlugin = p.join(root.path, 'bound.dylib');
-    _writeMachO(
-      boundPlugin,
-      '_shared',
-      undefined: true,
-      ordinal: 1,
-      fileSystem: frameworkService.fileSystem,
-    );
-    final boundBytes = ByteData.sublistView(
-      File(boundPlugin).readAsBytesSync(),
-    );
-    expect(boundBytes.getUint32(24, Endian.little), 0x80);
-    expect(boundBytes.getUint16(32 + 24 + 6, Endian.little), 0x100);
-    expect(
-      await frameworkService.requiredByPlugins([framework], [boundPlugin]),
-      isEmpty,
-    );
+  test(
+    testOn: '!windows',
+    'ignores imports already bound to another dylib',
+    () async {
+      final root = Directory.systemTemp.createTempSync('xcross-bound-import-');
+      addTearDown(() => root.deleteSync(recursive: true));
+      final framework = p.join(root.path, 'unrelated.framework');
+      Directory(framework).createSync();
+      _writeMachO(
+        p.join(framework, 'unrelated'),
+        '_shared',
+        undefined: false,
+        fileSystem: frameworkService.fileSystem,
+      );
+      final boundPlugin = p.join(root.path, 'bound.dylib');
+      _writeMachO(
+        boundPlugin,
+        '_shared',
+        undefined: true,
+        ordinal: 1,
+        fileSystem: frameworkService.fileSystem,
+      );
+      final boundBytes = ByteData.sublistView(
+        File(boundPlugin).readAsBytesSync(),
+      );
+      expect(boundBytes.getUint32(24, Endian.little), 0x80);
+      expect(boundBytes.getUint16(32 + 24 + 6, Endian.little), 0x100);
+      expect(
+        await frameworkService.requiredByPlugins([framework], [boundPlugin]),
+        isEmpty,
+      );
 
-    final flatPlugin = p.join(root.path, 'flat.dylib');
-    _writeMachO(
-      flatPlugin,
-      '_shared',
-      undefined: true,
-      ordinal: 0xfe,
-      fileSystem: frameworkService.fileSystem,
-    );
-    expect(
-      await frameworkService.requiredByPlugins([framework], [flatPlugin]),
-      [framework],
-    );
-  });
-
-  test('does not eagerly link frameworks for weak plugin imports', () async {
-    final root = Directory.systemTemp.createTempSync('xcross-weak-import-');
-    addTearDown(() => root.deleteSync(recursive: true));
-    final framework = p.join(root.path, 'optional.framework');
-    Directory(framework).createSync();
-    _writeMachO(
-      p.join(framework, 'optional'),
-      '_optional',
-      undefined: false,
-      fileSystem: frameworkService.fileSystem,
-    );
-    final plugin = p.join(root.path, 'plugin.dylib');
-    _writeMachO(
-      plugin,
-      '_optional',
-      undefined: true,
-      ordinal: 0xfe,
-      weakReference: true,
-      fileSystem: frameworkService.fileSystem,
-    );
-    expect(
-      await frameworkService.requiredByPlugins([framework], [plugin]),
-      isEmpty,
-    );
-    _writeMachO(
-      plugin,
-      '_optional',
-      undefined: true,
-      ordinal: 0xfe,
-      fileSystem: frameworkService.fileSystem,
-    );
-    expect(await frameworkService.requiredByPlugins([framework], [plugin]), [
-      framework,
-    ]);
-  });
+      final flatPlugin = p.join(root.path, 'flat.dylib');
+      _writeMachO(
+        flatPlugin,
+        '_shared',
+        undefined: true,
+        ordinal: 0xfe,
+        fileSystem: frameworkService.fileSystem,
+      );
+      expect(
+        await frameworkService.requiredByPlugins([framework], [flatPlugin]),
+        [framework],
+      );
+    },
+  );
 
   test(
+    testOn: '!windows',
+    'does not eagerly link frameworks for weak plugin imports',
+    () async {
+      final root = Directory.systemTemp.createTempSync('xcross-weak-import-');
+      addTearDown(() => root.deleteSync(recursive: true));
+      final framework = p.join(root.path, 'optional.framework');
+      Directory(framework).createSync();
+      _writeMachO(
+        p.join(framework, 'optional'),
+        '_optional',
+        undefined: false,
+        fileSystem: frameworkService.fileSystem,
+      );
+      final plugin = p.join(root.path, 'plugin.dylib');
+      _writeMachO(
+        plugin,
+        '_optional',
+        undefined: true,
+        ordinal: 0xfe,
+        weakReference: true,
+        fileSystem: frameworkService.fileSystem,
+      );
+      expect(
+        await frameworkService.requiredByPlugins([framework], [plugin]),
+        isEmpty,
+      );
+      _writeMachO(
+        plugin,
+        '_optional',
+        undefined: true,
+        ordinal: 0xfe,
+        fileSystem: frameworkService.fileSystem,
+      );
+      expect(await frameworkService.requiredByPlugins([framework], [plugin]), [
+        framework,
+      ]);
+    },
+  );
+
+  test(
+    testOn: '!windows',
+
     'uses public export trie aliases but not private nlist symbols',
     () async {
       final root = Directory.systemTemp.createTempSync('xcross-export-trie-');
@@ -220,105 +232,116 @@ void main() {
     },
   );
 
-  test('collects only frameworks referenced by the active manifest', () {
-    final root = Directory.systemTemp.createTempSync('xcross-hook-products-');
-    addTearDown(() => root.deleteSync(recursive: true));
-    final output = p.join(root.path, 'assemble');
-    final assembled = p.join(output, 'native_assets', 'First.framework');
-    final hooked = p.join(
-      root.path,
-      'build',
-      'native_assets',
-      'ios',
-      'Second.framework',
-    );
-    Directory(assembled).createSync(recursive: true);
-    Directory(hooked).createSync(recursive: true);
-    final stale = p.join(output, 'native_assets', 'Stale.framework');
-    Directory(stale).createSync(recursive: true);
-    final manifest = jsonEncode({
-      'native-assets': {
-        'ios_arm64': {
-          'first': ['absolute', 'First.framework/First'],
-          'second': ['relative', 'Second.framework/Second'],
-        },
-        'ios_x64': {
-          'simulator': ['absolute', 'Stale.framework/Stale'],
-        },
-      },
-    });
-    final frameworks = frameworkService.collect(
-      manifest,
-      output,
-      projectRoot: root.path,
-    );
-    expect(frameworks, unorderedEquals([assembled, hooked]));
-    expect(frameworks, isNot(contains(stale)));
-    final arguments = RunnerShim.linkArguments(
-      objectPath: 'Runner.o',
-      outputPath: 'Runner',
-      iosSdk: '/sdk',
-      flutterSlice: '/engine',
-      subframeworks: '/subframeworks',
-      sdkVersion: '26.0',
-      deploymentTarget: const IosDeploymentTarget(
-        '17.0',
-        platform: IPhoneBuildPlatform(),
-      ),
-      nativeAssetFrameworks: frameworks,
-    );
-    for (final framework in frameworks) {
-      expect(
-        arguments,
-        containsAllInOrder([
-          '-F',
-          p.dirname(framework),
-          '-needed_framework',
-          p.basenameWithoutExtension(framework),
-        ]),
+  test(
+    testOn: '!windows',
+    'collects only frameworks referenced by the active manifest',
+    () {
+      final root = Directory.systemTemp.createTempSync('xcross-hook-products-');
+      addTearDown(() => root.deleteSync(recursive: true));
+      final output = p.join(root.path, 'assemble');
+      final assembled = p.join(output, 'native_assets', 'First.framework');
+      final hooked = p.join(
+        root.path,
+        'build',
+        'native_assets',
+        'ios',
+        'Second.framework',
       );
-    }
-    expect(arguments, isNot(contains('Stale')));
-  });
-
-  test('rejects missing manifest frameworks and prefers current outputs', () {
-    final root = Directory.systemTemp.createTempSync('xcross-asset-conflict-');
-    addTearDown(() => root.deleteSync(recursive: true));
-    final output = p.join(root.path, 'assemble');
-    final manifest = jsonEncode({
-      'native-assets': {
-        'ios_arm64': {
-          'asset': ['absolute', 'Shared.framework/Shared'],
+      Directory(assembled).createSync(recursive: true);
+      Directory(hooked).createSync(recursive: true);
+      final stale = p.join(output, 'native_assets', 'Stale.framework');
+      Directory(stale).createSync(recursive: true);
+      final manifest = jsonEncode({
+        'native-assets': {
+          'ios_arm64': {
+            'first': ['absolute', 'First.framework/First'],
+            'second': ['relative', 'Second.framework/Second'],
+          },
+          'ios_x64': {
+            'simulator': ['absolute', 'Stale.framework/Stale'],
+          },
         },
-      },
-    });
-    expect(
-      () => frameworkService.collect(manifest, output, projectRoot: root.path),
-      throwsA(isA<FlutterBuildError>()),
-    );
-    final current = p.join(output, 'native_assets', 'Shared.framework');
-    final stale = p.join(
-      root.path,
-      'build',
-      'native_assets',
-      'ios',
-      'Shared.framework',
-    );
-    Directory(current).createSync(recursive: true);
-    Directory(stale).createSync(recursive: true);
-    File(p.join(current, 'Shared')).writeAsStringSync('current');
-    File(p.join(stale, 'Shared')).writeAsStringSync('stale');
-    final selected = frameworkService.collect(
-      manifest,
-      output,
-      projectRoot: root.path,
-    );
-    expect(selected, [current]);
-    expect(
-      File(p.join(selected.single, 'Shared')).readAsStringSync(),
-      'current',
-    );
-  });
+      });
+      final frameworks = frameworkService.collect(
+        manifest,
+        output,
+        projectRoot: root.path,
+      );
+      expect(frameworks, unorderedEquals([assembled, hooked]));
+      expect(frameworks, isNot(contains(stale)));
+      final arguments = RunnerShim.linkArguments(
+        objectPath: 'Runner.o',
+        outputPath: 'Runner',
+        iosSdk: '/sdk',
+        flutterSlice: '/engine',
+        subframeworks: '/subframeworks',
+        sdkVersion: '26.0',
+        deploymentTarget: const IosDeploymentTarget(
+          '17.0',
+          platform: IPhoneBuildPlatform(),
+        ),
+        nativeAssetFrameworks: frameworks,
+      );
+      for (final framework in frameworks) {
+        expect(
+          arguments,
+          containsAllInOrder([
+            '-F',
+            p.dirname(framework),
+            '-needed_framework',
+            p.basenameWithoutExtension(framework),
+          ]),
+        );
+      }
+      expect(arguments, isNot(contains('Stale')));
+    },
+  );
+
+  test(
+    testOn: '!windows',
+    'rejects missing manifest frameworks and prefers current outputs',
+    () {
+      final root = Directory.systemTemp.createTempSync(
+        'xcross-asset-conflict-',
+      );
+      addTearDown(() => root.deleteSync(recursive: true));
+      final output = p.join(root.path, 'assemble');
+      final manifest = jsonEncode({
+        'native-assets': {
+          'ios_arm64': {
+            'asset': ['absolute', 'Shared.framework/Shared'],
+          },
+        },
+      });
+      expect(
+        () =>
+            frameworkService.collect(manifest, output, projectRoot: root.path),
+        throwsA(isA<FlutterBuildError>()),
+      );
+      final current = p.join(output, 'native_assets', 'Shared.framework');
+      final stale = p.join(
+        root.path,
+        'build',
+        'native_assets',
+        'ios',
+        'Shared.framework',
+      );
+      Directory(current).createSync(recursive: true);
+      Directory(stale).createSync(recursive: true);
+      File(p.join(current, 'Shared')).writeAsStringSync('current');
+      File(p.join(stale, 'Shared')).writeAsStringSync('stale');
+      final selected = frameworkService.collect(
+        manifest,
+        output,
+        projectRoot: root.path,
+      );
+      expect(selected, [current]);
+      expect(
+        File(p.join(selected.single, 'Shared')).readAsStringSync(),
+        'current',
+      );
+    },
+  );
   test('mapped reader selects only required logical framework paths', () async {
     final root = Directory.systemTemp.createTempSync('mapped-native-linkage-');
     addTearDown(() => root.deleteSync(recursive: true));

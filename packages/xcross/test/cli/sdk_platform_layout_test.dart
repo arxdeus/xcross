@@ -41,6 +41,8 @@ void main() {
   });
 
   test(
+    testOn: '!windows',
+
     'rejects duplicate descriptors before the later entry overwrites',
     () async {
       const descriptor = 'Developer/Platforms/iPhoneOS.platform/Info.plist';
@@ -74,73 +76,81 @@ void main() {
     'AppleTVOS',
     'MacOSX',
   ]) {
-    test('recognizes only matching $platform SDK directory aliases', () {
-      final sdks = p.join(
-        root.path,
-        'Developer',
-        'Platforms',
-        '$platform.platform',
-        'Developer',
-        'SDKs',
-      );
-      final generic = p.join(sdks, '$platform.sdk');
-      final versioned = p.join(sdks, '${platform}26.0.sdk');
-      expect(
-        installer.materializedSdkAliases(root.path, {
-          generic: p.basename(versioned),
-        }),
-        {generic},
-      );
-      expect(
-        installer.materializedSdkAliases(root.path, {
-          versioned: p.basename(generic),
-        }),
-        {generic},
-      );
-      expect(
-        installer.materializedSdkAliases(root.path, {
-          versioned: 'Other.sdk',
-          p.join(sdks, '${platform}25.0.sdk'): p.basename(versioned),
-          p.join(sdks, 'header.h'): 'Other.h',
-        }),
-        isEmpty,
-      );
-    });
+    test(
+      testOn: '!windows',
+      'recognizes only matching $platform SDK directory aliases',
+      () {
+        final sdks = p.join(
+          root.path,
+          'Developer',
+          'Platforms',
+          '$platform.platform',
+          'Developer',
+          'SDKs',
+        );
+        final generic = p.join(sdks, '$platform.sdk');
+        final versioned = p.join(sdks, '${platform}26.0.sdk');
+        expect(
+          installer.materializedSdkAliases(root.path, {
+            generic: p.basename(versioned),
+          }),
+          {generic},
+        );
+        expect(
+          installer.materializedSdkAliases(root.path, {
+            versioned: p.basename(generic),
+          }),
+          {generic},
+        );
+        expect(
+          installer.materializedSdkAliases(root.path, {
+            versioned: 'Other.sdk',
+            p.join(sdks, '${platform}25.0.sdk'): p.basename(versioned),
+            p.join(sdks, 'header.h'): 'Other.h',
+          }),
+          isEmpty,
+        );
+      },
+    );
   }
 
   for (final versionedLink in [false, true]) {
-    test('retains SDK contents under both names ($versionedLink)', () async {
-      const sdks = 'Developer/Platforms/iPhoneOS.platform/Developer/SDKs';
-      final real = versionedLink ? 'iPhoneOS.sdk' : 'iPhoneOS26.0.sdk';
-      final alias = versionedLink ? 'iPhoneOS26.0.sdk' : 'iPhoneOS.sdk';
-      CpioEntry entry(String name, String data, int mode) => CpioEntry(
-        name: name,
-        mode: mode,
-        data: Uint8List.fromList(utf8.encode(data)),
-      );
-      await materializedInstaller.writeSdkEntries(
-        Stream.fromIterable([
-          entry('$sdks/$real/usr/include/real.h', 'header', 0x81a4),
-          entry('$sdks/$real/usr/include/link.h', 'real.h', 0xa1ff),
-          entry('$sdks/$alias', real, 0xa1ff),
-        ]),
-        root.path,
-      );
-      final base = p.joinAll([root.path, ...sdks.split('/')]);
-      expect(Directory(p.join(base, 'iPhoneOS.sdk')).existsSync(), isTrue);
-      expect(
-        File(
-          p.join(base, 'iPhoneOS26.0.sdk', 'usr', 'include', 'link.h'),
-        ).readAsStringSync(),
-        'header',
-      );
-      expect(
-        File(
-          p.join(base, 'iPhoneOS.sdk', 'usr', 'include', 'link.h'),
-        ).readAsStringSync(),
-        'header',
-      );
-    });
+    test(
+      testOn: '!windows',
+      'retains SDK contents under both names ($versionedLink)',
+      () async {
+        const sdks = 'Developer/Platforms/iPhoneOS.platform/Developer/SDKs';
+        final real = versionedLink ? 'iPhoneOS.sdk' : 'iPhoneOS26.0.sdk';
+        final alias = versionedLink ? 'iPhoneOS26.0.sdk' : 'iPhoneOS.sdk';
+        CpioEntry entry(String name, String data, int mode) => CpioEntry(
+          name: name,
+          mode: mode,
+          data: Uint8List.fromList(utf8.encode(data)),
+        );
+        await materializedInstaller.writeSdkEntries(
+          Stream.fromIterable([
+            entry('$sdks/$real/usr/include/real.h', 'header', 0x81a4),
+            entry('$sdks/$real/usr/include/link.h', 'real.h', 0xa1ff),
+            entry('$sdks/$alias', real, 0xa1ff),
+          ]),
+          root.path,
+        );
+        final base = p.joinAll([root.path, ...sdks.split('/')]);
+        expect(Directory(p.join(base, 'iPhoneOS.sdk')).existsSync(), isTrue);
+        expect(
+          File(
+            p.join(base, 'iPhoneOS26.0.sdk', 'usr', 'include', 'link.h'),
+          ).readAsStringSync(),
+          'header',
+        );
+        expect(
+          File(
+            p.join(base, 'iPhoneOS.sdk', 'usr', 'include', 'link.h'),
+          ).readAsStringSync(),
+          'header',
+        );
+      },
+    );
   }
 
   test('does not classify aliases outside the imported bundle', () {

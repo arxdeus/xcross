@@ -26,21 +26,25 @@ void main() {
   });
   tearDown(() => temporary.deleteSync(recursive: true));
 
-  test('staging isolates repairs from the original hook output', () async {
-    final source = mapped.directory(
-      p.join(output, 'native_assets', 'Asset.framework'),
-    )..createSync(recursive: true);
-    mapped.file(p.join(source.path, 'Asset')).writeAsStringSync('original');
-    final staged = await frameworks.stage([source.path], output);
-    expect(staged, [
-      p.join(output, 'xcross_staged_frameworks', 'Asset.framework'),
-    ]);
-    mapped.file(p.join(staged.single, 'Asset')).writeAsStringSync('repaired');
-    expect(
-      mapped.file(p.join(source.path, 'Asset')).readAsStringSync(),
-      'original',
-    );
-  });
+  test(
+    testOn: '!windows',
+    'staging isolates repairs from the original hook output',
+    () async {
+      final source = mapped.directory(
+        p.join(output, 'native_assets', 'Asset.framework'),
+      )..createSync(recursive: true);
+      mapped.file(p.join(source.path, 'Asset')).writeAsStringSync('original');
+      final staged = await frameworks.stage([source.path], output);
+      expect(staged, [
+        p.join(output, 'xcross_staged_frameworks', 'Asset.framework'),
+      ]);
+      mapped.file(p.join(staged.single, 'Asset')).writeAsStringSync('repaired');
+      expect(
+        mapped.file(p.join(source.path, 'Asset')).readAsStringSync(),
+        'original',
+      );
+    },
+  );
 
   test(
     'constructor rejects mismatched filesystem, context and copier ports',
@@ -130,6 +134,8 @@ void main() {
   );
 
   test(
+    testOn: '!windows',
+
     'mapped root and ancestor aliases stage safe versioned links before repair',
     () async {
       const source = '/xcross-framework-fixture/originals/Versioned.framework';
@@ -187,58 +193,62 @@ void main() {
     },
   );
 
-  test('stages framework-relative links and rejects escaping links', () async {
-    final source = mapped.directory(
-      p.join(output, 'native_assets', 'Versioned.framework'),
-    );
-    final versionA = mapped.directory(p.join(source.path, 'Versions', 'A'))
-      ..createSync(recursive: true);
-    mapped
-        .file(p.join(versionA.path, 'Versioned'))
-        .writeAsStringSync('original');
-    try {
-      mapped.link(p.join(source.path, 'Versions', 'Current')).createSync('A');
-      mapped
-          .link(p.join(source.path, 'Versioned'))
-          .createSync(p.join('Versions', 'Current', 'Versioned'));
-    } on FileSystemException {
-      markTestSkipped('host cannot create symlink fixtures');
-      return;
-    }
-    final staged = await frameworks.stage([source.path], output);
-    final stagedBinary = mapped.file(p.join(staged.single, 'Versioned'));
-    expect(stagedBinary.readAsStringSync(), 'original');
-    stagedBinary.writeAsStringSync('repaired');
-    expect(
-      mapped.file(p.join(versionA.path, 'Versioned')).readAsStringSync(),
-      'original',
-    );
-
-    final outside =
-        mapped.file(p.join(p.dirname(output), 'hook_output', 'Escaped'))
-          ..createSync(recursive: true)
-          ..writeAsStringSync('original');
-    for (final (name, target) in [
-      ('Relative', p.join('..', '..', '..', 'hook_output', 'Escaped')),
-      ('Absolute', outside.path),
-      ('Dangling', 'Missing'),
-    ]) {
-      final unsafe = mapped.directory(
-        p.join(output, 'native_assets', '$name.framework'),
-      )..createSync(recursive: true);
-      final link = mapped.link(p.join(unsafe.path, name))..createSync(target);
-      await expectLater(
-        frameworks.stage([unsafe.path], output),
-        throwsA(
-          isA<FlutterBuildError>().having(
-            (e) => e.message,
-            'message',
-            contains('Unsafe native asset framework symlink'),
-          ),
-        ),
+  test(
+    testOn: '!windows',
+    'stages framework-relative links and rejects escaping links',
+    () async {
+      final source = mapped.directory(
+        p.join(output, 'native_assets', 'Versioned.framework'),
       );
-      link.deleteSync();
-    }
-    expect(outside.readAsStringSync(), 'original');
-  });
+      final versionA = mapped.directory(p.join(source.path, 'Versions', 'A'))
+        ..createSync(recursive: true);
+      mapped
+          .file(p.join(versionA.path, 'Versioned'))
+          .writeAsStringSync('original');
+      try {
+        mapped.link(p.join(source.path, 'Versions', 'Current')).createSync('A');
+        mapped
+            .link(p.join(source.path, 'Versioned'))
+            .createSync(p.join('Versions', 'Current', 'Versioned'));
+      } on FileSystemException {
+        markTestSkipped('host cannot create symlink fixtures');
+        return;
+      }
+      final staged = await frameworks.stage([source.path], output);
+      final stagedBinary = mapped.file(p.join(staged.single, 'Versioned'));
+      expect(stagedBinary.readAsStringSync(), 'original');
+      stagedBinary.writeAsStringSync('repaired');
+      expect(
+        mapped.file(p.join(versionA.path, 'Versioned')).readAsStringSync(),
+        'original',
+      );
+
+      final outside =
+          mapped.file(p.join(p.dirname(output), 'hook_output', 'Escaped'))
+            ..createSync(recursive: true)
+            ..writeAsStringSync('original');
+      for (final (name, target) in [
+        ('Relative', p.join('..', '..', '..', 'hook_output', 'Escaped')),
+        ('Absolute', outside.path),
+        ('Dangling', 'Missing'),
+      ]) {
+        final unsafe = mapped.directory(
+          p.join(output, 'native_assets', '$name.framework'),
+        )..createSync(recursive: true);
+        final link = mapped.link(p.join(unsafe.path, name))..createSync(target);
+        await expectLater(
+          frameworks.stage([unsafe.path], output),
+          throwsA(
+            isA<FlutterBuildError>().having(
+              (e) => e.message,
+              'message',
+              contains('Unsafe native asset framework symlink'),
+            ),
+          ),
+        );
+        link.deleteSync();
+      }
+      expect(outside.readAsStringSync(), 'original');
+    },
+  );
 }

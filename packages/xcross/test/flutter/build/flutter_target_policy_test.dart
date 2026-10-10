@@ -27,38 +27,42 @@ void main() {
   });
   tearDown(() => root.deleteSync(recursive: true));
 
-  test('isolates bundle, intermediate, artifact and sanitizer policies', () {
-    expect(
-      iphone.outputDirectory(root.path),
-      p.join(root.path, 'build', 'xcross-ios'),
-    );
-    expect(
-      simulator.outputDirectory(root.path),
-      p.join(root.path, 'build', 'xcross-ios-simulator'),
-    );
-    expect(
-      iphone.buildDirectory(root.path, 'kernel'),
-      p.join(root.path, 'build', 'kernel'),
-    );
-    expect(
-      simulator.buildDirectory(root.path, 'kernel'),
-      p.join(root.path, 'build', 'xcross-ios-simulator', 'kernel'),
-    );
-    expect(
-      iphone.binaryArtifactDirectory,
-      isNot(simulator.binaryArtifactDirectory),
-    );
-    expect(iphone.workspaceSuffix, '');
-    expect(simulator.workspaceSuffix, '-simulator');
-    expect(iphone.sanitizerRuntimeLibrary, 'libclang_rt.ios.a');
-    expect(simulator.sanitizerRuntimeLibrary, 'libclang_rt.iossim.a');
-    expect(iphone.matchesLibraryVariant(null), isTrue);
-    expect(iphone.matchesLibraryVariant('simulator'), isFalse);
-    expect(simulator.matchesLibraryVariant('simulator'), isTrue);
-    expect(simulator.matchesLibraryVariant(null), isFalse);
-  });
+  test(
+    testOn: '!windows',
+    'isolates bundle, intermediate, artifact and sanitizer policies',
+    () {
+      expect(
+        iphone.outputDirectory(root.path),
+        p.join(root.path, 'build', 'xcross-ios'),
+      );
+      expect(
+        simulator.outputDirectory(root.path),
+        p.join(root.path, 'build', 'xcross-ios-simulator'),
+      );
+      expect(
+        iphone.buildDirectory(root.path, 'kernel'),
+        p.join(root.path, 'build', 'kernel'),
+      );
+      expect(
+        simulator.buildDirectory(root.path, 'kernel'),
+        p.join(root.path, 'build', 'xcross-ios-simulator', 'kernel'),
+      );
+      expect(
+        iphone.binaryArtifactDirectory,
+        isNot(simulator.binaryArtifactDirectory),
+      );
+      expect(iphone.workspaceSuffix, '');
+      expect(simulator.workspaceSuffix, '-simulator');
+      expect(iphone.sanitizerRuntimeLibrary, 'libclang_rt.ios.a');
+      expect(simulator.sanitizerRuntimeLibrary, 'libclang_rt.iossim.a');
+      expect(iphone.matchesLibraryVariant(null), isTrue);
+      expect(iphone.matchesLibraryVariant('simulator'), isFalse);
+      expect(simulator.matchesLibraryVariant('simulator'), isTrue);
+      expect(simulator.matchesLibraryVariant(null), isFalse);
+    },
+  );
 
-  test('never accepts opposite-target engine slice', () {
+  test(testOn: '!windows', 'never accepts opposite-target engine slice', () {
     final deviceSlice = p.join(root.path, 'ios-arm64');
     Directory(
       p.join(deviceSlice, 'Flutter.framework'),
@@ -80,19 +84,23 @@ void main() {
     );
   });
 
-  test('simulator prefers combined slice with arm64 fallback', () {
-    final fallback = p.join(root.path, 'ios-arm64-simulator');
-    final combined = p.join(root.path, 'ios-arm64_x86_64-simulator');
-    Directory(
-      p.join(fallback, 'Flutter.framework'),
-    ).createSync(recursive: true);
-    Directory(
-      p.join(combined, 'Flutter.framework'),
-    ).createSync(recursive: true);
-    expect(simulator.selectEngineSlice(root.path), combined);
-    Directory(combined).deleteSync(recursive: true);
-    expect(simulator.selectEngineSlice(root.path), fallback);
-  });
+  test(
+    testOn: '!windows',
+    'simulator prefers combined slice with arm64 fallback',
+    () {
+      final fallback = p.join(root.path, 'ios-arm64-simulator');
+      final combined = p.join(root.path, 'ios-arm64_x86_64-simulator');
+      Directory(
+        p.join(fallback, 'Flutter.framework'),
+      ).createSync(recursive: true);
+      Directory(
+        p.join(combined, 'Flutter.framework'),
+      ).createSync(recursive: true);
+      expect(simulator.selectEngineSlice(root.path), combined);
+      Directory(combined).deleteSync(recursive: true);
+      expect(simulator.selectEngineSlice(root.path), fallback);
+    },
+  );
 
   test('target strategy owns plist platform metadata', () {
     const xml = '<plist><dict></dict></plist>';

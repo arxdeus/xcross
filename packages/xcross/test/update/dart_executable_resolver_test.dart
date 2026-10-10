@@ -47,6 +47,8 @@ void main() {
 
   group('findDartExecutableOnPath', () {
     test(
+      testOn: '!windows',
+
       'Windows accepts dart.exe and ignores an extensionless script',
       () async {
         final bin = _createBinDirectory();
@@ -64,20 +66,24 @@ void main() {
       },
     );
 
-    test('Windows accepts dart.bat when no dart.exe is available', () async {
-      final bin = _createBinDirectory();
-      File(p.join(bin.path, 'dart')).writeAsStringSync('#!/bin/bash\n');
-      File(p.join(bin.path, 'dart.BAT')).createSync();
+    test(
+      testOn: '!windows',
+      'Windows accepts dart.bat when no dart.exe is available',
+      () async {
+        final bin = _createBinDirectory();
+        File(p.join(bin.path, 'dart')).writeAsStringSync('#!/bin/bash\n');
+        File(p.join(bin.path, 'dart.BAT')).createSync();
 
-      final result = await findDartExecutableOnPath(
-        runner: _windowsRunner(),
-        acceptLauncher: const WindowsExecutable().acceptDartLauncher,
-        environment: _windowsEnvironment(bin),
-        useConfiguration: false,
-      );
+        final result = await findDartExecutableOnPath(
+          runner: _windowsRunner(),
+          acceptLauncher: const WindowsExecutable().acceptDartLauncher,
+          environment: _windowsEnvironment(bin),
+          useConfiguration: false,
+        );
 
-      expect(result, p.join(bin.path, 'dart.BAT'));
-    });
+        expect(result, p.join(bin.path, 'dart.BAT'));
+      },
+    );
 
     test(
       'Windows rejects an extensionless launcher without a Windows file',

@@ -182,24 +182,28 @@ ${entries.join('\n')}
   }
 
   group('resolveRegistrations', () {
-    test('selects only plugins declaring a dartPluginClass', () {
-      final registrations = DartPluginRegistrant(LinuxHost().fileSystem)
-          .resolveRegistrations([
-            writePlugin(
-              'dart_and_native',
-              pluginClass: 'NativePlugin',
-              dartPluginClass: 'DartPlugin',
-            ),
-            writePlugin('native_only', pluginClass: 'NativeOnlyPlugin'),
-            writePlugin('no_plugin_section'),
-          ]);
+    test(
+      testOn: '!windows',
+      'selects only plugins declaring a dartPluginClass',
+      () {
+        final registrations = DartPluginRegistrant(LinuxHost().fileSystem)
+            .resolveRegistrations([
+              writePlugin(
+                'dart_and_native',
+                pluginClass: 'NativePlugin',
+                dartPluginClass: 'DartPlugin',
+              ),
+              writePlugin('native_only', pluginClass: 'NativeOnlyPlugin'),
+              writePlugin('no_plugin_section'),
+            ]);
 
-      expect(registrations, hasLength(1));
-      expect(registrations.single.pluginName, 'dart_and_native');
-      expect(registrations.single.dartClass, 'DartPlugin');
-    });
+        expect(registrations, hasLength(1));
+        expect(registrations.single.pluginName, 'dart_and_native');
+        expect(registrations.single.dartClass, 'DartPlugin');
+      },
+    );
 
-    test('defaults dartFileName to <pluginName>.dart', () {
+    test(testOn: '!windows', 'defaults dartFileName to <pluginName>.dart', () {
       final registrations = DartPluginRegistrant(LinuxHost().fileSystem)
           .resolveRegistrations([
             writePlugin('url_launcher_ios', dartPluginClass: 'UrlLauncherIOS'),
@@ -212,7 +216,7 @@ ${entries.join('\n')}
       );
     });
 
-    test('honours an explicit dartFileName', () {
+    test(testOn: '!windows', 'honours an explicit dartFileName', () {
       final registrations = DartPluginRegistrant(LinuxHost().fileSystem)
           .resolveRegistrations([
             writePlugin(
@@ -228,20 +232,24 @@ ${entries.join('\n')}
       );
     });
 
-    test('sorts by plugin name so output is build-stable', () {
-      final registrations = DartPluginRegistrant(LinuxHost().fileSystem)
-          .resolveRegistrations([
-            writePlugin('zebra', dartPluginClass: 'Zebra'),
-            writePlugin('alpha', dartPluginClass: 'Alpha'),
-            writePlugin('middle', dartPluginClass: 'Middle'),
-          ]);
+    test(
+      testOn: '!windows',
+      'sorts by plugin name so output is build-stable',
+      () {
+        final registrations = DartPluginRegistrant(LinuxHost().fileSystem)
+            .resolveRegistrations([
+              writePlugin('zebra', dartPluginClass: 'Zebra'),
+              writePlugin('alpha', dartPluginClass: 'Alpha'),
+              writePlugin('middle', dartPluginClass: 'Middle'),
+            ]);
 
-      expect(registrations.map((r) => r.pluginName), [
-        'alpha',
-        'middle',
-        'zebra',
-      ]);
-    });
+        expect(registrations.map((r) => r.pluginName), [
+          'alpha',
+          'middle',
+          'zebra',
+        ]);
+      },
+    );
 
     test('tolerates a missing or malformed pubspec', () {
       final missing = IosPlugin(
@@ -362,41 +370,50 @@ ${entries.join('\n')}
   });
 
   group('generate', () {
-    test('writes the registrant where flutter_tools puts it', () async {
-      final path = await DartPluginRegistrant(LinuxHost().fileSystem).generate(
-        projectRoot: tmp.path,
-        plugins: [writePlugin('plugin_a', dartPluginClass: 'PluginA')],
-        entrypointUri: 'package:app/main.dart',
-      );
+    test(
+      testOn: '!windows',
+      'writes the registrant where flutter_tools puts it',
+      () async {
+        final path = await DartPluginRegistrant(LinuxHost().fileSystem)
+            .generate(
+              projectRoot: tmp.path,
+              plugins: [writePlugin('plugin_a', dartPluginClass: 'PluginA')],
+              entrypointUri: 'package:app/main.dart',
+            );
 
-      expect(path, DartPluginRegistrant.pathFor(tmp.path));
-      expect(
-        path,
-        p.join(
-          tmp.path,
-          '.dart_tool',
-          'flutter_build',
-          'dart_plugin_registrant.dart',
-        ),
-      );
-      final source = File(path!).readAsStringSync();
-      expect(source, contains('plugin_a.PluginA.registerWith();'));
-      expect(source, contains('package:app/main.dart'));
-    });
+        expect(path, DartPluginRegistrant.pathFor(tmp.path));
+        expect(
+          path,
+          p.join(
+            tmp.path,
+            '.dart_tool',
+            'flutter_build',
+            'dart_plugin_registrant.dart',
+          ),
+        );
+        final source = File(path!).readAsStringSync();
+        expect(source, contains('plugin_a.PluginA.registerWith();'));
+        expect(source, contains('package:app/main.dart'));
+      },
+    );
 
-    test('returns the logical path, not the filesystem I/O path', () async {
-      final fileSystem = FixtureMappedFileSystem(tmp);
-      final path = await DartPluginRegistrant(fileSystem).generate(
-        projectRoot: '/logical-project',
-        plugins: [writePlugin('plugin_b', dartPluginClass: 'PluginB')],
-      );
+    test(
+      testOn: '!windows',
+      'returns the logical path, not the filesystem I/O path',
+      () async {
+        final fileSystem = FixtureMappedFileSystem(tmp);
+        final path = await DartPluginRegistrant(fileSystem).generate(
+          projectRoot: '/logical-project',
+          plugins: [writePlugin('plugin_b', dartPluginClass: 'PluginB')],
+        );
 
-      expect(path, DartPluginRegistrant.pathFor('/logical-project'));
-      expect(
-        File(fileSystem.physical(path!)).readAsStringSync(),
-        contains('plugin_b.PluginB.registerWith();'),
-      );
-    });
+        expect(path, DartPluginRegistrant.pathFor('/logical-project'));
+        expect(
+          File(fileSystem.physical(path!)).readAsStringSync(),
+          contains('plugin_b.PluginB.registerWith();'),
+        );
+      },
+    );
 
     test('returns null and writes nothing with no Dart plugins', () async {
       final path = await DartPluginRegistrant(LinuxHost().fileSystem).generate(
@@ -411,38 +428,47 @@ ${entries.join('\n')}
       );
     });
 
-    test('deletes a stale registrant when the last plugin goes away', () async {
-      final first = await DartPluginRegistrant(LinuxHost().fileSystem).generate(
-        projectRoot: tmp.path,
-        plugins: [writePlugin('plugin_a', dartPluginClass: 'PluginA')],
-      );
-      expect(File(first!).existsSync(), isTrue);
+    test(
+      testOn: '!windows',
+      'deletes a stale registrant when the last plugin goes away',
+      () async {
+        final first = await DartPluginRegistrant(LinuxHost().fileSystem)
+            .generate(
+              projectRoot: tmp.path,
+              plugins: [writePlugin('plugin_a', dartPluginClass: 'PluginA')],
+            );
+        expect(File(first!).existsSync(), isTrue);
 
-      // Removing the plugin must remove the file: a stale registrant would
-      // keep importing a package that is no longer a dependency, which fails
-      // the kernel compile outright.
-      final second = await DartPluginRegistrant(
-        LinuxHost().fileSystem,
-      ).generate(projectRoot: tmp.path, plugins: const []);
+        // Removing the plugin must remove the file: a stale registrant would
+        // keep importing a package that is no longer a dependency, which fails
+        // the kernel compile outright.
+        final second = await DartPluginRegistrant(
+          LinuxHost().fileSystem,
+        ).generate(projectRoot: tmp.path, plugins: const []);
 
-      expect(second, isNull);
-      expect(File(first).existsSync(), isFalse);
-    });
+        expect(second, isNull);
+        expect(File(first).existsSync(), isFalse);
+      },
+    );
 
-    test('regenerating is stable for an unchanged plugin set', () async {
-      final plugins = [writePlugin('plugin_a', dartPluginClass: 'PluginA')];
+    test(
+      testOn: '!windows',
+      'regenerating is stable for an unchanged plugin set',
+      () async {
+        final plugins = [writePlugin('plugin_a', dartPluginClass: 'PluginA')];
 
-      final first = await DartPluginRegistrant(
-        LinuxHost().fileSystem,
-      ).generate(projectRoot: tmp.path, plugins: plugins);
-      final firstSource = File(first!).readAsStringSync();
-      final second = await DartPluginRegistrant(
-        LinuxHost().fileSystem,
-      ).generate(projectRoot: tmp.path, plugins: plugins);
+        final first = await DartPluginRegistrant(
+          LinuxHost().fileSystem,
+        ).generate(projectRoot: tmp.path, plugins: plugins);
+        final firstSource = File(first!).readAsStringSync();
+        final second = await DartPluginRegistrant(
+          LinuxHost().fileSystem,
+        ).generate(projectRoot: tmp.path, plugins: plugins);
 
-      expect(second, first);
-      expect(File(second!).readAsStringSync(), firstSource);
-    });
+        expect(second, first);
+        expect(File(second!).readAsStringSync(), firstSource);
+      },
+    );
   });
 }
 
@@ -453,66 +479,80 @@ ${entries.join('\n')}
 /// registration actually run, so it is worth pinning regardless.
 void _frontendServerFlags() {
   group('frontend_server registrant flags', () {
-    test('passes the registrant, the flutter shim, and the define', () {
-      final flutter = Directory.systemTemp.createTempSync(
-        'xcross_frontend_args_',
-      );
-      addTearDown(() => flutter.deleteSync(recursive: true));
-      Directory(
-        p.join(
-          flutter.path,
-          'bin',
-          'cache',
-          'artifacts',
-          'engine',
-          'common',
-          'flutter_patched_sdk',
-        ),
-      ).createSync(recursive: true);
-      final runtime = testIPhoneRuntime();
-      final compiler = FlutterKernelCompiler(
-        runtime: runtime,
-        registrant: DartPluginRegistrant(runtime.host.fileSystem),
-        plugins: PluginDiscovery(runtime.host.fileSystem),
-        projectRoot: flutter.path,
-        flutterRoot: flutter.path,
-      );
-      const registration = 'file:///project/registrant.dart';
-      final arguments = compiler.frontendServerArguments(
-        compiler: const KernelCompiler(
-          snapshot: '/frontend.snapshot',
-          runtime: '/dart',
-          runtimeName: 'dart',
-          isAot: false,
-        ),
-        engineCache: runtime.engineCache(flutter.path),
-        packageConfig: '/packages.json',
-        outputDill: '/app.dill',
-        entrypointArg: '/main.dart',
-        dartPluginRegistrantUri: registration,
-      );
-      expect(
-        arguments,
-        containsAllInOrder([
-          '--source',
-          registration,
-          '--source',
-          'package:flutter/src/dart_plugin_registrant.dart',
-          '-Dflutter.dart_plugin_registrant=$registration',
-        ]),
-      );
-    });
+    test(
+      testOn: '!windows',
+      'passes the registrant, the flutter shim, and the define',
+      () {
+        final flutter = Directory.systemTemp.createTempSync(
+          'xcross_frontend_args_',
+        );
+        addTearDown(() => flutter.deleteSync(recursive: true));
+        Directory(
+          p.join(
+            flutter.path,
+            'bin',
+            'cache',
+            'artifacts',
+            'engine',
+            'common',
+            'flutter_patched_sdk',
+          ),
+        ).createSync(recursive: true);
+        final runtime = testIPhoneRuntime();
+        final compiler = FlutterKernelCompiler(
+          runtime: runtime,
+          registrant: DartPluginRegistrant(runtime.host.fileSystem),
+          plugins: PluginDiscovery(runtime.host.fileSystem),
+          projectRoot: flutter.path,
+          flutterRoot: flutter.path,
+        );
+        const registration = 'file:///project/registrant.dart';
+        final arguments = compiler.frontendServerArguments(
+          compiler: const KernelCompiler(
+            snapshot: '/frontend.snapshot',
+            runtime: '/dart',
+            runtimeName: 'dart',
+            isAot: false,
+          ),
+          engineCache: runtime.engineCache(flutter.path),
+          packageConfig: '/packages.json',
+          outputDill: '/app.dill',
+          entrypointArg: '/main.dart',
+          dartPluginRegistrantUri: registration,
+        );
+        expect(
+          arguments,
+          containsAllInOrder([
+            '--source',
+            registration,
+            '--source',
+            'package:flutter/src/dart_plugin_registrant.dart',
+            '-Dflutter.dart_plugin_registrant=$registration',
+          ]),
+        );
+      },
+    );
 
-    test('builds a file:// URI rather than a bare path', () {
-      expect(
-        FlutterKernelCompiler.dartPluginRegistrantUri(
-          p.join(p.separator, 'proj', '.dart_tool', 'flutter_build', 'r.dart'),
-          null,
-          paths: p.Context(style: p.Style.posix),
-        ),
-        startsWith('file:///'),
-      );
-    });
+    test(
+      testOn: '!windows',
+      'builds a file:// URI rather than a bare path',
+      () {
+        expect(
+          FlutterKernelCompiler.dartPluginRegistrantUri(
+            p.join(
+              p.separator,
+              'proj',
+              '.dart_tool',
+              'flutter_build',
+              'r.dart',
+            ),
+            null,
+            paths: p.Context(style: p.Style.posix),
+          ),
+          startsWith('file:///'),
+        );
+      },
+    );
   });
 }
 

@@ -38,94 +38,98 @@ void main() {
     fixtureRunner(fixtureHost, log: fixtureLog()),
   );
 
-  test('native hook assembly preserves target, manifest and flavor inputs', () {
-    final host = LinuxHost(architecture: 'arm64');
-    final runner = ProcessRunner(
-      host,
-      log: nativeTestLog(),
-      stdinStream: const Stream<List<int>>.empty(),
-      stdoutSink: nativeTestSink(),
-      stderrSink: nativeTestSink(),
-    );
-    final hostTools = LinuxNativeHostTools(host, runner);
-    final target = SimulatorTarget(host);
-    final cache = IosEngineCache(
-      targetPolicy: SimulatorFlutterTarget(target),
-      hostTools: hostTools,
-      flutterRoot: '/flutter',
-      log: nativeTestLog(),
-      downloader: nativeTestDownloader(),
-    );
-    final builder = IosNativeAssetsBuilder(
-      nativeAssetFrameworks: nativeFrameworkService(runner),
-      hooks: NativeAssetsHookDiscovery(
-        fileSystem: host.fileSystem,
-        paths: host.paths.context,
-        packageConfigs: PackageConfigResolver(
+  test(
+    testOn: '!windows',
+    'native hook assembly preserves target, manifest and flavor inputs',
+    () {
+      final host = LinuxHost(architecture: 'arm64');
+      final runner = ProcessRunner(
+        host,
+        log: nativeTestLog(),
+        stdinStream: const Stream<List<int>>.empty(),
+        stdoutSink: nativeTestSink(),
+        stderrSink: nativeTestSink(),
+      );
+      final hostTools = LinuxNativeHostTools(host, runner);
+      final target = SimulatorTarget(host);
+      final cache = IosEngineCache(
+        targetPolicy: SimulatorFlutterTarget(target),
+        hostTools: hostTools,
+        flutterRoot: '/flutter',
+        log: nativeTestLog(),
+        downloader: nativeTestDownloader(),
+      );
+      final builder = IosNativeAssetsBuilder(
+        nativeAssetFrameworks: nativeFrameworkService(runner),
+        hooks: NativeAssetsHookDiscovery(
           fileSystem: host.fileSystem,
           paths: host.paths.context,
+          packageConfigs: PackageConfigResolver(
+            fileSystem: host.fileSystem,
+            paths: host.paths.context,
+          ),
         ),
-      ),
-      engineCache: cache,
-      renderer: PosixAppleToolShimRenderer(host),
-      runner: runner,
-      tools: AppleToolShimResolver(
-        target,
-        runner,
-        DarwinSdkRepository(host, log: nativeTestLog()),
-        DarwinToolchainResolver(runner, LinuxDarwinToolchainLocations(host)),
-        hostTools: hostTools,
-        executable: '/xcross',
-      ),
-      projectRoot: '/project',
-      flutterRoot: '/flutter',
-      deploymentTarget: const IosDeploymentTarget(
-        '15.0',
-        platform: SimulatorBuildPlatform(),
-      ),
-      entrypoint: 'lib/flavored.dart',
-      dartDefines: const ['CUSTOM=value'],
-      flavor: 'development',
-    );
-    final arguments = builder.assembleArguments(
-      output: '/output',
-      iosSdk: '/simulator-sdk',
-    );
-    expect(
-      arguments,
-      containsAll([
-        '-dTargetPlatform=ios',
-        '-dBuildMode=debug',
-        '-dIosArchs=arm64',
-        '-dSdkRoot=/simulator-sdk',
-        '-dTargetFile=lib/flavored.dart',
-        '-dIosDeploymentTarget=15.0',
-        'debug_ios_bundle_flutter_assets',
-      ]),
-    );
-    final defines = arguments
-        .singleWhere((arg) => arg.startsWith('-dDartDefines='))
-        .substring('-dDartDefines='.length)
-        .split(',')
-        .map((value) => utf8.decode(base64.decode(value)));
-    expect(
-      defines,
-      containsAll(['CUSTOM=value', 'FLUTTER_APP_FLAVOR=development']),
-    );
-    expect(
-      builder.assembleArguments(output: '/bundle').last,
-      'copy_flutter_bundle',
-    );
-    expect(
-      cache.targetPolicy.buildDirectory('/project', 'xcross-native-assets'),
-      p.join(
-        '/project',
-        'build',
-        'xcross-ios-simulator',
-        'xcross-native-assets',
-      ),
-    );
-  });
+        engineCache: cache,
+        renderer: PosixAppleToolShimRenderer(host),
+        runner: runner,
+        tools: AppleToolShimResolver(
+          target,
+          runner,
+          DarwinSdkRepository(host, log: nativeTestLog()),
+          DarwinToolchainResolver(runner, LinuxDarwinToolchainLocations(host)),
+          hostTools: hostTools,
+          executable: '/xcross',
+        ),
+        projectRoot: '/project',
+        flutterRoot: '/flutter',
+        deploymentTarget: const IosDeploymentTarget(
+          '15.0',
+          platform: SimulatorBuildPlatform(),
+        ),
+        entrypoint: 'lib/flavored.dart',
+        dartDefines: const ['CUSTOM=value'],
+        flavor: 'development',
+      );
+      final arguments = builder.assembleArguments(
+        output: '/output',
+        iosSdk: '/simulator-sdk',
+      );
+      expect(
+        arguments,
+        containsAll([
+          '-dTargetPlatform=ios',
+          '-dBuildMode=debug',
+          '-dIosArchs=arm64',
+          '-dSdkRoot=/simulator-sdk',
+          '-dTargetFile=lib/flavored.dart',
+          '-dIosDeploymentTarget=15.0',
+          'debug_ios_bundle_flutter_assets',
+        ]),
+      );
+      final defines = arguments
+          .singleWhere((arg) => arg.startsWith('-dDartDefines='))
+          .substring('-dDartDefines='.length)
+          .split(',')
+          .map((value) => utf8.decode(base64.decode(value)));
+      expect(
+        defines,
+        containsAll(['CUSTOM=value', 'FLUTTER_APP_FLAVOR=development']),
+      );
+      expect(
+        builder.assembleArguments(output: '/bundle').last,
+        'copy_flutter_bundle',
+      );
+      expect(
+        cache.targetPolicy.buildDirectory('/project', 'xcross-native-assets'),
+        p.join(
+          '/project',
+          'build',
+          'xcross-ios-simulator',
+          'xcross-native-assets',
+        ),
+      );
+    },
+  );
 
   test('native builder rejects mixed target, host and SDK contexts', () {
     final host = LinuxHost(architecture: 'arm64');
@@ -206,129 +210,155 @@ void main() {
     expect(create, returnsNormally);
   });
 
-  test('detects build hooks through package_config root URIs', () async {
-    final tmp = await Directory.systemTemp.createTemp('hook_detection_test-');
-    try {
-      final package = Directory(p.join(tmp.path, 'dependency'))..createSync();
-      Directory(p.join(package.path, 'hook')).createSync();
-      File(p.join(package.path, 'hook', 'build.dart')).writeAsStringSync('');
-      final dartTool = Directory(p.join(tmp.path, 'app', '.dart_tool'))
-        ..createSync(recursive: true);
-      File(p.join(dartTool.path, 'package_config.json')).writeAsStringSync('''
+  test(
+    testOn: '!windows',
+    'detects build hooks through package_config root URIs',
+    () async {
+      final tmp = await Directory.systemTemp.createTemp('hook_detection_test-');
+      try {
+        final package = Directory(p.join(tmp.path, 'dependency'))..createSync();
+        Directory(p.join(package.path, 'hook')).createSync();
+        File(p.join(package.path, 'hook', 'build.dart')).writeAsStringSync('');
+        final dartTool = Directory(p.join(tmp.path, 'app', '.dart_tool'))
+          ..createSync(recursive: true);
+        File(p.join(dartTool.path, 'package_config.json')).writeAsStringSync('''
 {"configVersion":2,"packages":[{"name":"dependency","rootUri":"../../dependency","packageUri":"lib/"}]}
 ''');
 
-      expect(
-        await nativeHookDiscovery().hasBuildHooks(p.join(tmp.path, 'app')),
-        isTrue,
-      );
-      File(p.join(package.path, 'hook', 'build.dart')).deleteSync();
-      expect(
-        await nativeHookDiscovery().hasBuildHooks(p.join(tmp.path, 'app')),
-        isFalse,
-      );
-    } finally {
-      await tmp.delete(recursive: true);
-    }
-  });
-
-  test('reports malformed package config clearly', () async {
-    final tmp = await Directory.systemTemp.createTemp('hook_detection_test-');
-    try {
-      final dartTool = Directory(p.join(tmp.path, '.dart_tool'))
-        ..createSync(recursive: true);
-      File(p.join(dartTool.path, 'package_config.json')).writeAsStringSync('{');
-
-      await expectLater(
-        nativeHookDiscovery().hasBuildHooks(tmp.path),
-        throwsA(
-          isA<FlutterBuildError>().having(
-            (error) => error.message,
-            'message',
-            contains('malformed JSON'),
-          ),
-        ),
-      );
-    } finally {
-      await tmp.delete(recursive: true);
-    }
-  });
-
-  test('detects native hooks from an ancestor workspace config', () async {
-    final tmp = await Directory.systemTemp.createTemp('workspace_hooks-');
-    try {
-      final app = Directory(p.join(tmp.path, 'apps', 'example'))
-        ..createSync(recursive: true);
-      final hook = File(
-        p.join(tmp.path, 'dependency with spaces', 'hook', 'build.dart'),
-      )..createSync(recursive: true);
-      final config = File(p.join(tmp.path, '.dart_tool', 'package_config.json'))
-        ..createSync(recursive: true);
-      config.writeAsStringSync(
-        jsonEncode({
-          'configVersion': 2,
-          'packages': [
-            {
-              'name': 'native_dependency',
-              'rootUri': '../dependency%20with%20spaces/',
-              'packageUri': 'lib/',
-            },
-          ],
-        }),
-      );
-
-      expect(await nativeHookDiscovery().hasBuildHooks(app.path), isTrue);
-      hook.deleteSync();
-      expect(await nativeHookDiscovery().hasBuildHooks(app.path), isFalse);
-
-      hook.createSync();
-      File(p.join(app.path, '.dart_tool', 'package_config.json'))
-        ..createSync(recursive: true)
-        ..writeAsStringSync('{"configVersion":2,"packages":[]}');
-      expect(await nativeHookDiscovery().hasBuildHooks(app.path), isFalse);
-    } finally {
-      await tmp.delete(recursive: true);
-    }
-  });
-
-  test('normalizes native asset framework install names', () async {
-    final tmp = await Directory.systemTemp.createTemp('native_framework_test-');
-    try {
-      final asset = Directory(p.join(tmp.path, 'Asset.framework'))
-        ..createSync();
-      final dependency = Directory(p.join(tmp.path, 'Dependency.framework'))
-        ..createSync();
-      final assetBytes = _dylibMachO([
-        '/very/long/native/assets/path/libAsset.dylib',
-        '/very/long/native/assets/path/libDependency.dylib',
-      ]);
-      final dependencyBytes = _dylibMachO([
-        '/very/long/native/assets/path/libDependency.dylib',
-      ]);
-
-      File(p.join(asset.path, 'Asset')).writeAsBytesSync(assetBytes);
-      File(
-        p.join(dependency.path, 'Dependency'),
-      ).writeAsBytesSync(dependencyBytes);
-
-      await frameworks.normalize([asset.path, dependency.path]);
-
-      expect(_dylibNames(File(p.join(asset.path, 'Asset')).readAsBytesSync()), [
-        '@rpath/Asset.framework/Asset',
-        '@rpath/Dependency.framework/Dependency',
-      ]);
-      expect(
-        _dylibNames(
-          File(p.join(dependency.path, 'Dependency')).readAsBytesSync(),
-        ),
-        ['@rpath/Dependency.framework/Dependency'],
-      );
-    } finally {
-      await tmp.delete(recursive: true);
-    }
-  });
+        expect(
+          await nativeHookDiscovery().hasBuildHooks(p.join(tmp.path, 'app')),
+          isTrue,
+        );
+        File(p.join(package.path, 'hook', 'build.dart')).deleteSync();
+        expect(
+          await nativeHookDiscovery().hasBuildHooks(p.join(tmp.path, 'app')),
+          isFalse,
+        );
+      } finally {
+        await tmp.delete(recursive: true);
+      }
+    },
+  );
 
   test(
+    testOn: '!windows',
+    'reports malformed package config clearly',
+    () async {
+      final tmp = await Directory.systemTemp.createTemp('hook_detection_test-');
+      try {
+        final dartTool = Directory(p.join(tmp.path, '.dart_tool'))
+          ..createSync(recursive: true);
+        File(
+          p.join(dartTool.path, 'package_config.json'),
+        ).writeAsStringSync('{');
+
+        await expectLater(
+          nativeHookDiscovery().hasBuildHooks(tmp.path),
+          throwsA(
+            isA<FlutterBuildError>().having(
+              (error) => error.message,
+              'message',
+              contains('malformed JSON'),
+            ),
+          ),
+        );
+      } finally {
+        await tmp.delete(recursive: true);
+      }
+    },
+  );
+
+  test(
+    testOn: '!windows',
+    'detects native hooks from an ancestor workspace config',
+    () async {
+      final tmp = await Directory.systemTemp.createTemp('workspace_hooks-');
+      try {
+        final app = Directory(p.join(tmp.path, 'apps', 'example'))
+          ..createSync(recursive: true);
+        final hook = File(
+          p.join(tmp.path, 'dependency with spaces', 'hook', 'build.dart'),
+        )..createSync(recursive: true);
+        final config = File(
+          p.join(tmp.path, '.dart_tool', 'package_config.json'),
+        )..createSync(recursive: true);
+        config.writeAsStringSync(
+          jsonEncode({
+            'configVersion': 2,
+            'packages': [
+              {
+                'name': 'native_dependency',
+                'rootUri': '../dependency%20with%20spaces/',
+                'packageUri': 'lib/',
+              },
+            ],
+          }),
+        );
+
+        expect(await nativeHookDiscovery().hasBuildHooks(app.path), isTrue);
+        hook.deleteSync();
+        expect(await nativeHookDiscovery().hasBuildHooks(app.path), isFalse);
+
+        hook.createSync();
+        File(p.join(app.path, '.dart_tool', 'package_config.json'))
+          ..createSync(recursive: true)
+          ..writeAsStringSync('{"configVersion":2,"packages":[]}');
+        expect(await nativeHookDiscovery().hasBuildHooks(app.path), isFalse);
+      } finally {
+        await tmp.delete(recursive: true);
+      }
+    },
+  );
+
+  test(
+    testOn: '!windows',
+    'normalizes native asset framework install names',
+    () async {
+      final tmp = await Directory.systemTemp.createTemp(
+        'native_framework_test-',
+      );
+      try {
+        final asset = Directory(p.join(tmp.path, 'Asset.framework'))
+          ..createSync();
+        final dependency = Directory(p.join(tmp.path, 'Dependency.framework'))
+          ..createSync();
+        final assetBytes = _dylibMachO([
+          '/very/long/native/assets/path/libAsset.dylib',
+          '/very/long/native/assets/path/libDependency.dylib',
+        ]);
+        final dependencyBytes = _dylibMachO([
+          '/very/long/native/assets/path/libDependency.dylib',
+        ]);
+
+        File(p.join(asset.path, 'Asset')).writeAsBytesSync(assetBytes);
+        File(
+          p.join(dependency.path, 'Dependency'),
+        ).writeAsBytesSync(dependencyBytes);
+
+        await frameworks.normalize([asset.path, dependency.path]);
+
+        expect(
+          _dylibNames(File(p.join(asset.path, 'Asset')).readAsBytesSync()),
+          [
+            '@rpath/Asset.framework/Asset',
+            '@rpath/Dependency.framework/Dependency',
+          ],
+        );
+        expect(
+          _dylibNames(
+            File(p.join(dependency.path, 'Dependency')).readAsBytesSync(),
+          ),
+          ['@rpath/Dependency.framework/Dependency'],
+        );
+      } finally {
+        await tmp.delete(recursive: true);
+      }
+    },
+  );
+
+  test(
+    testOn: '!windows',
+
     'mapped collection staging normalization and alignment preserve source outputs',
     () async {
       final root = Directory.systemTemp.createTempSync(
@@ -475,6 +505,8 @@ void main() {
     'start-failure',
   ]) {
     test(
+      testOn: '!windows',
+
       'mapped thinning preserves hooks and cleans scratch on $outcome',
       () async {
         final root = Directory.systemTemp.createTempSync(
@@ -588,7 +620,7 @@ void main() {
     expect(single.readAsBytesSync(), [0xcf, 0xfa, 0xed, 0xfe, 7]);
   });
 
-  test('detects all FAT Mach-O binaries', () async {
+  test(testOn: '!windows', 'detects all FAT Mach-O binaries', () async {
     final tmp = await Directory.systemTemp.createTemp('fat_macho_test-');
     try {
       for (final magic in const <List<int>>[

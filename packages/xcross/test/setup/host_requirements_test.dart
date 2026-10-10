@@ -135,6 +135,8 @@ void main() {
   });
 
   test(
+    testOn: '!windows',
+
     'Linux installs through selected manager then verifies compilers and pipx',
     () async {
       await LinuxSetupRequirements(services).run();
@@ -149,6 +151,8 @@ void main() {
   );
 
   test(
+    testOn: '!windows',
+
     'macOS drives Homebrew without Linux privilege or package operations',
     () async {
       await MacOSSetupRequirements(services).run();

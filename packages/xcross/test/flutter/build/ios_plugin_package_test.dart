@@ -1261,7 +1261,7 @@ framework module FallbackKit {
 ''');
     });
 
-    test('resolves module references to logical paths', () {
+    test(testOn: '!windows', 'resolves module references to logical paths', () {
       final moduleFiles = SwiftPmModuleFiles(fileSystem: fileSystem);
       expect(
         moduleFiles.resolveModuleReference(
@@ -1615,6 +1615,8 @@ framework module FallbackKit {
       );
 
       test(
+        testOn: '!windows',
+
         'manifest failure cannot admit offline trees into later verified preparation',
         () async {
           final layout = extractedLayout('offline-manifest-failure');
@@ -2001,6 +2003,8 @@ framework module FallbackKit {
 
   group('Windows checkout symlinks', () {
     test(
+      testOn: '!windows',
+
       'materializes tracked file symlinks without duplicate files',
       () async {
         final repo = p.join(tmp.path, 'scratch', 'checkouts', 'dependency');
@@ -2075,176 +2079,117 @@ framework module FallbackKit {
       },
     );
 
-    test('forwards header placeholders to one Clang file identity', () async {
-      final repo = p.join(tmp.path, 'headers', 'checkouts', 'dependency');
-      Directory(p.join(repo, 'Sources')).createSync(recursive: true);
-      Directory(p.join(repo, 'include')).createSync(recursive: true);
+    test(
+      testOn: '!windows',
+      'forwards header placeholders to one Clang file identity',
+      () async {
+        final repo = p.join(tmp.path, 'headers', 'checkouts', 'dependency');
+        Directory(p.join(repo, 'Sources')).createSync(recursive: true);
+        Directory(p.join(repo, 'include')).createSync(recursive: true);
 
-      ProcessResult git(List<String> arguments) {
-        final result = Process.runSync('git', ['-C', repo, ...arguments]);
-        expect(result.exitCode, 0, reason: '${result.stdout}${result.stderr}');
-        return result;
-      }
+        ProcessResult git(List<String> arguments) {
+          final result = Process.runSync('git', ['-C', repo, ...arguments]);
+          expect(
+            result.exitCode,
+            0,
+            reason: '${result.stdout}${result.stderr}',
+          );
+          return result;
+        }
 
-      git(['init']);
-      // A header with no include guard, published under two paths.
-      File(
-        p.join(repo, 'Sources', 'Types.h'),
-      ).writeAsStringSync('typedef enum { kOne } Value;\n');
-      final placeholder = File(p.join(repo, 'include', 'Types.h'))
-        ..writeAsStringSync('../Sources/Types.h');
-      git(['add', 'Sources/Types.h', 'include/Types.h']);
-      final hash =
-          (git(['hash-object', '-w', 'include/Types.h']).stdout as String)
-              .trim();
-      git(['update-index', '--cacheinfo', '120000', hash, 'include/Types.h']);
+        git(['init']);
+        // A header with no include guard, published under two paths.
+        File(
+          p.join(repo, 'Sources', 'Types.h'),
+        ).writeAsStringSync('typedef enum { kOne } Value;\n');
+        final placeholder = File(p.join(repo, 'include', 'Types.h'))
+          ..writeAsStringSync('../Sources/Types.h');
+        git(['add', 'Sources/Types.h', 'include/Types.h']);
+        final hash =
+            (git(['hash-object', '-w', 'include/Types.h']).stdout as String)
+                .trim();
+        git(['update-index', '--cacheinfo', '120000', hash, 'include/Types.h']);
 
-      expect(
-        await _swiftPmRuntime.checkout.materializeCheckoutSymlinks(
-          p.join(tmp.path, 'headers'),
-          symlinks: false,
-        ),
-        isTrue,
-      );
-
-      final materialized = placeholder.readAsStringSync();
-      if (Platform.isWindows) {
-        // Forwarding leaves one file to parse, so including both paths
-        // cannot redefine the declarations.
-        expect(materialized, '#include "../Sources/Types.h"\n');
-        expect(materialized, isNot(contains('typedef enum')));
-      } else {
-        expect(materialized, contains('typedef enum'));
-      }
-    });
-
-    test('restores real symlinks and verifies them without git', () async {
-      if (!await _swiftPmRuntime.symlinks.probe()) {
-        markTestSkipped('host cannot create symlinks');
-        return;
-      }
-      final scratch = p.join(tmp.path, 'symlinks');
-      final repo = p.join(scratch, 'checkouts', 'dependency');
-      Directory(p.join(repo, 'Sources', 'nested')).createSync(recursive: true);
-      Directory(p.join(repo, 'include')).createSync(recursive: true);
-
-      ProcessResult git(List<String> arguments) {
-        final result = Process.runSync('git', [
-          '-c',
-          'core.symlinks=false',
-          '-C',
-          repo,
-          ...arguments,
-        ]);
-        expect(result.exitCode, 0, reason: '${result.stdout}${result.stderr}');
-        return result;
-      }
-
-      git(['init']);
-      git(['config', 'user.email', 'xcross@example.invalid']);
-      git(['config', 'user.name', 'xcross']);
-      File(
-        p.join(repo, 'Sources', 'Types.h'),
-      ).writeAsStringSync('typedef int T;\n');
-      File(p.join(repo, 'Package.swift')).writeAsStringSync(
-        'let package = Package(targets: [.target(name: "Dependency", '
-        'path: "Sources")])',
-      );
-      File(p.join(repo, 'Sources', 'nested', 'a.txt')).writeAsStringSync('a');
-      final fileLink = File(p.join(repo, 'include', 'Types.h'))
-        ..writeAsStringSync('../Sources/Types.h');
-      final dirLink = File(p.join(repo, 'include', 'nested'))
-        ..writeAsStringSync('../Sources/nested');
-      final danglingLink = File(p.join(repo, 'include', 'optional-example'))
-        ..writeAsStringSync('../Sources/not-present');
-      git(['add', 'Package.swift', 'Sources', 'include']);
-      for (final link in [
-        'include/Types.h',
-        'include/nested',
-        'include/optional-example',
-      ]) {
-        final hash = (git(['hash-object', '-w', link]).stdout as String).trim();
-        git(['update-index', '--cacheinfo', '120000', hash, link]);
-      }
-      git(['commit', '-q', '-m', 'links']);
-
-      expect(
-        await _swiftPmRuntime.checkout.materializeCheckoutSymlinks(
-          scratch,
-          symlinks: true,
-        ),
-        isTrue,
-      );
-      expect(FileSystemEntity.isLinkSync(fileLink.path), isTrue);
-
-      expect(FileSystemEntity.isLinkSync(dirLink.path), isTrue);
-      expect(FileSystemEntity.isLinkSync(danglingLink.path), isTrue);
-      expect(
-        Link(danglingLink.path).targetSync(),
-        Platform.isWindows
-            ? r'..\Sources\not-present'
-            : '../Sources/not-present',
-      );
-      expect(fileLink.readAsStringSync(), 'typedef int T;\n');
-      expect(File(p.join(dirLink.path, 'a.txt')).readAsStringSync(), 'a');
-
-      final stamp = Directory(
-        p.join(scratch, '.xcross-symlinks'),
-      ).listSync().whereType<File>().single;
-      final oldStamp =
-          jsonDecode(stamp.readAsStringSync()) as Map<String, dynamic>;
-      oldStamp['version'] = 2;
-      stamp.writeAsStringSync(jsonEncode(oldStamp));
-      expect(
-        await _swiftPmRuntime.checkout.materializeCheckoutSymlinks(
-          scratch,
-          symlinks: true,
-        ),
-        isFalse,
-      );
-      expect((jsonDecode(stamp.readAsStringSync()) as Map)['version'], 3);
-
-      // Warm build: the stamp is keyed on HEAD and every link still holds,
-      // so no git process is needed to conclude nothing changed.
-      expect(
-        await _swiftPmRuntime.checkout.materializeCheckoutSymlinks(
-          scratch,
-          symlinks: true,
-          git: p.join(tmp.path, 'git-must-not-run'),
-        ),
-        isFalse,
-      );
-
-      // A dangling Git link can acquire a directory target after checkout.
-      // On Windows, its original file-typed reparse point must be replaced.
-      // A POSIX symlink already follows its new target, so only Windows has
-      // something to replace.
-      Directory(p.join(repo, 'Sources', 'not-present')).createSync();
-      expect(
-        await _swiftPmRuntime.checkout.materializeCheckoutSymlinks(
-          scratch,
-          symlinks: true,
-        ),
-        Platform.isWindows,
-      );
-      expect(Directory(danglingLink.path).existsSync(), isTrue);
-
-      if (Platform.isWindows) {
-        // `mklink` without /D deliberately creates a file-typed link to a
-        // directory. A matching target string alone is not enough to reuse it.
-        Link(dirLink.path).deleteSync();
-        final wrongKind = Process.runSync('cmd', [
-          '/c',
-          'mklink',
-          dirLink.path,
-          r'..\Sources\nested',
-        ]);
         expect(
-          wrongKind.exitCode,
-          0,
-          reason: '${wrongKind.stdout}${wrongKind.stderr}',
+          await _swiftPmRuntime.checkout.materializeCheckoutSymlinks(
+            p.join(tmp.path, 'headers'),
+            symlinks: false,
+          ),
+          isTrue,
         );
-        expect(Directory(dirLink.path).existsSync(), isFalse);
+
+        final materialized = placeholder.readAsStringSync();
+        if (Platform.isWindows) {
+          // Forwarding leaves one file to parse, so including both paths
+          // cannot redefine the declarations.
+          expect(materialized, '#include "../Sources/Types.h"\n');
+          expect(materialized, isNot(contains('typedef enum')));
+        } else {
+          expect(materialized, contains('typedef enum'));
+        }
+      },
+    );
+
+    test(
+      testOn: '!windows',
+      'restores real symlinks and verifies them without git',
+      () async {
+        if (!await _swiftPmRuntime.symlinks.probe()) {
+          markTestSkipped('host cannot create symlinks');
+          return;
+        }
+        final scratch = p.join(tmp.path, 'symlinks');
+        final repo = p.join(scratch, 'checkouts', 'dependency');
+        Directory(
+          p.join(repo, 'Sources', 'nested'),
+        ).createSync(recursive: true);
+        Directory(p.join(repo, 'include')).createSync(recursive: true);
+
+        ProcessResult git(List<String> arguments) {
+          final result = Process.runSync('git', [
+            '-c',
+            'core.symlinks=false',
+            '-C',
+            repo,
+            ...arguments,
+          ]);
+          expect(
+            result.exitCode,
+            0,
+            reason: '${result.stdout}${result.stderr}',
+          );
+          return result;
+        }
+
+        git(['init']);
+        git(['config', 'user.email', 'xcross@example.invalid']);
+        git(['config', 'user.name', 'xcross']);
+        File(
+          p.join(repo, 'Sources', 'Types.h'),
+        ).writeAsStringSync('typedef int T;\n');
+        File(p.join(repo, 'Package.swift')).writeAsStringSync(
+          'let package = Package(targets: [.target(name: "Dependency", '
+          'path: "Sources")])',
+        );
+        File(p.join(repo, 'Sources', 'nested', 'a.txt')).writeAsStringSync('a');
+        final fileLink = File(p.join(repo, 'include', 'Types.h'))
+          ..writeAsStringSync('../Sources/Types.h');
+        final dirLink = File(p.join(repo, 'include', 'nested'))
+          ..writeAsStringSync('../Sources/nested');
+        final danglingLink = File(p.join(repo, 'include', 'optional-example'))
+          ..writeAsStringSync('../Sources/not-present');
+        git(['add', 'Package.swift', 'Sources', 'include']);
+        for (final link in [
+          'include/Types.h',
+          'include/nested',
+          'include/optional-example',
+        ]) {
+          final hash = (git(['hash-object', '-w', link]).stdout as String)
+              .trim();
+          git(['update-index', '--cacheinfo', '120000', hash, link]);
+        }
+        git(['commit', '-q', '-m', 'links']);
+
         expect(
           await _swiftPmRuntime.checkout.materializeCheckoutSymlinks(
             scratch,
@@ -2252,91 +2197,177 @@ framework module FallbackKit {
           ),
           isTrue,
         );
-        expect(Directory(dirLink.path).existsSync(), isTrue);
-      }
+        expect(FileSystemEntity.isLinkSync(fileLink.path), isTrue);
 
-      // A placeholder brought back by a `reset --hard` under
-      // `core.symlinks=false` is detected and restored.
-      Link(fileLink.path).deleteSync();
-      fileLink.writeAsStringSync('../Sources/Types.h');
-      expect(
-        await _swiftPmRuntime.checkout.materializeCheckoutSymlinks(
-          scratch,
-          symlinks: true,
-        ),
-        isTrue,
-      );
-      expect(FileSystemEntity.isLinkSync(fileLink.path), isTrue);
-      final requiredLink = File(p.join(repo, 'Sources', 'required.h'))
-        ..writeAsStringSync('missing.h');
-      git(['add', 'Sources/required.h']);
-      final requiredHash =
-          (git(['hash-object', '-w', requiredLink.path]).stdout as String)
-              .trim();
-      git([
-        'update-index',
-        '--cacheinfo',
-        '120000',
-        requiredHash,
-        'Sources/required.h',
-      ]);
-      git(['commit', '-q', '-m', 'required source link']);
-      await expectLater(
-        _swiftPmRuntime.checkout.materializeCheckoutSymlinks(
-          scratch,
-          symlinks: true,
-        ),
-        throwsA(isA<FlutterBuildError>()),
-      );
-    });
+        expect(FileSystemEntity.isLinkSync(dirLink.path), isTrue);
+        expect(FileSystemEntity.isLinkSync(danglingLink.path), isTrue);
+        expect(
+          Link(danglingLink.path).targetSync(),
+          Platform.isWindows
+              ? r'..\Sources\not-present'
+              : '../Sources/not-present',
+        );
+        expect(fileLink.readAsStringSync(), 'typedef int T;\n');
+        expect(File(p.join(dirLink.path, 'a.txt')).readAsStringSync(), 'a');
 
-    test('allows a missing symlink in a test-only target', () async {
-      if (!await _swiftPmRuntime.symlinks.probe()) {
-        markTestSkipped('host cannot create symlinks');
-        return;
-      }
-      final scratch = p.join(tmp.path, 'test-target-links');
-      final repo = p.join(scratch, 'checkouts', 'dependency');
-      Directory(
-        p.join(repo, 'Tests', 'PluginTests'),
-      ).createSync(recursive: true);
-      ProcessResult git(List<String> arguments) {
-        final result = Process.runSync('git', [
-          '-c',
-          'core.symlinks=false',
-          '-C',
-          repo,
-          ...arguments,
+        final stamp = Directory(
+          p.join(scratch, '.xcross-symlinks'),
+        ).listSync().whereType<File>().single;
+        final oldStamp =
+            jsonDecode(stamp.readAsStringSync()) as Map<String, dynamic>;
+        oldStamp['version'] = 2;
+        stamp.writeAsStringSync(jsonEncode(oldStamp));
+        expect(
+          await _swiftPmRuntime.checkout.materializeCheckoutSymlinks(
+            scratch,
+            symlinks: true,
+          ),
+          isFalse,
+        );
+        expect((jsonDecode(stamp.readAsStringSync()) as Map)['version'], 3);
+
+        // Warm build: the stamp is keyed on HEAD and every link still holds,
+        // so no git process is needed to conclude nothing changed.
+        expect(
+          await _swiftPmRuntime.checkout.materializeCheckoutSymlinks(
+            scratch,
+            symlinks: true,
+            git: p.join(tmp.path, 'git-must-not-run'),
+          ),
+          isFalse,
+        );
+
+        // A dangling Git link can acquire a directory target after checkout.
+        // On Windows, its original file-typed reparse point must be replaced.
+        // A POSIX symlink already follows its new target, so only Windows has
+        // something to replace.
+        Directory(p.join(repo, 'Sources', 'not-present')).createSync();
+        expect(
+          await _swiftPmRuntime.checkout.materializeCheckoutSymlinks(
+            scratch,
+            symlinks: true,
+          ),
+          Platform.isWindows,
+        );
+        expect(Directory(danglingLink.path).existsSync(), isTrue);
+
+        if (Platform.isWindows) {
+          // `mklink` without /D deliberately creates a file-typed link to a
+          // directory. A matching target string alone is not enough to reuse it.
+          Link(dirLink.path).deleteSync();
+          final wrongKind = Process.runSync('cmd', [
+            '/c',
+            'mklink',
+            dirLink.path,
+            r'..\Sources\nested',
+          ]);
+          expect(
+            wrongKind.exitCode,
+            0,
+            reason: '${wrongKind.stdout}${wrongKind.stderr}',
+          );
+          expect(Directory(dirLink.path).existsSync(), isFalse);
+          expect(
+            await _swiftPmRuntime.checkout.materializeCheckoutSymlinks(
+              scratch,
+              symlinks: true,
+            ),
+            isTrue,
+          );
+          expect(Directory(dirLink.path).existsSync(), isTrue);
+        }
+
+        // A placeholder brought back by a `reset --hard` under
+        // `core.symlinks=false` is detected and restored.
+        Link(fileLink.path).deleteSync();
+        fileLink.writeAsStringSync('../Sources/Types.h');
+        expect(
+          await _swiftPmRuntime.checkout.materializeCheckoutSymlinks(
+            scratch,
+            symlinks: true,
+          ),
+          isTrue,
+        );
+        expect(FileSystemEntity.isLinkSync(fileLink.path), isTrue);
+        final requiredLink = File(p.join(repo, 'Sources', 'required.h'))
+          ..writeAsStringSync('missing.h');
+        git(['add', 'Sources/required.h']);
+        final requiredHash =
+            (git(['hash-object', '-w', requiredLink.path]).stdout as String)
+                .trim();
+        git([
+          'update-index',
+          '--cacheinfo',
+          '120000',
+          requiredHash,
+          'Sources/required.h',
         ]);
-        expect(result.exitCode, 0, reason: '${result.stdout}${result.stderr}');
-        return result;
-      }
+        git(['commit', '-q', '-m', 'required source link']);
+        await expectLater(
+          _swiftPmRuntime.checkout.materializeCheckoutSymlinks(
+            scratch,
+            symlinks: true,
+          ),
+          throwsA(isA<FlutterBuildError>()),
+        );
+      },
+    );
 
-      git(['init']);
-      File(p.join(repo, 'Package.swift')).writeAsStringSync(
-        'let package = Package(targets: [.testTarget(name: "PluginTests")])',
-      );
-      final link = File(p.join(repo, 'Tests', 'PluginTests', 'fixture.txt'))
-        ..writeAsStringSync('missing.txt');
-      git(['add', 'Package.swift', 'Tests']);
-      final hash = (git(['hash-object', '-w', link.path]).stdout as String)
-          .trim();
-      git([
-        'update-index',
-        '--cacheinfo',
-        '120000',
-        hash,
-        'Tests/PluginTests/fixture.txt',
-      ]);
-      expect(
-        await _swiftPmRuntime.checkout.materializeCheckoutSymlinks(
-          scratch,
-          symlinks: true,
-        ),
-        isTrue,
-      );
-      expect(FileSystemEntity.isLinkSync(link.path), isTrue);
-    });
+    test(
+      testOn: '!windows',
+      'allows a missing symlink in a test-only target',
+      () async {
+        if (!await _swiftPmRuntime.symlinks.probe()) {
+          markTestSkipped('host cannot create symlinks');
+          return;
+        }
+        final scratch = p.join(tmp.path, 'test-target-links');
+        final repo = p.join(scratch, 'checkouts', 'dependency');
+        Directory(
+          p.join(repo, 'Tests', 'PluginTests'),
+        ).createSync(recursive: true);
+        ProcessResult git(List<String> arguments) {
+          final result = Process.runSync('git', [
+            '-c',
+            'core.symlinks=false',
+            '-C',
+            repo,
+            ...arguments,
+          ]);
+          expect(
+            result.exitCode,
+            0,
+            reason: '${result.stdout}${result.stderr}',
+          );
+          return result;
+        }
+
+        git(['init']);
+        File(p.join(repo, 'Package.swift')).writeAsStringSync(
+          'let package = Package(targets: [.testTarget(name: "PluginTests")])',
+        );
+        final link = File(p.join(repo, 'Tests', 'PluginTests', 'fixture.txt'))
+          ..writeAsStringSync('missing.txt');
+        git(['add', 'Package.swift', 'Tests']);
+        final hash = (git(['hash-object', '-w', link.path]).stdout as String)
+            .trim();
+        git([
+          'update-index',
+          '--cacheinfo',
+          '120000',
+          hash,
+          'Tests/PluginTests/fixture.txt',
+        ]);
+        expect(
+          await _swiftPmRuntime.checkout.materializeCheckoutSymlinks(
+            scratch,
+            symlinks: true,
+          ),
+          isTrue,
+        );
+        expect(FileSystemEntity.isLinkSync(link.path), isTrue);
+      },
+    );
   });
 
   group('removeMissingResources', () {

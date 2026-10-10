@@ -17,8 +17,9 @@ void main() {
       const path = 'packages/xcross/test/fixture.g.dart';
       final source = File('${directory.path}/$path');
       source.parent.createSync(recursive: true);
-      final foreign =
-          'file://${directory.path}/packages/cli_kit/lib/src/shared/contract.dart';
+      final foreign = directory.uri
+          .resolve('packages/cli_kit/lib/src/shared/contract.dart')
+          .toString();
       for (final uri in [
         'package:cli_kit/src/shared/contract.dart',
         'package:cli_kit/shared/../src/shared/contract.dart',

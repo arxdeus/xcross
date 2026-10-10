@@ -61,43 +61,59 @@ void main() {
     )..addCommand(command)).run(['setup', ...arguments]);
   }
 
-  test('asks with the script name and source before running', () async {
-    final prompt = FixturePrompt(answer: 'y');
-    await runSetup(prompt);
-    expect(prompt.asked.single, contains('apt.sh'));
-    expect(prompt.asked.single, contains(script.path));
-    expect(executions, [<String, String>{}]);
-  });
+  test(
+    testOn: '!windows',
+    'asks with the script name and source before running',
+    () async {
+      final prompt = FixturePrompt(answer: 'y');
+      await runSetup(prompt);
+      expect(prompt.asked.single, contains('apt.sh'));
+      expect(prompt.asked.single, contains(script.path));
+      expect(executions, [<String, String>{}]);
+    },
+  );
 
-  test('anything but yes leaves the host untouched', () async {
-    for (final answer in ['', 'n', 'no', 'sure', null]) {
-      await runSetup(FixturePrompt(answer: answer));
-    }
-    expect(executions, isEmpty);
-  });
+  test(
+    testOn: '!windows',
+    'anything but yes leaves the host untouched',
+    () async {
+      for (final answer in ['', 'n', 'no', 'sure', null]) {
+        await runSetup(FixturePrompt(answer: answer));
+      }
+      expect(executions, isEmpty);
+    },
+  );
 
-  test('refuses to run unconfirmed without a terminal', () async {
-    await expectLater(
-      runSetup(FixturePrompt(interactive: false)),
-      throwsA(
-        isA<XcrossError>().having(
-          (error) => error.message,
-          'message',
-          contains('--yes'),
+  test(
+    testOn: '!windows',
+    'refuses to run unconfirmed without a terminal',
+    () async {
+      await expectLater(
+        runSetup(FixturePrompt(interactive: false)),
+        throwsA(
+          isA<XcrossError>().having(
+            (error) => error.message,
+            'message',
+            contains('--yes'),
+          ),
         ),
-      ),
-    );
-    expect(executions, isEmpty);
-  });
+      );
+      expect(executions, isEmpty);
+    },
+  );
 
-  test('--yes skips the prompt and tells the script', () async {
-    final prompt = FixturePrompt(interactive: false);
-    await runSetup(prompt, arguments: ['--yes']);
-    expect(prompt.asked, isEmpty);
-    expect(executions, [
-      {'XCROSS_SETUP_ASSUME_YES': '1'},
-    ]);
-  });
+  test(
+    testOn: '!windows',
+    '--yes skips the prompt and tells the script',
+    () async {
+      final prompt = FixturePrompt(interactive: false);
+      await runSetup(prompt, arguments: ['--yes']);
+      expect(prompt.asked, isEmpty);
+      expect(executions, [
+        {'XCROSS_SETUP_ASSUME_YES': '1'},
+      ]);
+    },
+  );
 
   test('a missing local script fails before asking', () async {
     final prompt = FixturePrompt(answer: 'y');
@@ -109,14 +125,18 @@ void main() {
     expect(executions, isEmpty);
   });
 
-  test('logs the SHA-256 of the exact bytes it is about to run', () async {
-    final output = CapturedLogOutput();
-    runner = fixtureRunner(host, log: Log(output: output));
-    await runSetup(FixturePrompt(answer: 'y'));
-    final digest = sha256.convert(utf8.encode('echo setup')).toString();
-    expect(output.text, contains(digest));
-    expect(output.text, contains('apt.sh'));
-  });
+  test(
+    testOn: '!windows',
+    'logs the SHA-256 of the exact bytes it is about to run',
+    () async {
+      final output = CapturedLogOutput();
+      runner = fixtureRunner(host, log: Log(output: output));
+      await runSetup(FixturePrompt(answer: 'y'));
+      final digest = sha256.convert(utf8.encode('echo setup')).toString();
+      expect(output.text, contains(digest));
+      expect(output.text, contains('apt.sh'));
+    },
+  );
 
   group('built-in per-manager scripts', () {
     late FixtureManagerPolicy policy;
@@ -134,42 +154,58 @@ void main() {
     String ran(FixturePrompt prompt) =>
         prompt.asked.lastWhere((line) => line.startsWith('Run ')).split(' ')[1];
 
-    test('runs the only installed manager without asking which', () async {
-      policy.installed = ['scoop'];
-      final prompt = FixturePrompt(answer: 'y');
-      await runSetup(prompt, policy: policy, configured: false);
-      expect(prompt.asked, hasLength(1));
-      expect(ran(prompt), 'scoop.ps1');
-    });
+    test(
+      testOn: '!windows',
+      'runs the only installed manager without asking which',
+      () async {
+        policy.installed = ['scoop'];
+        final prompt = FixturePrompt(answer: 'y');
+        await runSetup(prompt, policy: policy, configured: false);
+        expect(prompt.asked, hasLength(1));
+        expect(ran(prompt), 'scoop.ps1');
+      },
+    );
 
-    test('falls back to direct.ps1 without any package manager', () async {
-      policy.installed = [];
-      final prompt = FixturePrompt(answer: 'y');
-      await runSetup(prompt, policy: policy, configured: false);
-      expect(ran(prompt), 'direct.ps1');
-    });
+    test(
+      testOn: '!windows',
+      'falls back to direct.ps1 without any package manager',
+      () async {
+        policy.installed = [];
+        final prompt = FixturePrompt(answer: 'y');
+        await runSetup(prompt, policy: policy, configured: false);
+        expect(ran(prompt), 'direct.ps1');
+      },
+    );
 
-    test('asks which manager when several are installed', () async {
-      policy.installed = ['winget', 'choco'];
-      final prompt = FixturePrompt(answers: ['7', '2', 'y']);
-      await runSetup(prompt, policy: policy, configured: false);
-      expect(prompt.asked.first, startsWith('Which one'));
-      expect(prompt.written.join(), contains('[2] choco'));
-      expect(prompt.written.join(), contains('Invalid choice "7"'));
-      expect(ran(prompt), 'choco.ps1');
-    });
+    test(
+      testOn: '!windows',
+      'asks which manager when several are installed',
+      () async {
+        policy.installed = ['winget', 'choco'];
+        final prompt = FixturePrompt(answers: ['7', '2', 'y']);
+        await runSetup(prompt, policy: policy, configured: false);
+        expect(prompt.asked.first, startsWith('Which one'));
+        expect(prompt.written.join(), contains('[2] choco'));
+        expect(prompt.written.join(), contains('Invalid choice "7"'));
+        expect(ran(prompt), 'choco.ps1');
+      },
+    );
 
-    test('--manager picks one explicitly, including direct', () async {
-      policy.installed = ['winget', 'scoop'];
-      final prompt = FixturePrompt(answer: 'y');
-      await runSetup(
-        prompt,
-        policy: policy,
-        configured: false,
-        arguments: ['--manager', 'direct'],
-      );
-      expect(ran(prompt), 'direct.ps1');
-    });
+    test(
+      testOn: '!windows',
+      '--manager picks one explicitly, including direct',
+      () async {
+        policy.installed = ['winget', 'scoop'];
+        final prompt = FixturePrompt(answer: 'y');
+        await runSetup(
+          prompt,
+          policy: policy,
+          configured: false,
+          arguments: ['--manager', 'direct'],
+        );
+        expect(ran(prompt), 'direct.ps1');
+      },
+    );
 
     test('--manager rejects a manager that is not installed', () async {
       policy.installed = ['winget'];
@@ -185,12 +221,16 @@ void main() {
       expect(executions, isEmpty);
     });
 
-    test('a configured setup: script wins over the built-in ones', () async {
-      policy.installed = ['winget'];
-      final prompt = FixturePrompt(answer: 'y');
-      await runSetup(prompt, policy: policy);
-      expect(ran(prompt), 'apt.sh');
-    });
+    test(
+      testOn: '!windows',
+      'a configured setup: script wins over the built-in ones',
+      () async {
+        policy.installed = ['winget'];
+        final prompt = FixturePrompt(answer: 'y');
+        await runSetup(prompt, policy: policy);
+        expect(ran(prompt), 'apt.sh');
+      },
+    );
   });
 }
 

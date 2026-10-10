@@ -24,116 +24,125 @@ Future<List<String>> _captureAsync(Future<void> Function() body) async {
 
 void main() {
   group('GitRefSourceBundleBuilder.build', () {
-    test('deletes only stale source-update temp directories', () async {
-      final scratch = _createScratchDirectory();
-      final systemTemp = Directory(p.join(scratch.path, 'tmp'))
-        ..createSync(recursive: true);
-      final stale = Directory(
-        p.join(systemTemp.path, 'xcross-update-source-abandoned'),
-      )..createSync();
-      final active = Directory(
-        p.join(systemTemp.path, 'xcross-update-source-active'),
-      )..createSync();
-      final unrelated = Directory(p.join(systemTemp.path, 'xcross-self-update'))
-        ..createSync();
-      final staging = Directory(p.join(scratch.path, 'staging'));
-      final repo = Directory(p.join(staging.path, 'xcross'));
-      final bundle = Directory(
-        p.join(
-          repo.path,
-          'packages',
-          'xcross',
-          'build',
-          'cli',
-          'linux_x64',
-          'bundle',
-        ),
-      );
-      var staleWasDeletedBeforeClone = false;
-      final runner = FixtureFakeProcessRunner(
-        onRun: (call) async {
-          if (call.arguments.first == 'clone') {
-            staleWasDeletedBeforeClone = !stale.existsSync();
-          }
-          if (call.arguments.contains('tool/build_xcross.dart')) {
-            _createBundle(bundle);
-          }
-          return _result();
-        },
-      );
-      final builder = _createTestBuilder(
-        run: runner.run,
-        createTempDirectory: (_) =>
-            Future.value(staging..createSync(recursive: true)),
-        deleteDirectory: _deleteDirectorySync,
-        systemTempDirectory: systemTemp,
-        tempDirectoryModifiedAt: (directory) => directory.path == stale.path
-            ? DateTime.now().subtract(const Duration(hours: 1))
-            : DateTime.now(),
-      );
+    test(
+      testOn: '!windows',
+      'deletes only stale source-update temp directories',
+      () async {
+        final scratch = _createScratchDirectory();
+        final systemTemp = Directory(p.join(scratch.path, 'tmp'))
+          ..createSync(recursive: true);
+        final stale = Directory(
+          p.join(systemTemp.path, 'xcross-update-source-abandoned'),
+        )..createSync();
+        final active = Directory(
+          p.join(systemTemp.path, 'xcross-update-source-active'),
+        )..createSync();
+        final unrelated = Directory(
+          p.join(systemTemp.path, 'xcross-self-update'),
+        )..createSync();
+        final staging = Directory(p.join(scratch.path, 'staging'));
+        final repo = Directory(p.join(staging.path, 'xcross'));
+        final bundle = Directory(
+          p.join(
+            repo.path,
+            'packages',
+            'xcross',
+            'build',
+            'cli',
+            'linux_x64',
+            'bundle',
+          ),
+        );
+        var staleWasDeletedBeforeClone = false;
+        final runner = FixtureFakeProcessRunner(
+          onRun: (call) async {
+            if (call.arguments.first == 'clone') {
+              staleWasDeletedBeforeClone = !stale.existsSync();
+            }
+            if (call.arguments.contains('tool/build_xcross.dart')) {
+              _createBundle(bundle);
+            }
+            return _result();
+          },
+        );
+        final builder = _createTestBuilder(
+          run: runner.run,
+          createTempDirectory: (_) =>
+              Future.value(staging..createSync(recursive: true)),
+          deleteDirectory: _deleteDirectorySync,
+          systemTempDirectory: systemTemp,
+          tempDirectoryModifiedAt: (directory) => directory.path == stale.path
+              ? DateTime.now().subtract(const Duration(hours: 1))
+              : DateTime.now(),
+        );
 
-      await builder.build<void>(
-        ref: const GitUpdateRef(
-          kind: GitUpdateRefKind.branch,
-          displayName: 'main',
-          fetchRef: 'refs/heads/main',
-          commitSha: '1234567890abcdef1234567890abcdef12345678',
-        ),
-        onBundle: (_, _) async {},
-      );
+        await builder.build<void>(
+          ref: const GitUpdateRef(
+            kind: GitUpdateRefKind.branch,
+            displayName: 'main',
+            fetchRef: 'refs/heads/main',
+            commitSha: '1234567890abcdef1234567890abcdef12345678',
+          ),
+          onBundle: (_, _) async {},
+        );
 
-      expect(staleWasDeletedBeforeClone, isTrue);
-      expect(active.existsSync(), isTrue);
-      expect(unrelated.existsSync(), isTrue);
-    });
+        expect(staleWasDeletedBeforeClone, isTrue);
+        expect(active.existsSync(), isTrue);
+        expect(unrelated.existsSync(), isTrue);
+      },
+    );
 
-    test('reuses one Dart launcher for source update commands', () async {
-      final scratch = _createScratchDirectory();
-      final staging = Directory(p.join(scratch.path, 'staging'));
-      final repo = Directory(p.join(staging.path, 'xcross'));
-      final bundle = Directory(
-        p.join(
-          repo.path,
-          'packages',
-          'xcross',
-          'build',
-          'cli',
-          'linux_x64',
-          'bundle',
-        ),
-      );
-      final dartInvocations = <String>[];
-      final runner = FixtureFakeProcessRunner(
-        onRun: (call) async {
-          if (call.arguments.first == 'pub' ||
-              call.arguments.contains('tool/build_xcross.dart')) {
-            dartInvocations.add(call.executable);
-          }
-          if (call.arguments.contains('tool/build_xcross.dart')) {
-            _createBundle(bundle);
-          }
-          return _result();
-        },
-      );
-      final builder = _createTestBuilder(
-        run: runner.run,
-        createTempDirectory: (_) =>
-            Future.value(staging..createSync(recursive: true)),
-        deleteDirectory: _deleteDirectorySync,
-      );
+    test(
+      testOn: '!windows',
+      'reuses one Dart launcher for source update commands',
+      () async {
+        final scratch = _createScratchDirectory();
+        final staging = Directory(p.join(scratch.path, 'staging'));
+        final repo = Directory(p.join(staging.path, 'xcross'));
+        final bundle = Directory(
+          p.join(
+            repo.path,
+            'packages',
+            'xcross',
+            'build',
+            'cli',
+            'linux_x64',
+            'bundle',
+          ),
+        );
+        final dartInvocations = <String>[];
+        final runner = FixtureFakeProcessRunner(
+          onRun: (call) async {
+            if (call.arguments.first == 'pub' ||
+                call.arguments.contains('tool/build_xcross.dart')) {
+              dartInvocations.add(call.executable);
+            }
+            if (call.arguments.contains('tool/build_xcross.dart')) {
+              _createBundle(bundle);
+            }
+            return _result();
+          },
+        );
+        final builder = _createTestBuilder(
+          run: runner.run,
+          createTempDirectory: (_) =>
+              Future.value(staging..createSync(recursive: true)),
+          deleteDirectory: _deleteDirectorySync,
+        );
 
-      await builder.build<void>(
-        ref: const GitUpdateRef(
-          kind: GitUpdateRefKind.branch,
-          displayName: 'main',
-          fetchRef: 'refs/heads/main',
-          commitSha: '1234567890abcdef1234567890abcdef12345678',
-        ),
-        onBundle: (_, _) async {},
-      );
+        await builder.build<void>(
+          ref: const GitUpdateRef(
+            kind: GitUpdateRefKind.branch,
+            displayName: 'main',
+            fetchRef: 'refs/heads/main',
+            commitSha: '1234567890abcdef1234567890abcdef12345678',
+          ),
+          onBundle: (_, _) async {},
+        );
 
-      expect(dartInvocations, List.filled(2, _fakeDartExecutable));
-    });
+        expect(dartInvocations, List.filled(2, _fakeDartExecutable));
+      },
+    );
 
     test('fails on a missing Dart before any source phase runs', () async {
       final runner = FixtureFakeProcessRunner(onRun: (_) async => _result());
@@ -165,61 +174,67 @@ void main() {
       expect(createdTempDirectory, isFalse);
     });
 
-    test('reports numbered source phases in order', () async {
-      final scratch = _createScratchDirectory();
-      final staging = Directory(p.join(scratch.path, 'staging'));
-      final repo = Directory(p.join(staging.path, 'xcross'));
-      final bundle = Directory(
-        p.join(
-          repo.path,
-          'packages',
-          'xcross',
-          'build',
-          'cli',
-          'linux_x64',
-          'bundle',
-        ),
-      );
-      final runner = FixtureFakeProcessRunner(
-        onRun: (call) async {
-          if (call.arguments.contains('tool/build_xcross.dart')) {
-            _createBundle(bundle);
-          }
-          return _result();
-        },
-      );
-      final builder = _createTestBuilder(
-        run: runner.run,
-        createTempDirectory: (_) =>
-            Future.value(staging..createSync(recursive: true)),
-        deleteDirectory: _deleteDirectorySync,
-      );
-
-      final output = await _captureAsync(() async {
-        await builder.build<void>(
-          ref: const GitUpdateRef(
-            kind: GitUpdateRefKind.branch,
-            displayName: 'main',
-            fetchRef: 'refs/heads/main',
-            commitSha: '1234567890abcdef1234567890abcdef12345678',
+    test(
+      testOn: '!windows',
+      'reports numbered source phases in order',
+      () async {
+        final scratch = _createScratchDirectory();
+        final staging = Directory(p.join(scratch.path, 'staging'));
+        final repo = Directory(p.join(staging.path, 'xcross'));
+        final bundle = Directory(
+          p.join(
+            repo.path,
+            'packages',
+            'xcross',
+            'build',
+            'cli',
+            'linux_x64',
+            'bundle',
           ),
-          onBundle: (_, _) async {},
         );
-      });
+        final runner = FixtureFakeProcessRunner(
+          onRun: (call) async {
+            if (call.arguments.contains('tool/build_xcross.dart')) {
+              _createBundle(bundle);
+            }
+            return _result();
+          },
+        );
+        final builder = _createTestBuilder(
+          run: runner.run,
+          createTempDirectory: (_) =>
+              Future.value(staging..createSync(recursive: true)),
+          deleteDirectory: _deleteDirectorySync,
+        );
 
-      expect(
-        output.where((line) => line.contains('Source [')),
-        containsAllInOrder([
-          contains('[1/7] Clone repository'),
-          contains('[2/7] Fetch commit'),
-          contains('[3/7] Check out commit'),
-          contains('[4/7] Resolve dependencies'),
-          contains('[5/7] Build xcross main'),
-        ]),
-      );
-    });
+        final output = await _captureAsync(() async {
+          await builder.build<void>(
+            ref: const GitUpdateRef(
+              kind: GitUpdateRefKind.branch,
+              displayName: 'main',
+              fetchRef: 'refs/heads/main',
+              commitSha: '1234567890abcdef1234567890abcdef12345678',
+            ),
+            onBundle: (_, _) async {},
+          );
+        });
+
+        expect(
+          output.where((line) => line.contains('Source [')),
+          containsAllInOrder([
+            contains('[1/7] Clone repository'),
+            contains('[2/7] Fetch commit'),
+            contains('[3/7] Check out commit'),
+            contains('[4/7] Resolve dependencies'),
+            contains('[5/7] Build xcross main'),
+          ]),
+        );
+      },
+    );
 
     test(
+      testOn: '!windows',
+
       'builds a branch ref and exposes the bundle only inside the callback',
       () async {
         final scratch = _createScratchDirectory();
@@ -319,99 +334,110 @@ void main() {
       },
     );
 
-    test('encodes the ref display name into XCROSS_VERSION', () async {
-      final scratch = _createScratchDirectory();
-      final staging = Directory(p.join(scratch.path, 'staging'));
-      final repo = Directory(p.join(staging.path, 'xcross'));
-      final bundle = Directory(
-        p.join(
-          repo.path,
-          'packages',
-          'xcross',
-          'build',
-          'cli',
-          'linux_x64',
-          'bundle',
-        ),
-      );
-      final runner = FixtureFakeProcessRunner(
-        onRun: (call) async {
-          if (call.arguments.contains('tool/build_xcross.dart')) {
-            _createBundle(bundle);
-          }
-          return _result();
-        },
-      );
-      final builder = _createTestBuilder(
-        run: runner.run,
-        createTempDirectory: (_) =>
-            Future.value(staging..createSync(recursive: true)),
-        deleteDirectory: _deleteDirectorySync,
-      );
-
-      await builder.build<void>(
-        ref: const GitUpdateRef(
-          kind: GitUpdateRefKind.branch,
-          displayName: 'feature/a,b=c',
-          fetchRef: 'refs/heads/feature/a,b=c',
-          commitSha: '1234567890abcdef1234567890abcdef12345678',
-        ),
-        onBundle: (_, _) async {},
-      );
-
-      expect(
-        runner.calls.last,
-        FixtureProcessCall(_fakeDartExecutable, const [
-          'run',
-          '-DXCROSS_VERSION=feature%2Fa%2Cb%3Dc',
-          '-DXCROSS_RELEASED=false',
-          'tool/build_xcross.dart',
-        ], workingDirectory: p.join(repo.path, 'packages', 'xcross')),
-      );
-    });
-
-    test('cleanup failure does not replace the callback result', () async {
-      final scratch = _createScratchDirectory();
-      final staging = Directory(p.join(scratch.path, 'staging'));
-      final repo = Directory(p.join(staging.path, 'xcross'));
-      final bundle = Directory(
-        p.join(
-          repo.path,
-          'packages',
-          'xcross',
-          'build',
-          'cli',
-          'linux_x64',
-          'bundle',
-        ),
-      );
-      final builder = _createTestBuilder(
-        run: FixtureFakeProcessRunner(
+    test(
+      testOn: '!windows',
+      'encodes the ref display name into XCROSS_VERSION',
+      () async {
+        final scratch = _createScratchDirectory();
+        final staging = Directory(p.join(scratch.path, 'staging'));
+        final repo = Directory(p.join(staging.path, 'xcross'));
+        final bundle = Directory(
+          p.join(
+            repo.path,
+            'packages',
+            'xcross',
+            'build',
+            'cli',
+            'linux_x64',
+            'bundle',
+          ),
+        );
+        final runner = FixtureFakeProcessRunner(
           onRun: (call) async {
             if (call.arguments.contains('tool/build_xcross.dart')) {
               _createBundle(bundle);
             }
             return _result();
           },
-        ).run,
-        createTempDirectory: (_) async => staging..createSync(recursive: true),
-        deleteDirectory: (_) async => throw StateError('cleanup failed'),
-      );
+        );
+        final builder = _createTestBuilder(
+          run: runner.run,
+          createTempDirectory: (_) =>
+              Future.value(staging..createSync(recursive: true)),
+          deleteDirectory: _deleteDirectorySync,
+        );
 
-      final result = await builder.build<String>(
-        ref: const GitUpdateRef(
-          kind: GitUpdateRefKind.branch,
-          displayName: 'main',
-          fetchRef: 'refs/heads/main',
-          commitSha: '1234567890abcdef1234567890abcdef12345678',
-        ),
-        onBundle: (_, _) async => 'installed',
-      );
+        await builder.build<void>(
+          ref: const GitUpdateRef(
+            kind: GitUpdateRefKind.branch,
+            displayName: 'feature/a,b=c',
+            fetchRef: 'refs/heads/feature/a,b=c',
+            commitSha: '1234567890abcdef1234567890abcdef12345678',
+          ),
+          onBundle: (_, _) async {},
+        );
 
-      expect(result, 'installed');
-    });
+        expect(
+          runner.calls.last,
+          FixtureProcessCall(_fakeDartExecutable, const [
+            'run',
+            '-DXCROSS_VERSION=feature%2Fa%2Cb%3Dc',
+            '-DXCROSS_RELEASED=false',
+            'tool/build_xcross.dart',
+          ], workingDirectory: p.join(repo.path, 'packages', 'xcross')),
+        );
+      },
+    );
 
     test(
+      testOn: '!windows',
+      'cleanup failure does not replace the callback result',
+      () async {
+        final scratch = _createScratchDirectory();
+        final staging = Directory(p.join(scratch.path, 'staging'));
+        final repo = Directory(p.join(staging.path, 'xcross'));
+        final bundle = Directory(
+          p.join(
+            repo.path,
+            'packages',
+            'xcross',
+            'build',
+            'cli',
+            'linux_x64',
+            'bundle',
+          ),
+        );
+        final builder = _createTestBuilder(
+          run: FixtureFakeProcessRunner(
+            onRun: (call) async {
+              if (call.arguments.contains('tool/build_xcross.dart')) {
+                _createBundle(bundle);
+              }
+              return _result();
+            },
+          ).run,
+          createTempDirectory: (_) async =>
+              staging..createSync(recursive: true),
+          deleteDirectory: (_) async => throw StateError('cleanup failed'),
+        );
+
+        final result = await builder.build<String>(
+          ref: const GitUpdateRef(
+            kind: GitUpdateRefKind.branch,
+            displayName: 'main',
+            fetchRef: 'refs/heads/main',
+            commitSha: '1234567890abcdef1234567890abcdef12345678',
+          ),
+          onBundle: (_, _) async => 'installed',
+        );
+
+        expect(result, 'installed');
+      },
+    );
+
+    test(
+      testOn: '!windows',
+
       'fetches and checks out the exact commit sha even when fetchRef differs',
       () async {
         final scratch = _createScratchDirectory();
@@ -562,65 +588,71 @@ void main() {
       );
     });
 
-    test('deletes the temp directory when the callback fails', () async {
-      final scratch = _createScratchDirectory();
-      final staging = Directory(p.join(scratch.path, 'staging'));
-      final repo = Directory(p.join(staging.path, 'xcross'));
-      final bundle = Directory(
-        p.join(
-          repo.path,
-          'packages',
-          'xcross',
-          'build',
-          'cli',
-          'linux_x64',
-          'bundle',
-        ),
-      );
-      final deleted = <String>[];
-      final builder = _createTestBuilder(
-        run: FixtureFakeProcessRunner(
-          onRun: (call) async {
-            if (call.executable == 'git' && call.arguments.first == 'clone') {
-              repo.createSync(recursive: true);
-            }
-            if (call.executable == _fakeDartExecutable &&
-                call.arguments.contains('tool/build_xcross.dart')) {
-              _createBundle(bundle);
-            }
-            return _result();
+    test(
+      testOn: '!windows',
+      'deletes the temp directory when the callback fails',
+      () async {
+        final scratch = _createScratchDirectory();
+        final staging = Directory(p.join(scratch.path, 'staging'));
+        final repo = Directory(p.join(staging.path, 'xcross'));
+        final bundle = Directory(
+          p.join(
+            repo.path,
+            'packages',
+            'xcross',
+            'build',
+            'cli',
+            'linux_x64',
+            'bundle',
+          ),
+        );
+        final deleted = <String>[];
+        final builder = _createTestBuilder(
+          run: FixtureFakeProcessRunner(
+            onRun: (call) async {
+              if (call.executable == 'git' && call.arguments.first == 'clone') {
+                repo.createSync(recursive: true);
+              }
+              if (call.executable == _fakeDartExecutable &&
+                  call.arguments.contains('tool/build_xcross.dart')) {
+                _createBundle(bundle);
+              }
+              return _result();
+            },
+          ).run,
+          createTempDirectory: (_) =>
+              Future.value(staging..createSync(recursive: true)),
+          deleteDirectory: (directory) async {
+            deleted.add(directory.path);
+            directory.deleteSync(recursive: true);
           },
-        ).run,
-        createTempDirectory: (_) =>
-            Future.value(staging..createSync(recursive: true)),
-        deleteDirectory: (directory) async {
-          deleted.add(directory.path);
-          directory.deleteSync(recursive: true);
-        },
-      );
+        );
 
-      await expectLater(
-        () => builder.build<void>(
-          ref: const GitUpdateRef(
-            kind: GitUpdateRefKind.branch,
-            displayName: 'main',
-            fetchRef: 'refs/heads/main',
-            commitSha: '1234567890abcdef1234567890abcdef12345678',
+        await expectLater(
+          () => builder.build<void>(
+            ref: const GitUpdateRef(
+              kind: GitUpdateRefKind.branch,
+              displayName: 'main',
+              fetchRef: 'refs/heads/main',
+              commitSha: '1234567890abcdef1234567890abcdef12345678',
+            ),
+            onBundle: (_, _) async => throw StateError('callback exploded'),
           ),
-          onBundle: (_, _) async => throw StateError('callback exploded'),
-        ),
-        throwsA(
-          isA<StateError>().having(
-            (error) => error.message,
-            'message',
-            'callback exploded',
+          throwsA(
+            isA<StateError>().having(
+              (error) => error.message,
+              'message',
+              'callback exploded',
+            ),
           ),
-        ),
-      );
-      expect(deleted, [staging.path]);
-    });
+        );
+        expect(deleted, [staging.path]);
+      },
+    );
 
     test(
+      testOn: '!windows',
+
       'cleanup failure does not replace the original callback error',
       () async {
         final scratch = _createScratchDirectory();
@@ -701,7 +733,7 @@ void main() {
       );
     });
 
-    test('throws when no built bundle exists', () async {
+    test(testOn: '!windows', 'throws when no built bundle exists', () async {
       final scratch = _createScratchDirectory();
       final staging = Directory(p.join(scratch.path, 'staging'));
       final repo = Directory(p.join(staging.path, 'xcross'));
@@ -740,6 +772,8 @@ void main() {
     });
 
     test(
+      testOn: '!windows',
+
       'selects the current native bundle despite stale other-ABI output',
       () async {
         final scratch = _createScratchDirectory();

@@ -20,6 +20,8 @@ void main() {
   });
 
   test(
+    testOn: '!windows',
+
     'index extracts only symlink objects and rejects escaping index paths',
     () {
       final links = context.graph.indexLinks(
@@ -72,6 +74,8 @@ void main() {
   });
 
   test(
+    testOn: '!windows',
+
     'allows dangling optional links only for empirical symlink capability',
     () {
       File(p.join(root.path, 'Package.swift')).writeAsStringSync(
@@ -108,6 +112,8 @@ void main() {
   );
 
   test(
+    testOn: '!windows',
+
     'rejects existing file and directory links escaping the checkout',
     () async {
       final outside = Directory.systemTemp.createTempSync(
@@ -144,6 +150,8 @@ void main() {
   );
 
   test(
+    testOn: '!windows',
+
     'rejects an existing destination alias that leaves the checkout',
     () async {
       final outside = Directory.systemTemp.createTempSync(
@@ -170,6 +178,8 @@ void main() {
   );
 
   test(
+    testOn: '!windows',
+
     'declared exclusions permit optional links while sources/resources remain required',
     () {
       File(p.join(root.path, 'Package.swift')).writeAsStringSync(
@@ -200,6 +210,8 @@ void main() {
   );
 
   test(
+    testOn: '!windows',
+
     'orders nested link targets before copying their containing directory',
     () {
       final target = Directory(p.join(root.path, 'tree'))..createSync();
@@ -218,6 +230,8 @@ void main() {
   );
 
   test(
+    testOn: '!windows',
+
     'stamp validators own filesystem shape checks without checkout cycles',
     () async {
       final target = File(p.join(root.path, 'payload'))

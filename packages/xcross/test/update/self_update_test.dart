@@ -168,6 +168,8 @@ void main() {
   }
 
   test(
+    testOn: '!windows',
+
     'verification failure restores remapped installed executable and libraries',
     () async {
       final mapped = FixtureRemappedOperations(root);
@@ -222,29 +224,76 @@ void main() {
     },
   );
 
-  test('consumes the final source install and verify phases', () async {
-    bundleBin('new-bin');
-    bundleLib('libkeep.so', 'new-lib');
+  test(
+    testOn: '!windows',
+    'consumes the final source install and verify phases',
+    () async {
+      bundleBin('new-bin');
+      bundleLib('libkeep.so', 'new-lib');
 
-    final progress = UpdateProgress('Source', 7, log: fixtureLog());
-    for (final action in const [
-      'Clone repository',
-      'Fetch commit',
-      'Check out commit',
-      'Resolve dependencies',
-      'Build xcross main',
-    ]) {
-      progress.nextLabel(action);
-    }
+      final progress = UpdateProgress('Source', 7, log: fixtureLog());
+      for (final action in const [
+        'Clone repository',
+        'Fetch commit',
+        'Check out commit',
+        'Resolve dependencies',
+        'Build xcross main',
+      ]) {
+        progress.nextLabel(action);
+      }
 
-    final lines = await _captureAsync(() async {
+      final lines = await _captureAsync(() async {
+        await _installBundle(
+          updater,
+          bundleRoot: bundle,
+          layout: layout,
+          label: 'xcross main',
+          expectedIdentity: 'main',
+          progress: progress,
+          runProcess:
+              ({
+                required executable,
+                required arguments,
+                required environment,
+                required timeout,
+              }) => recordRun(
+                executable: executable,
+                arguments: arguments,
+                environment: environment,
+                timeout: timeout,
+                result: const CapturedProcess(
+                  0,
+                  'xcross main (unreleased build)\n',
+                  '',
+                ),
+              ),
+        );
+      });
+
+      expect(
+        lines.where((line) => line.contains('Source [')),
+        containsAllInOrder([
+          contains('[6/7] Install xcross main'),
+          contains('[7/7] Verify xcross main'),
+        ]),
+      );
+    },
+  );
+
+  test(
+    testOn: '!windows',
+    'source bundle install swaps bin and lib payloads',
+    () async {
+      installedBin('old-bin');
+      installedLib('libkeep.so', 'old-lib');
+      bundleBin('new-bin');
+      bundleLib('libkeep.so', 'new-lib');
+
       await _installBundle(
         updater,
         bundleRoot: bundle,
         layout: layout,
-        label: 'xcross main',
-        expectedIdentity: 'main',
-        progress: progress,
+        label: 'source build',
         runProcess:
             ({
               required executable,
@@ -263,75 +312,83 @@ void main() {
               ),
             ),
       );
-    });
 
-    expect(
-      lines.where((line) => line.contains('Source [')),
-      containsAllInOrder([
-        contains('[6/7] Install xcross main'),
-        contains('[7/7] Verify xcross main'),
-      ]),
-    );
-  });
+      expect(File(layout.binaryPath).readAsStringSync(), 'new-bin');
+      expect(
+        File(p.join(layout.libDir, 'libkeep.so')).readAsStringSync(),
+        'new-lib',
+      );
+      expect(runRequests, hasLength(1));
+      expect(runRequests.single.executable, layout.binaryPath);
+      expect(runRequests.single.arguments, const ['--version']);
+      expect(
+        runRequests.single.environment,
+        containsPair(UpdateCheck.disableEnvVar, '1'),
+      );
+      expect(
+        runRequests.single.environment,
+        containsPair(SelfUpdate.verificationEnvVar, '1'),
+      );
+      expect(runRequests.single.timeout, const Duration(seconds: 30));
+    },
+  );
 
-  test('source bundle install swaps bin and lib payloads', () async {
-    installedBin('old-bin');
-    installedLib('libkeep.so', 'old-lib');
-    bundleBin('new-bin');
-    bundleLib('libkeep.so', 'new-lib');
+  test(
+    testOn: '!windows',
+    'verification failure rolls back all swapped files',
+    () async {
+      installedBin('old-bin');
+      installedLib('libkeep.so', 'old-lib');
+      bundleBin('new-bin');
+      bundleLib('libkeep.so', 'new-lib');
+      bundleLib('libnew.so', 'fresh-lib');
 
-    await _installBundle(
-      updater,
-      bundleRoot: bundle,
-      layout: layout,
-      label: 'source build',
-      runProcess:
-          ({
-            required executable,
-            required arguments,
-            required environment,
-            required timeout,
-          }) => recordRun(
-            executable: executable,
-            arguments: arguments,
-            environment: environment,
-            timeout: timeout,
-            result: const CapturedProcess(
-              0,
-              'xcross main (unreleased build)\n',
-              '',
-            ),
-          ),
-    );
+      await expectLater(
+        _installBundle(
+          updater,
+          bundleRoot: bundle,
+          layout: layout,
+          label: 'source build',
+          runProcess:
+              ({
+                required executable,
+                required arguments,
+                required environment,
+                required timeout,
+              }) => recordRun(
+                executable: executable,
+                arguments: arguments,
+                environment: environment,
+                timeout: timeout,
+                result: const CapturedProcess(
+                  1,
+                  'xcross other (unreleased build)\n',
+                  'boom',
+                ),
+              ),
+        ),
+        throwsA(isA<XcrossError>()),
+      );
 
-    expect(File(layout.binaryPath).readAsStringSync(), 'new-bin');
-    expect(
-      File(p.join(layout.libDir, 'libkeep.so')).readAsStringSync(),
-      'new-lib',
-    );
-    expect(runRequests, hasLength(1));
-    expect(runRequests.single.executable, layout.binaryPath);
-    expect(runRequests.single.arguments, const ['--version']);
-    expect(
-      runRequests.single.environment,
-      containsPair(UpdateCheck.disableEnvVar, '1'),
-    );
-    expect(
-      runRequests.single.environment,
-      containsPair(SelfUpdate.verificationEnvVar, '1'),
-    );
-    expect(runRequests.single.timeout, const Duration(seconds: 30));
-  });
+      expect(File(layout.binaryPath).readAsStringSync(), 'old-bin');
+      expect(
+        File(p.join(layout.libDir, 'libkeep.so')).readAsStringSync(),
+        'old-lib',
+      );
+      expect(File(p.join(layout.libDir, 'libnew.so')).existsSync(), isFalse);
+    },
+  );
 
-  test('verification failure rolls back all swapped files', () async {
-    installedBin('old-bin');
-    installedLib('libkeep.so', 'old-lib');
-    bundleBin('new-bin');
-    bundleLib('libkeep.so', 'new-lib');
-    bundleLib('libnew.so', 'fresh-lib');
+  test(
+    testOn: '!windows',
+    'successful verification discards backups',
+    () async {
+      installedBin('old-bin');
+      installedLib('libkeep.so', 'old-lib');
+      bundleBin('new-bin');
+      bundleLib('libkeep.so', 'new-lib');
 
-    await expectLater(
-      _installBundle(
+      await _installBundle(
         updater,
         bundleRoot: bundle,
         layout: layout,
@@ -348,67 +405,28 @@ void main() {
               environment: environment,
               timeout: timeout,
               result: const CapturedProcess(
-                1,
-                'xcross other (unreleased build)\n',
-                'boom',
+                0,
+                'xcross main (unreleased build)\n',
+                '',
               ),
             ),
-      ),
-      throwsA(isA<XcrossError>()),
-    );
+      );
 
-    expect(File(layout.binaryPath).readAsStringSync(), 'old-bin');
-    expect(
-      File(p.join(layout.libDir, 'libkeep.so')).readAsStringSync(),
-      'old-lib',
-    );
-    expect(File(p.join(layout.libDir, 'libnew.so')).existsSync(), isFalse);
-  });
+      expect(
+        Directory(
+          layout.binDir,
+        ).listSync().map((e) => p.basename(e.path)).toSet(),
+        {_exeName(), if (Platform.isWindows) 'xcrun.exe' else 'xcrun'},
+      );
 
-  test('successful verification discards backups', () async {
-    installedBin('old-bin');
-    installedLib('libkeep.so', 'old-lib');
-    bundleBin('new-bin');
-    bundleLib('libkeep.so', 'new-lib');
-
-    await _installBundle(
-      updater,
-      bundleRoot: bundle,
-      layout: layout,
-      label: 'source build',
-      runProcess:
-          ({
-            required executable,
-            required arguments,
-            required environment,
-            required timeout,
-          }) => recordRun(
-            executable: executable,
-            arguments: arguments,
-            environment: environment,
-            timeout: timeout,
-            result: const CapturedProcess(
-              0,
-              'xcross main (unreleased build)\n',
-              '',
-            ),
-          ),
-    );
-
-    expect(
-      Directory(
-        layout.binDir,
-      ).listSync().map((e) => p.basename(e.path)).toSet(),
-      {_exeName(), if (Platform.isWindows) 'xcrun.exe' else 'xcrun'},
-    );
-
-    expect(
-      Directory(
-        layout.libDir,
-      ).listSync().map((e) => p.basename(e.path)).toSet(),
-      {'libkeep.so'},
-    );
-  });
+      expect(
+        Directory(
+          layout.libDir,
+        ).listSync().map((e) => p.basename(e.path)).toSet(),
+        {'libkeep.so'},
+      );
+    },
+  );
 
   test(
     'release verification still requires the exact expected identity',
@@ -532,90 +550,98 @@ void main() {
     );
   });
 
-  test('installBundle rolls back on identity mismatch', () async {
-    installedBin('old-bin');
-    installedLib('libkeep.so', 'old-lib');
-    bundleBin('new-bin');
-    bundleLib('libkeep.so', 'new-lib');
-    bundleLib('libnew.so', 'fresh-lib');
+  test(
+    testOn: '!windows',
+    'installBundle rolls back on identity mismatch',
+    () async {
+      installedBin('old-bin');
+      installedLib('libkeep.so', 'old-lib');
+      bundleBin('new-bin');
+      bundleLib('libkeep.so', 'new-lib');
+      bundleLib('libnew.so', 'fresh-lib');
 
-    await expectLater(
-      _installBundle(
-        updater,
-        bundleRoot: bundle,
-        layout: layout,
-        label: 'xcross main',
-        expectedIdentity: 'main',
-        runProcess:
-            ({
-              required executable,
-              required arguments,
-              required environment,
-              required timeout,
-            }) => recordRun(
-              executable: executable,
-              arguments: arguments,
-              environment: environment,
-              timeout: timeout,
-              result: const CapturedProcess(
-                0,
-                'xcross other (unreleased build)\n',
-                '',
+      await expectLater(
+        _installBundle(
+          updater,
+          bundleRoot: bundle,
+          layout: layout,
+          label: 'xcross main',
+          expectedIdentity: 'main',
+          runProcess:
+              ({
+                required executable,
+                required arguments,
+                required environment,
+                required timeout,
+              }) => recordRun(
+                executable: executable,
+                arguments: arguments,
+                environment: environment,
+                timeout: timeout,
+                result: const CapturedProcess(
+                  0,
+                  'xcross other (unreleased build)\n',
+                  '',
+                ),
               ),
-            ),
-      ),
-      throwsA(isA<XcrossError>()),
-    );
+        ),
+        throwsA(isA<XcrossError>()),
+      );
 
-    expect(File(layout.binaryPath).readAsStringSync(), 'old-bin');
-    expect(
-      File(p.join(layout.libDir, 'libkeep.so')).readAsStringSync(),
-      'old-lib',
-    );
-    expect(File(p.join(layout.libDir, 'libnew.so')).existsSync(), isFalse);
-  });
+      expect(File(layout.binaryPath).readAsStringSync(), 'old-bin');
+      expect(
+        File(p.join(layout.libDir, 'libkeep.so')).readAsStringSync(),
+        'old-lib',
+      );
+      expect(File(p.join(layout.libDir, 'libnew.so')).existsSync(), isFalse);
+    },
+  );
 
-  test('installBundle rolls back on release marker mismatch', () async {
-    installedBin('old-bin');
-    installedLib('libkeep.so', 'old-lib');
-    bundleBin('new-bin');
-    bundleLib('libkeep.so', 'new-lib');
+  test(
+    testOn: '!windows',
+    'installBundle rolls back on release marker mismatch',
+    () async {
+      installedBin('old-bin');
+      installedLib('libkeep.so', 'old-lib');
+      bundleBin('new-bin');
+      bundleLib('libkeep.so', 'new-lib');
 
-    await expectLater(
-      _installBundle(
-        updater,
-        bundleRoot: bundle,
-        layout: layout,
-        label: 'xcross 1.2.3',
-        expectedIdentity: '1.2.3',
-        expectedReleased: true,
-        runProcess:
-            ({
-              required executable,
-              required arguments,
-              required environment,
-              required timeout,
-            }) => recordRun(
-              executable: executable,
-              arguments: arguments,
-              environment: environment,
-              timeout: timeout,
-              result: const CapturedProcess(
-                0,
-                'xcross 1.2.3 (unreleased build)\n',
-                '',
+      await expectLater(
+        _installBundle(
+          updater,
+          bundleRoot: bundle,
+          layout: layout,
+          label: 'xcross 1.2.3',
+          expectedIdentity: '1.2.3',
+          expectedReleased: true,
+          runProcess:
+              ({
+                required executable,
+                required arguments,
+                required environment,
+                required timeout,
+              }) => recordRun(
+                executable: executable,
+                arguments: arguments,
+                environment: environment,
+                timeout: timeout,
+                result: const CapturedProcess(
+                  0,
+                  'xcross 1.2.3 (unreleased build)\n',
+                  '',
+                ),
               ),
-            ),
-      ),
-      throwsA(isA<XcrossError>()),
-    );
+        ),
+        throwsA(isA<XcrossError>()),
+      );
 
-    expect(File(layout.binaryPath).readAsStringSync(), 'old-bin');
-    expect(
-      File(p.join(layout.libDir, 'libkeep.so')).readAsStringSync(),
-      'old-lib',
-    );
-  });
+      expect(File(layout.binaryPath).readAsStringSync(), 'old-bin');
+      expect(
+        File(p.join(layout.libDir, 'libkeep.so')).readAsStringSync(),
+        'old-lib',
+      );
+    },
+  );
 }
 
 SelfUpdate _configuredUpdater(

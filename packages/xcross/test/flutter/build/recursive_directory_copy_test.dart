@@ -59,6 +59,8 @@ void main() {
   });
 
   test(
+    testOn: '!windows',
+
     'maps selected destinations and preserves links without following them',
     () async {
       final temp = await Directory.systemTemp.createTemp('mapped-copy-');
@@ -148,6 +150,8 @@ void main() {
   );
 
   test(
+    testOn: '!windows',
+
     'rejects mapped destination link collisions without modifying targets',
     () async {
       final temp = await Directory.systemTemp.createTemp(

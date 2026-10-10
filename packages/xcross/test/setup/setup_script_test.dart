@@ -31,41 +31,50 @@ void main() {
   });
   tearDown(() => temporary.deleteSync(recursive: true));
 
-  test('Windows invokes PowerShell with exact script flags', () async {
-    final powershell = File(p.join(temporary.path, 'powershell'))..createSync();
-    final windowsRunner = fixtureRunner(
-      LinuxHost(environment: {'PATH': temporary.path}),
-      log: fixtureLog(),
-    );
-    final invocation = await WindowsSetupScript(
-      host,
-      windowsRunner,
-    ).invocation('chosen script.ps1');
-    expect(invocation.executable, powershell.path);
-    expect(invocation.arguments, [
-      '-NoProfile',
-      '-ExecutionPolicy',
-      'Bypass',
-      '-File',
-      'chosen script.ps1',
-    ]);
-  });
+  test(
+    testOn: '!windows',
+    'Windows invokes PowerShell with exact script flags',
+    () async {
+      final powershell = File(p.join(temporary.path, 'powershell'))
+        ..createSync();
+      final windowsRunner = fixtureRunner(
+        LinuxHost(environment: {'PATH': temporary.path}),
+        log: fixtureLog(),
+      );
+      final invocation = await WindowsSetupScript(
+        host,
+        windowsRunner,
+      ).invocation('chosen script.ps1');
+      expect(invocation.executable, powershell.path);
+      expect(invocation.arguments, [
+        '-NoProfile',
+        '-ExecutionPolicy',
+        'Bypass',
+        '-File',
+        'chosen script.ps1',
+      ]);
+    },
+  );
 
-  test('Windows replacement parks the destination after a sharing failure', () {
-    final destination = File(p.join(temporary.path, 'cache.ps1'))
-      ..writeAsStringSync('old');
-    final temporaryFile = File(p.join(temporary.path, 'next.ps1'))
-      ..writeAsStringSync('new');
-    WindowsSetupScript(
-      host,
-      runner,
-    ).replace(FixtureSharingFailure(temporaryFile), destination);
-    expect(destination.readAsStringSync(), 'new');
-    expect(
-      temporary.listSync().where((entry) => entry.path.endsWith('.bak')),
-      isEmpty,
-    );
-  });
+  test(
+    testOn: '!windows',
+    'Windows replacement parks the destination after a sharing failure',
+    () {
+      final destination = File(p.join(temporary.path, 'cache.ps1'))
+        ..writeAsStringSync('old');
+      final temporaryFile = File(p.join(temporary.path, 'next.ps1'))
+        ..writeAsStringSync('new');
+      WindowsSetupScript(
+        host,
+        runner,
+      ).replace(FixtureSharingFailure(temporaryFile), destination);
+      expect(destination.readAsStringSync(), 'new');
+      expect(
+        temporary.listSync().where((entry) => entry.path.endsWith('.bak')),
+        isEmpty,
+      );
+    },
+  );
 
   test('Windows replacement restores parked script when promotion fails', () {
     final destination = File(p.join(temporary.path, 'cache.ps1'))
@@ -87,156 +96,186 @@ void main() {
     );
   });
 
-  test('runs a configured local script through the host shell', () async {
-    final script = File(p.join(temporary.path, 'setup.sh'))
-      ..writeAsStringSync('echo setup');
-    String? executable;
-    List<String>? arguments;
-    Map<String, String>? environment;
-    SetupScriptApproval? shown;
-    final manager = SetupScriptManager(
-      createHttpClient: () =>
-          throw StateError('unexpected fixture HTTP client'),
-      source: script.path,
-      host: host,
-      runner: runner,
-      policy: PosixSetupScript(host),
-      execute: (value, args, env) async {
-        executable = value;
-        arguments = args;
-        environment = env;
-      },
-    );
+  test(
+    testOn: '!windows',
+    'runs a configured local script through the host shell',
+    () async {
+      final script = File(p.join(temporary.path, 'setup.sh'))
+        ..writeAsStringSync('echo setup');
+      String? executable;
+      List<String>? arguments;
+      Map<String, String>? environment;
+      SetupScriptApproval? shown;
+      final manager = SetupScriptManager(
+        createHttpClient: () =>
+            throw StateError('unexpected fixture HTTP client'),
+        source: script.path,
+        host: host,
+        runner: runner,
+        policy: PosixSetupScript(host),
+        execute: (value, args, env) async {
+          executable = value;
+          arguments = args;
+          environment = env;
+        },
+      );
 
-    final ran = await manager.run(
-      approve: (candidate) {
-        shown = candidate;
-        return true;
-      },
-    );
+      final ran = await manager.run(
+        approve: (candidate) {
+          shown = candidate;
+          return true;
+        },
+      );
 
-    expect(ran, isTrue);
-    expect(executable, '/bin/sh');
-    expect(arguments, [script.path]);
-    expect(environment, isEmpty);
-    expect(shown!.name, 'setup.sh');
-    expect(shown!.source, script.path);
-    expect(shown!.sha256, sha256.convert(utf8.encode('echo setup')).toString());
-  });
-
-  test('declined approval never executes the script', () async {
-    final script = File(p.join(temporary.path, 'setup.sh'))
-      ..writeAsStringSync('echo setup');
-    var executions = 0;
-    final manager = SetupScriptManager(
-      createHttpClient: () =>
-          throw StateError('unexpected fixture HTTP client'),
-      source: script.path,
-      host: host,
-      runner: runner,
-      policy: PosixSetupScript(host),
-      execute: (_, _, _) async => executions++,
-    );
-
-    expect(await manager.run(approve: (_) => false), isFalse);
-    expect(executions, 0);
-  });
-
-  test('remote approval shows the URL without credentials', () async {
-    SetupScriptApproval? shown;
-    Map<String, String>? environment;
-    final manager = SetupScriptManager(
-      createHttpClient: () =>
-          throw StateError('unexpected fixture HTTP client'),
-      source: 'https://user:secret@example.com/setup/apt.sh?token=abc',
-      host: host,
-      runner: runner,
-      policy: PosixSetupScript(host),
-      download: (_) async => utf8.encode('echo remote'),
-      execute: (_, _, env) async => environment = env,
-    );
-
-    await manager.run(
-      approve: (candidate) {
-        shown = candidate;
-        return true;
-      },
-      assumeYes: true,
-    );
-
-    expect(shown!.name, 'apt.sh');
-    expect(shown!.source, 'https://example.com/setup/apt.sh');
-    expect(shown!.path, isNot(shown!.source));
-    expect(environment, {'XCROSS_SETUP_ASSUME_YES': '1'});
-  });
-
-  test('refreshFirst falls back to the cached script offline', () async {
-    var online = true;
-    final manager = SetupScriptManager(
-      createHttpClient: () =>
-          throw StateError('unexpected fixture HTTP client'),
-      source: 'https://example.com/setup.ps1',
-      host: host,
-      runner: runner,
-      policy: PosixSetupScript(host),
-      download: (_) async {
-        if (!online) throw XcrossError('offline');
-        return utf8.encode('cached');
-      },
-      execute: (_, _, _) async {},
-    );
-    await manager.refresh();
-    online = false;
-
-    String? sha;
-    await manager.run(
-      refreshFirst: true,
-      approve: (candidate) {
-        sha = candidate.sha256;
-        return true;
-      },
-    );
-
-    expect(sha, sha256.convert(utf8.encode('cached')).toString());
-  });
-
-  test('Windows offers installed managers, else the direct script', () async {
-    File(p.join(temporary.path, 'scoop')).createSync();
-    final withScoop = WindowsSetupScript(
-      host,
-      fixtureRunner(
-        LinuxHost(environment: {'PATH': temporary.path}),
-        log: fixtureLog(),
-      ),
-    );
-    final scripts = await withScoop.defaultSources();
-    expect(scripts.map((script) => script.manager), ['scoop']);
-    expect(scripts.single.source, endsWith('/setup/scoop.ps1'));
-    expect(await withScoop.sourceFor('winget'), isNull);
-    expect(
-      (await withScoop.sourceFor('direct'))!.source,
-      endsWith('/setup/direct.ps1'),
-    );
-
-    final bare = WindowsSetupScript(
-      host,
-      fixtureRunner(
-        LinuxHost(environment: {'PATH': p.join(temporary.path, 'none')}),
-        log: fixtureLog(),
-      ),
-    );
-    expect((await bare.defaultSources()).map((script) => script.manager), [
-      'direct',
-    ]);
-    expect(withScoop.supportedManagers, ['winget', 'scoop', 'choco', 'direct']);
-    expect(
-      WindowsSetupScript.scriptUrl('v1.2.3', 'winget'),
-      'https://raw.githubusercontent.com/arxdeus/xcross/v1.2.3/setup/winget.ps1',
-    );
-    expect(await PosixSetupScript(host).defaultSources(), isEmpty);
-  });
+      expect(ran, isTrue);
+      expect(executable, '/bin/sh');
+      expect(arguments, [script.path]);
+      expect(environment, isEmpty);
+      expect(shown!.name, 'setup.sh');
+      expect(shown!.source, script.path);
+      expect(
+        shown!.sha256,
+        sha256.convert(utf8.encode('echo setup')).toString(),
+      );
+    },
+  );
 
   test(
+    testOn: '!windows',
+    'declined approval never executes the script',
+    () async {
+      final script = File(p.join(temporary.path, 'setup.sh'))
+        ..writeAsStringSync('echo setup');
+      var executions = 0;
+      final manager = SetupScriptManager(
+        createHttpClient: () =>
+            throw StateError('unexpected fixture HTTP client'),
+        source: script.path,
+        host: host,
+        runner: runner,
+        policy: PosixSetupScript(host),
+        execute: (_, _, _) async => executions++,
+      );
+
+      expect(await manager.run(approve: (_) => false), isFalse);
+      expect(executions, 0);
+    },
+  );
+
+  test(
+    testOn: '!windows',
+    'remote approval shows the URL without credentials',
+    () async {
+      SetupScriptApproval? shown;
+      Map<String, String>? environment;
+      final manager = SetupScriptManager(
+        createHttpClient: () =>
+            throw StateError('unexpected fixture HTTP client'),
+        source: 'https://user:secret@example.com/setup/apt.sh?token=abc',
+        host: host,
+        runner: runner,
+        policy: PosixSetupScript(host),
+        download: (_) async => utf8.encode('echo remote'),
+        execute: (_, _, env) async => environment = env,
+      );
+
+      await manager.run(
+        approve: (candidate) {
+          shown = candidate;
+          return true;
+        },
+        assumeYes: true,
+      );
+
+      expect(shown!.name, 'apt.sh');
+      expect(shown!.source, 'https://example.com/setup/apt.sh');
+      expect(shown!.path, isNot(shown!.source));
+      expect(environment, {'XCROSS_SETUP_ASSUME_YES': '1'});
+    },
+  );
+
+  test(
+    testOn: '!windows',
+    'refreshFirst falls back to the cached script offline',
+    () async {
+      var online = true;
+      final manager = SetupScriptManager(
+        createHttpClient: () =>
+            throw StateError('unexpected fixture HTTP client'),
+        source: 'https://example.com/setup.ps1',
+        host: host,
+        runner: runner,
+        policy: PosixSetupScript(host),
+        download: (_) async {
+          if (!online) throw XcrossError('offline');
+          return utf8.encode('cached');
+        },
+        execute: (_, _, _) async {},
+      );
+      await manager.refresh();
+      online = false;
+
+      String? sha;
+      await manager.run(
+        refreshFirst: true,
+        approve: (candidate) {
+          sha = candidate.sha256;
+          return true;
+        },
+      );
+
+      expect(sha, sha256.convert(utf8.encode('cached')).toString());
+    },
+  );
+
+  test(
+    testOn: '!windows',
+    'Windows offers installed managers, else the direct script',
+    () async {
+      File(p.join(temporary.path, 'scoop')).createSync();
+      final withScoop = WindowsSetupScript(
+        host,
+        fixtureRunner(
+          LinuxHost(environment: {'PATH': temporary.path}),
+          log: fixtureLog(),
+        ),
+      );
+      final scripts = await withScoop.defaultSources();
+      expect(scripts.map((script) => script.manager), ['scoop']);
+      expect(scripts.single.source, endsWith('/setup/scoop.ps1'));
+      expect(await withScoop.sourceFor('winget'), isNull);
+      expect(
+        (await withScoop.sourceFor('direct'))!.source,
+        endsWith('/setup/direct.ps1'),
+      );
+
+      final bare = WindowsSetupScript(
+        host,
+        fixtureRunner(
+          LinuxHost(environment: {'PATH': p.join(temporary.path, 'none')}),
+          log: fixtureLog(),
+        ),
+      );
+      expect((await bare.defaultSources()).map((script) => script.manager), [
+        'direct',
+      ]);
+      expect(withScoop.supportedManagers, [
+        'winget',
+        'scoop',
+        'choco',
+        'direct',
+      ]);
+      expect(
+        WindowsSetupScript.scriptUrl('v1.2.3', 'winget'),
+        'https://raw.githubusercontent.com/arxdeus/xcross/v1.2.3/setup/winget.ps1',
+      );
+      expect(await PosixSetupScript(host).defaultSources(), isEmpty);
+    },
+  );
+
+  test(
+    testOn: '!windows',
+
     'caches remote scripts by content hash and reuses current content',
     () async {
       final bytes = utf8.encode('#!/bin/sh\necho setup\n');
@@ -264,61 +303,69 @@ void main() {
     },
   );
 
-  test('rejects an invalid cached pointer and downloads again', () async {
-    final bytes = utf8.encode('echo setup');
-    var downloads = 0;
-    final manager = SetupScriptManager(
-      createHttpClient: () =>
-          throw StateError('unexpected fixture HTTP client'),
-      source: 'https://example.com/setup.sh',
-      host: host,
-      runner: runner,
-      policy: PosixSetupScript(host),
-      download: (_) async {
-        downloads++;
-        return bytes;
-      },
-    );
+  test(
+    testOn: '!windows',
+    'rejects an invalid cached pointer and downloads again',
+    () async {
+      final bytes = utf8.encode('echo setup');
+      var downloads = 0;
+      final manager = SetupScriptManager(
+        createHttpClient: () =>
+            throw StateError('unexpected fixture HTTP client'),
+        source: 'https://example.com/setup.sh',
+        host: host,
+        runner: runner,
+        policy: PosixSetupScript(host),
+        download: (_) async {
+          downloads++;
+          return bytes;
+        },
+      );
 
-    await manager.resolve();
-    final pointer = temporary
-        .listSync(recursive: true)
-        .whereType<File>()
-        .singleWhere((file) => file.path.endsWith('.current'));
-    pointer.writeAsStringSync(sha256.convert(bytes).toString().toUpperCase());
+      await manager.resolve();
+      final pointer = temporary
+          .listSync(recursive: true)
+          .whereType<File>()
+          .singleWhere((file) => file.path.endsWith('.current'));
+      pointer.writeAsStringSync(sha256.convert(bytes).toString().toUpperCase());
 
-    final resolved = await manager.resolve();
+      final resolved = await manager.resolve();
 
-    expect(downloads, 2);
-    expect(resolved!.readAsBytesSync(), bytes);
-    expect(pointer.readAsStringSync(), sha256.convert(bytes).toString());
-  });
+      expect(downloads, 2);
+      expect(resolved!.readAsBytesSync(), bytes);
+      expect(pointer.readAsStringSync(), sha256.convert(bytes).toString());
+    },
+  );
 
-  test('rejects cached content whose digest does not match', () async {
-    final bytes = utf8.encode('echo setup');
-    var downloads = 0;
-    final manager = SetupScriptManager(
-      createHttpClient: () =>
-          throw StateError('unexpected fixture HTTP client'),
-      source: 'https://example.com/setup.sh',
-      host: host,
-      runner: runner,
-      policy: PosixSetupScript(host),
-      download: (_) async {
-        downloads++;
-        return bytes;
-      },
-    );
+  test(
+    testOn: '!windows',
+    'rejects cached content whose digest does not match',
+    () async {
+      final bytes = utf8.encode('echo setup');
+      var downloads = 0;
+      final manager = SetupScriptManager(
+        createHttpClient: () =>
+            throw StateError('unexpected fixture HTTP client'),
+        source: 'https://example.com/setup.sh',
+        host: host,
+        runner: runner,
+        policy: PosixSetupScript(host),
+        download: (_) async {
+          downloads++;
+          return bytes;
+        },
+      );
 
-    final cached = await manager.resolve();
-    cached!.writeAsStringSync('corrupt');
+      final cached = await manager.resolve();
+      cached!.writeAsStringSync('corrupt');
 
-    final resolved = await manager.resolve();
+      final resolved = await manager.resolve();
 
-    expect(downloads, 2);
-    expect(resolved!.path, cached.path);
-    expect(resolved.readAsBytesSync(), bytes);
-  });
+      expect(downloads, 2);
+      expect(resolved!.path, cached.path);
+      expect(resolved.readAsBytesSync(), bytes);
+    },
+  );
 
   test(
     'wraps injected download transport failures and closes client',
@@ -348,6 +395,8 @@ void main() {
   );
 
   test(
+    testOn: '!windows',
+
     'uses configured HTTP client for success without native transport',
     () async {
       final client = FixtureSetupHttpClient(
@@ -413,27 +462,31 @@ void main() {
     expect(client.closed, isTrue);
   });
 
-  test('refresh downloads content and advances the cached hash', () async {
-    var payload = utf8.encode('one');
-    final manager = SetupScriptManager(
-      createHttpClient: () =>
-          throw StateError('unexpected fixture HTTP client'),
-      source: 'https://example.com/setup.sh',
-      host: host,
-      runner: runner,
-      policy: PosixSetupScript(host),
-      download: (_) async => payload,
-    );
+  test(
+    testOn: '!windows',
+    'refresh downloads content and advances the cached hash',
+    () async {
+      var payload = utf8.encode('one');
+      final manager = SetupScriptManager(
+        createHttpClient: () =>
+            throw StateError('unexpected fixture HTTP client'),
+        source: 'https://example.com/setup.sh',
+        host: host,
+        runner: runner,
+        policy: PosixSetupScript(host),
+        download: (_) async => payload,
+      );
 
-    final first = await manager.refresh();
-    payload = utf8.encode('two');
-    final second = await manager.refresh();
+      final first = await manager.refresh();
+      payload = utf8.encode('two');
+      final second = await manager.refresh();
 
-    expect(first!.path, isNot(second!.path));
-    expect(first.existsSync(), isTrue);
-    expect(second.existsSync(), isTrue);
-    expect((await manager.resolve())!.path, second.path);
-  });
+      expect(first!.path, isNot(second!.path));
+      expect(first.existsSync(), isTrue);
+      expect(second.existsSync(), isTrue);
+      expect((await manager.resolve())!.path, second.path);
+    },
+  );
 }
 
 @internal

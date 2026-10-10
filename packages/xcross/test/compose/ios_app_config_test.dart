@@ -75,35 +75,44 @@ PRODUCT_BUNDLE_IDENTIFIER = $(DOMAIN).$(APP_SEGMENT)
       expect(config.currentProjectVersion, '1');
     });
 
-    test('load returns null when Config.xcconfig is missing', () {
-      final root = Directory.systemTemp.createTempSync('xcross_ios_config_');
-      addTearDown(() => root.deleteSync(recursive: true));
+    test(
+      testOn: '!windows',
+      'load returns null when Config.xcconfig is missing',
+      () {
+        final root = Directory.systemTemp.createTempSync('xcross_ios_config_');
+        addTearDown(() => root.deleteSync(recursive: true));
 
-      expect(
-        IosAppConfigLoader(
-          session.fixtureRunner.host.fileSystem,
-        ).load(root.path),
-        isNull,
-      );
-    });
+        expect(
+          IosAppConfigLoader(
+            session.fixtureRunner.host.fileSystem,
+          ).load(root.path),
+          isNull,
+        );
+      },
+    );
 
-    test('load reads iosApp Configuration Config.xcconfig', () {
-      final root = Directory.systemTemp.createTempSync('xcross_ios_config_');
-      addTearDown(() => root.deleteSync(recursive: true));
-      final configDir = Directory(p.join(root.path, 'iosApp', 'Configuration'))
-        ..createSync(recursive: true);
-      File(p.join(configDir.path, 'Config.xcconfig')).writeAsStringSync('''
+    test(
+      testOn: '!windows',
+      'load reads iosApp Configuration Config.xcconfig',
+      () {
+        final root = Directory.systemTemp.createTempSync('xcross_ios_config_');
+        addTearDown(() => root.deleteSync(recursive: true));
+        final configDir = Directory(
+          p.join(root.path, 'iosApp', 'Configuration'),
+        )..createSync(recursive: true);
+        File(p.join(configDir.path, 'Config.xcconfig')).writeAsStringSync('''
 PRODUCT_NAME = FromFile
 PRODUCT_BUNDLE_IDENTIFIER = org.example.file
 ''');
 
-      final config = IosAppConfigLoader(
-        session.fixtureRunner.host.fileSystem,
-      ).load(root.path);
+        final config = IosAppConfigLoader(
+          session.fixtureRunner.host.fileSystem,
+        ).load(root.path);
 
-      expect(config, isNotNull);
-      expect(config!.productName, 'FromFile');
-      expect(config.bundleId, 'org.example.file');
-    });
+        expect(config, isNotNull);
+        expect(config!.productName, 'FromFile');
+        expect(config.bundleId, 'org.example.file');
+      },
+    );
   });
 }

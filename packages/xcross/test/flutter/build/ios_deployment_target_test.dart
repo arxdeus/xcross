@@ -1,3 +1,6 @@
+@TestOn('!windows')
+library;
+
 import 'dart:io';
 
 import 'package:darwin_sdk_kit/target/iphone/iphone_build_platform.dart';

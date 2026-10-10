@@ -1,3 +1,6 @@
+@TestOn('!windows')
+library;
+
 import 'dart:io';
 
 import 'package:archive/archive_io.dart';

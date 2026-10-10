@@ -33,6 +33,8 @@ void main() {
     });
 
     test(
+      testOn: '!windows',
+
       'reads a .json object into KEY=VALUE strings, preserving key order',
       () async {
         final path = await writeFile('defines.json', '{"A": 1, "B": 2}');
@@ -49,19 +51,25 @@ void main() {
 
     // jsonDecode gives a Dart bool; the merge uses Dart's toString (not
     // jsonEncode), so a JSON boolean must come out as the bare word `true`.
-    test('renders JSON boolean values via Dart toString, not JSON', () async {
-      final path = await writeFile('defines.json', '{"FLAG": true}');
+    test(
+      testOn: '!windows',
+      'renders JSON boolean values via Dart toString, not JSON',
+      () async {
+        final path = await writeFile('defines.json', '{"FLAG": true}');
 
-      expect(
-        await DartDefinesReader(
-          LinuxHost().fileSystem,
-          p.context,
-        ).mergeDartDefines([path], []),
-        ['FLAG=true'],
-      );
-    });
+        expect(
+          await DartDefinesReader(
+            LinuxHost().fileSystem,
+            p.context,
+          ).mergeDartDefines([path], []),
+          ['FLAG=true'],
+        );
+      },
+    );
 
     test(
+      testOn: '!windows',
+
       'parses env-style files, skipping comments/blanks/no-equals lines',
       () async {
         final path = await writeFile(
@@ -79,22 +87,28 @@ void main() {
       },
     );
 
-    test('trims surrounding whitespace but keeps the line verbatim', () async {
-      final path = await writeFile('defines.env', '   K3=V3   \n');
+    test(
+      testOn: '!windows',
+      'trims surrounding whitespace but keeps the line verbatim',
+      () async {
+        final path = await writeFile('defines.env', '   K3=V3   \n');
 
-      expect(
-        await DartDefinesReader(
-          LinuxHost().fileSystem,
-          p.context,
-        ).mergeDartDefines([path], []),
-        ['K3=V3'],
-      );
-    });
+        expect(
+          await DartDefinesReader(
+            LinuxHost().fileSystem,
+            p.context,
+          ).mergeDartDefines([path], []),
+          ['K3=V3'],
+        );
+      },
+    );
 
     // Extension check only special-cases `.json`; anything else (even a
     // non-`.env` extension) falls through to env-style line parsing as long
     // as the content doesn't start with `{`.
     test(
+      testOn: '!windows',
+
       'treats a non-.json, non-{ file as env-style regardless of extension',
       () async {
         final path = await writeFile('defines.txt', 'X=1\n');
@@ -110,6 +124,8 @@ void main() {
     );
 
     test(
+      testOn: '!windows',
+
       'emits all file entries (in order) before explicit entries, without deduping',
       () async {
         final file1 = await writeFile('file1.env', 'K=fromFile1\n');
@@ -157,6 +173,8 @@ void main() {
     });
 
     test(
+      testOn: '!windows',
+
       'throws FlutterBuildError when a .json file is not a JSON object',
       () async {
         final path = await writeFile('defines.json', '[1, 2, 3]');

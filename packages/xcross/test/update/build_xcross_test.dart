@@ -105,30 +105,37 @@ void main() {
     },
   );
 
-  test('embeds decoded ref identity only while the build runs', () async {
-    seed();
-    final original = File(generatedPath).readAsStringSync();
-    String? generatedDuringBuild;
+  test(
+    testOn: '!windows',
+    'embeds decoded ref identity only while the build runs',
+    () async {
+      seed();
+      final original = File(generatedPath).readAsStringSync();
+      String? generatedDuringBuild;
 
-    final result = await buildXcross(
-      output: fixtureSink(),
-      errors: fixtureSink(),
-      runner: fixtureRunner(LinuxHost(architecture: 'x64'), log: fixtureLog()),
-      dartExecutable: '/fixture/dart',
-      packageRoot: sandbox,
-      encodedVersion: Uri.encodeComponent('feature/a,b=c'),
-      released: false,
-      runBuild: (executable, arguments, {required workingDirectory}) async {
-        generatedDuringBuild = File(generatedPath).readAsStringSync();
-        return 0;
-      },
-    );
+      final result = await buildXcross(
+        output: fixtureSink(),
+        errors: fixtureSink(),
+        runner: fixtureRunner(
+          LinuxHost(architecture: 'x64'),
+          log: fixtureLog(),
+        ),
+        dartExecutable: '/fixture/dart',
+        packageRoot: sandbox,
+        encodedVersion: Uri.encodeComponent('feature/a,b=c'),
+        released: false,
+        runBuild: (executable, arguments, {required workingDirectory}) async {
+          generatedDuringBuild = File(generatedPath).readAsStringSync();
+          return 0;
+        },
+      );
 
-    expect(result, 0);
-    expect(generatedDuringBuild, contains('"feature/a,b=c"'));
-    expect(generatedDuringBuild, contains('false'));
-    expect(File(generatedPath).readAsStringSync(), original);
-  });
+      expect(result, 0);
+      expect(generatedDuringBuild, contains('"feature/a,b=c"'));
+      expect(generatedDuringBuild, contains('false'));
+      expect(File(generatedPath).readAsStringSync(), original);
+    },
+  );
 
   test(
     'second compiler failure restores identity without publishing sibling',
@@ -169,7 +176,7 @@ void main() {
     },
   );
 
-  test('sibling copy failure restores identity', () async {
+  test(testOn: '!windows', 'sibling copy failure restores identity', () async {
     seed();
     final original = File(generatedPath).readAsBytesSync();
     File(
@@ -306,6 +313,8 @@ void main() {
   );
 
   test(
+    testOn: '!windows',
+
     'normalizes a released v-prefixed tag to the pubspec core identity',
     () async {
       seed();

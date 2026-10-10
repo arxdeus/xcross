@@ -33,70 +33,48 @@ void main() {
     if (root.existsSync()) await root.delete(recursive: true);
   });
 
-  test('fixture generator respects selected mapped namespace', () {
-    final context = CheckoutTestContext(root, (_) => CheckoutTestProcess());
-    addTearDown(context.output.close);
-    final logicalRoot = p.join(root.path, 'logical');
-    final physicalRoot = p.join(root.path, 'mapped');
-    final fileSystem = MappedGateFixtureFileSystem(
-      logicalRoot: logicalRoot,
-      physicalRoot: physicalRoot,
-      delegate: context.host.fileSystem,
-      paths: context.host.paths.context,
-    );
-    final generator = SwiftPmBinaryFixtureGenerator(
-      fileSystem: fileSystem,
-      paths: context.host.paths.context,
-    );
-    final fixture = generator.generate(
-      root: p.join(logicalRoot, 'first'),
-      archiveUrl: Uri.parse('https://fixture.invalid/BinaryFixture.zip'),
-    );
-    expect(
-      fixture.pluginRoot.path,
-      p.join(physicalRoot, 'first', 'binary_fixture_plugin'),
-    );
-    expect(fileSystem.acquisitions, hasLength(8));
-    final second = generator.generate(
-      root: p.join(logicalRoot, 'second'),
-      archiveUrl: Uri.parse('https://fixture.invalid/BinaryFixture.zip'),
-    );
-    expect(fileSystem.acquisitions, hasLength(16));
-    expect(fixture.archive.readAsBytesSync(), second.archive.readAsBytesSync());
-    expect(fixture.checksum, second.checksum);
-    expect(
-      fixture.checksum,
-      sha256.convert(fixture.archive.readAsBytesSync()).toString(),
-    );
-    final manifest = fileSystem
-        .file(
-          p.join(
-            logicalRoot,
-            'first',
-            'binary_fixture_plugin',
-            'ios',
-            'binary_fixture_plugin',
-            'Package.swift',
-          ),
-        )
-        .readAsStringSync();
-    expect(manifest, contains('checksum: "${fixture.checksum}"'));
-    expect(manifest, contains('import PackageDescription'));
-    expect(
-      fileSystem
-          .file(
-            p.join(
-              logicalRoot,
-              'first',
-              'binary_fixture_plugin',
-              'pubspec.yaml',
-            ),
-          )
-          .existsSync(),
-      isTrue,
-    );
-    expect(
-      fileSystem
+  test(
+    testOn: '!windows',
+    'fixture generator respects selected mapped namespace',
+    () {
+      final context = CheckoutTestContext(root, (_) => CheckoutTestProcess());
+      addTearDown(context.output.close);
+      final logicalRoot = p.join(root.path, 'logical');
+      final physicalRoot = p.join(root.path, 'mapped');
+      final fileSystem = MappedGateFixtureFileSystem(
+        logicalRoot: logicalRoot,
+        physicalRoot: physicalRoot,
+        delegate: context.host.fileSystem,
+        paths: context.host.paths.context,
+      );
+      final generator = SwiftPmBinaryFixtureGenerator(
+        fileSystem: fileSystem,
+        paths: context.host.paths.context,
+      );
+      final fixture = generator.generate(
+        root: p.join(logicalRoot, 'first'),
+        archiveUrl: Uri.parse('https://fixture.invalid/BinaryFixture.zip'),
+      );
+      expect(
+        fixture.pluginRoot.path,
+        p.join(physicalRoot, 'first', 'binary_fixture_plugin'),
+      );
+      expect(fileSystem.acquisitions, hasLength(8));
+      final second = generator.generate(
+        root: p.join(logicalRoot, 'second'),
+        archiveUrl: Uri.parse('https://fixture.invalid/BinaryFixture.zip'),
+      );
+      expect(fileSystem.acquisitions, hasLength(16));
+      expect(
+        fixture.archive.readAsBytesSync(),
+        second.archive.readAsBytesSync(),
+      );
+      expect(fixture.checksum, second.checksum);
+      expect(
+        fixture.checksum,
+        sha256.convert(fixture.archive.readAsBytesSync()).toString(),
+      );
+      final manifest = fileSystem
           .file(
             p.join(
               logicalRoot,
@@ -104,66 +82,101 @@ void main() {
               'binary_fixture_plugin',
               'ios',
               'binary_fixture_plugin',
-              'Sources',
-              'binary_fixture_plugin',
-              'BinaryFixturePlugin.swift',
+              'Package.swift',
             ),
           )
-          .existsSync(),
-      isTrue,
-    );
-    final decoded = ZipDecoder().decodeBytes(fixture.archive.readAsBytesSync());
-    final names = decoded.files.map((entry) => entry.name).toList();
-    expect(names, orderedEquals([...names]..sort()));
-    expect(names.every((name) => !name.contains(r'\')), isTrue);
-    expect(Directory(logicalRoot).existsSync(), isFalse);
-
-    final frameworks = <Directory>[];
-    for (final order in [false, true]) {
-      final directory = p.join(
-        logicalRoot,
-        order ? 'tree-second' : 'tree-first',
-      );
-      final framework = generator.generateXcframework(
-        root: directory,
-        name: 'GateFixture',
-        library: const SwiftPmBinaryFixtureLibrary(identifier: 'ios-arm64'),
-      );
-      for (final name in order ? ['Z.txt', 'A.txt'] : ['A.txt', 'Z.txt']) {
+          .readAsStringSync();
+      expect(manifest, contains('checksum: "${fixture.checksum}"'));
+      expect(manifest, contains('import PackageDescription'));
+      expect(
         fileSystem
-            .file(p.join(directory, 'GateFixture.xcframework', name))
-            .writeAsStringSync(name);
-      }
-      frameworks.add(framework);
-      generator.writeGatePackage(
-        root: directory,
-        targetName: 'GateFixture',
-        path: 'GateFixture.xcframework',
+            .file(
+              p.join(
+                logicalRoot,
+                'first',
+                'binary_fixture_plugin',
+                'pubspec.yaml',
+              ),
+            )
+            .existsSync(),
+        isTrue,
       );
       expect(
-        fileSystem.file(p.join(directory, 'Package.swift')).readAsStringSync(),
-        contains('import PackageDescription'),
+        fileSystem
+            .file(
+              p.join(
+                logicalRoot,
+                'first',
+                'binary_fixture_plugin',
+                'ios',
+                'binary_fixture_plugin',
+                'Sources',
+                'binary_fixture_plugin',
+                'BinaryFixturePlugin.swift',
+              ),
+            )
+            .existsSync(),
+        isTrue,
       );
-    }
-    final firstArchive = generator.archiveXcframework(
-      framework: frameworks[0],
-      output: p.join(logicalRoot, 'tree-first.zip'),
-    );
-    final secondArchive = generator.archiveXcframework(
-      framework: frameworks[1],
-      output: p.join(logicalRoot, 'tree-second.zip'),
-    );
-    expect(firstArchive.readAsBytesSync(), secondArchive.readAsBytesSync());
-    final archivedNames = ZipDecoder()
-        .decodeBytes(firstArchive.readAsBytesSync())
-        .files
-        .map((entry) => entry.name)
-        .toList();
-    expect(archivedNames, orderedEquals([...archivedNames]..sort()));
-    expect(archivedNames.every((name) => !name.contains(r'\')), isTrue);
-  });
+      final decoded = ZipDecoder().decodeBytes(
+        fixture.archive.readAsBytesSync(),
+      );
+      final names = decoded.files.map((entry) => entry.name).toList();
+      expect(names, orderedEquals([...names]..sort()));
+      expect(names.every((name) => !name.contains(r'\')), isTrue);
+      expect(Directory(logicalRoot).existsSync(), isFalse);
+
+      final frameworks = <Directory>[];
+      for (final order in [false, true]) {
+        final directory = p.join(
+          logicalRoot,
+          order ? 'tree-second' : 'tree-first',
+        );
+        final framework = generator.generateXcframework(
+          root: directory,
+          name: 'GateFixture',
+          library: const SwiftPmBinaryFixtureLibrary(identifier: 'ios-arm64'),
+        );
+        for (final name in order ? ['Z.txt', 'A.txt'] : ['A.txt', 'Z.txt']) {
+          fileSystem
+              .file(p.join(directory, 'GateFixture.xcframework', name))
+              .writeAsStringSync(name);
+        }
+        frameworks.add(framework);
+        generator.writeGatePackage(
+          root: directory,
+          targetName: 'GateFixture',
+          path: 'GateFixture.xcframework',
+        );
+        expect(
+          fileSystem
+              .file(p.join(directory, 'Package.swift'))
+              .readAsStringSync(),
+          contains('import PackageDescription'),
+        );
+      }
+      final firstArchive = generator.archiveXcframework(
+        framework: frameworks[0],
+        output: p.join(logicalRoot, 'tree-first.zip'),
+      );
+      final secondArchive = generator.archiveXcframework(
+        framework: frameworks[1],
+        output: p.join(logicalRoot, 'tree-second.zip'),
+      );
+      expect(firstArchive.readAsBytesSync(), secondArchive.readAsBytesSync());
+      final archivedNames = ZipDecoder()
+          .decodeBytes(firstArchive.readAsBytesSync())
+          .files
+          .map((entry) => entry.name)
+          .toList();
+      expect(archivedNames, orderedEquals([...archivedNames]..sort()));
+      expect(archivedNames.every((name) => !name.contains(r'\')), isTrue);
+    },
+  );
 
   test(
+    testOn: '!windows',
+
     'fixture generator uses selected Windows paths and portable archive names',
     () {
       final context = CheckoutTestContext(root, (_) => CheckoutTestProcess());

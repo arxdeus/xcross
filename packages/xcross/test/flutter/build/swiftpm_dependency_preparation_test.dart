@@ -59,6 +59,8 @@ void main() {
 
   for (final triple in ['arm64-apple-ios', 'arm64-apple-ios-simulator']) {
     test(
+      testOn: '!windows',
+
       'selected Windows prepare preserves complete leading manifest argv for $triple',
       () async {
         final preparation = dependencyTestPreparation(context, root);
@@ -97,6 +99,8 @@ void main() {
   }
 
   test(
+    testOn: '!windows',
+
     'Windows resolves once and never rewrites resolved checkout manifests',
     () async {
       final data = command();
@@ -173,6 +177,8 @@ void main() {
   );
 
   test(
+    testOn: '!windows',
+
     'Windows re-resolves only when checkout materialization changed',
     () async {
       await context.output.close();

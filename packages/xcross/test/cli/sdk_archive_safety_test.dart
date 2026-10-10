@@ -102,39 +102,45 @@ void main() {
     });
   });
 
-  test('writes directories and materializes SDK symlinks', () async {
-    final temp = Directory.systemTemp.createTempSync('xcross-sdk-entries-');
-    addTearDown(() => temp.deleteSync(recursive: true));
-    const sdk =
-        'Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/'
-        'Developer/SDKs/iPhoneOS17.5.sdk';
+  test(
+    testOn: '!windows',
+    'writes directories and materializes SDK symlinks',
+    () async {
+      final temp = Directory.systemTemp.createTempSync('xcross-sdk-entries-');
+      addTearDown(() => temp.deleteSync(recursive: true));
+      const sdk =
+          'Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/'
+          'Developer/SDKs/iPhoneOS17.5.sdk';
 
-    final count = await materializedInstaller.writeSdkEntries(
-      Stream.fromIterable([
-        entry('$sdk/usr/include', mode: 0x41ed),
-        entry('$sdk/usr/include/real.h', data: 'header'),
-        entry('$sdk/usr/include/alias.h', mode: 0xa1ff, data: 'real.h'),
-      ]),
-      temp.path,
-    );
+      final count = await materializedInstaller.writeSdkEntries(
+        Stream.fromIterable([
+          entry('$sdk/usr/include', mode: 0x41ed),
+          entry('$sdk/usr/include/real.h', data: 'header'),
+          entry('$sdk/usr/include/alias.h', mode: 0xa1ff, data: 'real.h'),
+        ]),
+        temp.path,
+      );
 
-    final include = p.join(
-      temp.path,
-      'Developer',
-      'Platforms',
-      'iPhoneOS.platform',
-      'Developer',
-      'SDKs',
-      'iPhoneOS17.5.sdk',
-      'usr',
-      'include',
-    );
-    expect(count, 3);
-    expect(Directory(include).existsSync(), isTrue);
-    expect(File(p.join(include, 'alias.h')).readAsStringSync(), 'header');
-  });
+      final include = p.join(
+        temp.path,
+        'Developer',
+        'Platforms',
+        'iPhoneOS.platform',
+        'Developer',
+        'SDKs',
+        'iPhoneOS17.5.sdk',
+        'usr',
+        'include',
+      );
+      expect(count, 3);
+      expect(Directory(include).existsSync(), isTrue);
+      expect(File(p.join(include, 'alias.h')).readAsStringSync(), 'header');
+    },
+  );
 
   test(
+    testOn: '!windows',
+
     'restores included cpio hard-link payloads from excluded entries',
     () async {
       final temp = Directory.systemTemp.createTempSync('xcross-sdk-hard-link-');
@@ -180,51 +186,55 @@ void main() {
     },
   );
 
-  test('materializes SDK directories beyond Windows MAX_PATH', () async {
-    final temp = Directory.systemTemp.createTempSync('xcross-sdk-long-path-');
-    addTearDown(() {
-      final path = Platform.isWindows
-          ? '\\\\?\\${p.absolute(temp.path)}'
-          : temp.path;
-      Directory(path).deleteSync(recursive: true);
-    });
-    const sdk =
-        'Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/'
-        'Developer/SDKs/iPhoneOS26.6.sdk';
-    final first = List.filled(90, 'a').join();
-    final second = List.filled(90, 'b').join();
-    final target = '$sdk/System/Library/Frameworks/$first/$second';
+  test(
+    testOn: '!windows',
+    'materializes SDK directories beyond Windows MAX_PATH',
+    () async {
+      final temp = Directory.systemTemp.createTempSync('xcross-sdk-long-path-');
+      addTearDown(() {
+        final path = Platform.isWindows
+            ? '\\\\?\\${p.absolute(temp.path)}'
+            : temp.path;
+        Directory(path).deleteSync(recursive: true);
+      });
+      const sdk =
+          'Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/'
+          'Developer/SDKs/iPhoneOS26.6.sdk';
+      final first = List.filled(90, 'a').join();
+      final second = List.filled(90, 'b').join();
+      final target = '$sdk/System/Library/Frameworks/$first/$second';
 
-    await materializedInstaller.writeSdkEntries(
-      Stream.fromIterable([
-        entry(target, mode: 0x41ed),
-        entry('$target/value.txt', data: 'long path'),
-        entry(
-          '$sdk/copied',
-          mode: 0xa1ff,
-          data: 'System/Library/Frameworks/$first/$second',
-        ),
-      ]),
-      temp.path,
-    );
+      await materializedInstaller.writeSdkEntries(
+        Stream.fromIterable([
+          entry(target, mode: 0x41ed),
+          entry('$target/value.txt', data: 'long path'),
+          entry(
+            '$sdk/copied',
+            mode: 0xa1ff,
+            data: 'System/Library/Frameworks/$first/$second',
+          ),
+        ]),
+        temp.path,
+      );
 
-    final copied = p.join(
-      temp.path,
-      'Developer',
-      'Platforms',
-      'iPhoneOS.platform',
-      'Developer',
-      'SDKs',
-      'iPhoneOS26.6.sdk',
-      'copied',
-      'value.txt',
-    );
-    expect(p.join(temp.path, target).length, greaterThan(260));
-    final ioCopied = Platform.isWindows
-        ? '\\\\?\\${p.absolute(copied)}'
-        : copied;
-    expect(File(ioCopied).readAsStringSync(), 'long path');
-  });
+      final copied = p.join(
+        temp.path,
+        'Developer',
+        'Platforms',
+        'iPhoneOS.platform',
+        'Developer',
+        'SDKs',
+        'iPhoneOS26.6.sdk',
+        'copied',
+        'value.txt',
+      );
+      expect(p.join(temp.path, target).length, greaterThan(260));
+      final ioCopied = Platform.isWindows
+          ? '\\\\?\\${p.absolute(copied)}'
+          : copied;
+      expect(File(ioCopied).readAsStringSync(), 'long path');
+    },
+  );
 
   test('rejects archive traversal', () async {
     final temp = Directory.systemTemp.createTempSync('xcross-sdk-path-');
@@ -313,6 +323,8 @@ void main() {
       for (final reverse in [false, true]) {
         for (final reference in ['redirect', 'REDIRECT', 'hop']) {
           test(
+            testOn: '!windows',
+
             'rejects semantic dotdot escape ${policy.$1}/$reverse/$reference',
             () async {
               final links = [
@@ -334,16 +346,21 @@ void main() {
           );
         }
 
-        test('rejects link cycles ${policy.$1}/$reverse', () async {
-          final links = [
-            entry('$swift/first', mode: 0xa1ff, data: 'second'),
-            entry('$swift/second', mode: 0xa1ff, data: 'FIRST'),
-          ];
-          await rejectsBeforePublication(
-            reverse ? links.reversed.toList() : links,
-            links: policy.$2,
-          );
-        }, skip: policy.$1 == 'preserved' && Platform.isWindows);
+        test(
+          testOn: '!windows',
+          'rejects link cycles ${policy.$1}/$reverse',
+          () async {
+            final links = [
+              entry('$swift/first', mode: 0xa1ff, data: 'second'),
+              entry('$swift/second', mode: 0xa1ff, data: 'FIRST'),
+            ];
+            await rejectsBeforePublication(
+              reverse ? links.reversed.toList() : links,
+              links: policy.$2,
+            );
+          },
+          skip: policy.$1 == 'preserved' && Platform.isWindows,
+        );
 
         for (final child in [
           entry('$swift/alias/child', mode: 0xa1ff, data: '../../outside'),
@@ -352,6 +369,8 @@ void main() {
           entry('$swift/ALIAS', mode: 0xa1ff, data: '../clang/18'),
         ]) {
           test(
+            testOn: '!windows',
+
             'rejects overlapping destinations ${policy.$1}/$reverse/${child.name}/${child.mode}',
             () async {
               final entries = [
@@ -369,6 +388,8 @@ void main() {
       }
 
       test(
+        testOn: '!windows',
+
         'uses semantic targets for safe nested dotdot aliases ${policy.$1}',
         () async {
           await sdkContext
@@ -405,6 +426,8 @@ void main() {
     }
 
     test(
+      testOn: '!windows',
+
       'rejects recursive ancestor copies before materializing any link',
       () async {
         await rejectsBeforePublication([

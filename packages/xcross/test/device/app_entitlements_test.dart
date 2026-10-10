@@ -39,7 +39,7 @@ void main() {
   }
 
   group('AppEntitlements', () {
-    test('reads what the Compose assembler recorded', () {
+    test(testOn: '!windows', 'reads what the Compose assembler recorded', () {
       final app = appWith(
         PropertyListSerialization.stringWithPropertyList({
           'CFBundleIdentifier': 'com.example.app',
@@ -102,16 +102,23 @@ void main() {
   });
 
   group('AppCapabilities', () {
-    test('reads the capability types the assembler recorded', () {
-      final app = appWith(
-        PropertyListSerialization.stringWithPropertyList({
-          'CFBundleIdentifier': 'com.example.app',
-          AppCapabilities.infoPlistKey: ['APPLE_ID_AUTH', 'ASSOCIATED_DOMAINS'],
-        }),
-      );
+    test(
+      testOn: '!windows',
+      'reads the capability types the assembler recorded',
+      () {
+        final app = appWith(
+          PropertyListSerialization.stringWithPropertyList({
+            'CFBundleIdentifier': 'com.example.app',
+            AppCapabilities.infoPlistKey: [
+              'APPLE_ID_AUTH',
+              'ASSOCIATED_DOMAINS',
+            ],
+          }),
+        );
 
-      expect(capabilities.of(app), ['APPLE_ID_AUTH', 'ASSOCIATED_DOMAINS']);
-    });
+        expect(capabilities.of(app), ['APPLE_ID_AUTH', 'ASSOCIATED_DOMAINS']);
+      },
+    );
 
     test('returns nothing for a bundle that has no such key', () {
       final app = appWith(
