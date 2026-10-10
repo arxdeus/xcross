@@ -50,6 +50,7 @@ final class WindowsSwiftPmDependencyPreparation<T extends PlatformHostInterface>
         networkRetry.retryingTransientNetworkFailure(
           resolve,
           label: 'swift package resolve',
+          retryable: SwiftPmNetworkRetry.isTransientResolveFailure,
         );
     final attemptState = SwiftPmBinaryAttemptState();
     final packageIdentities = await metadata.packageIdentitiesByDirectory(
