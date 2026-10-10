@@ -124,9 +124,8 @@ printf 'spirv' > "$spirv"
       flutterRoot = p.join(tmp.path, 'flutter');
       assets = p.join(tmp.path, 'flutter_assets');
       Directory(p.join(tmp.path, '.dart_tool')).createSync();
-      File(
-        p.join(tmp.path, '.dart_tool', 'package_config.json'),
-      ).writeAsStringSync('{"configVersion":2,"packages":[]}');
+      File(p.join(tmp.path, '.dart_tool', 'package_config.json'))
+          .writeAsStringSync('{"configVersion":2,"packages":[]}');
     });
 
     void frameworkShader(String layer, String name) {
@@ -213,26 +212,24 @@ flutter:
   shaders:
     - shaders/blur.frag
 ''');
-        File(
-          p.join(tmp.path, '.dart_tool', 'package_config.json'),
-        ).writeAsStringSync(
-          jsonEncode({
-            'configVersion': 2,
-            'packages': [
-              {
-                'name': 'effects',
-                'rootUri': package.uri.toString(),
-                'packageUri': 'lib/',
-              },
-            ],
-          }),
-        );
+        File(p.join(tmp.path, '.dart_tool', 'package_config.json'))
+            .writeAsStringSync(
+              jsonEncode({
+                'configVersion': 2,
+                'packages': [
+                  {
+                    'name': 'effects',
+                    'rootUri': package.uri.toString(),
+                    'packageUri': 'lib/',
+                  },
+                ],
+              }),
+            );
         File(p.join(tmp.path, 'shaders', 'glow.frag'))
           ..createSync(recursive: true)
           ..writeAsStringSync('glow');
-        File(
-          p.join(tmp.path, 'shaders', 'dark.frag'),
-        ).writeAsStringSync('dark');
+        File(p.join(tmp.path, 'shaders', 'dark.frag'))
+            .writeAsStringSync('dark');
         File(p.join(tmp.path, 'shaders', 'web.frag')).writeAsStringSync('web');
         File(p.join(tmp.path, 'pubspec.yaml')).writeAsStringSync('''
 name: demo
@@ -280,6 +277,63 @@ flutter:
           'packages/effects/shaders/blur.frag': [
             'packages/effects/shaders/blur.frag',
           ],
+        });
+      },
+    );
+
+    test(
+      'resolves packages/<pkg>/ shader paths inside the package lib (#110)',
+      () async {
+        // material_ui declares `packages/material_ui/shaders/ink_sparkle.frag`,
+        // which flutter_tools resolves to `<material_ui>/lib/shaders/...`.
+        final package = Directory(p.join(tmp.path, 'material_ui'))
+          ..createSync();
+        File(p.join(package.path, 'lib', 'shaders', 'ink_sparkle.frag'))
+          ..createSync(recursive: true)
+          ..writeAsStringSync('sparkle');
+        File(p.join(package.path, 'pubspec.yaml')).writeAsStringSync('''
+name: material_ui
+flutter:
+  shaders:
+    - packages/material_ui/shaders/ink_sparkle.frag
+''');
+        File(p.join(tmp.path, '.dart_tool', 'package_config.json'))
+          ..createSync(recursive: true)
+          ..writeAsStringSync(
+            jsonEncode({
+              'configVersion': 2,
+              'packages': [
+                {
+                  'name': 'material_ui',
+                  'rootUri': package.uri.toString(),
+                  'packageUri': 'lib/',
+                },
+              ],
+            }),
+          );
+        File(p.join(tmp.path, 'pubspec.yaml')).writeAsStringSync('''
+name: demo
+dependencies:
+  material_ui: any
+''');
+        final manifest = <String, List<String>>{};
+        await compiler().compileShaders(
+          assets,
+          testIPhoneRuntime().pubspecs.loadSync(tmp.path),
+          ImpellerShaderCompiler(
+            runner: runner,
+            impellerc: impellerc(),
+            shaderLib: '/engine/shader_lib',
+          ),
+          manifest,
+        );
+        const key = 'packages/material_ui/shaders/ink_sparkle.frag';
+        expect(
+          File(p.joinAll([assets, ...p.url.split(key)])).readAsStringSync(),
+          'IPLR:sparkle',
+        );
+        expect(manifest, {
+          key: [key],
         });
       },
     );
@@ -470,9 +524,8 @@ printf 'subset' > "$1"
 
     test('reports a failing const_finder', () async {
       await expectLater(
-        shaker(
-          dart: script('dart', 'echo boom >&2\nexit 3\n'),
-        ).findConstants('/app.dill'),
+        shaker(dart: script('dart', 'echo boom >&2\nexit 3\n'))
+            .findConstants('/app.dill'),
         throwsA(
           isA<FlutterBuildError>().having(
             (e) => e.toString(),
