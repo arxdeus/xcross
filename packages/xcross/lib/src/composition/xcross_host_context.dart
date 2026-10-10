@@ -161,6 +161,7 @@ abstract class XcrossHostContext<T extends PlatformHostInterface>
     executable: executable,
     launcher: config.roots?.xcross,
     xcrun: config.tool('xcrun'),
+    openAppleMacrosServer: config.tool('OpenAppleMacrosServer'),
     root: config.roots?.flutterSdk,
     environmentRoot: config.config?.environment['FLUTTER_ROOT'] as String?,
     tool: config.tool('flutter'),

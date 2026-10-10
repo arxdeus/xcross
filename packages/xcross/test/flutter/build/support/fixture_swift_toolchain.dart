@@ -2,33 +2,17 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:cli_kit/shared/logging/logging.dart';
 import 'package:cli_kit/shared/platform/platform_host.dart';
-import 'package:cli_kit/shared/process/process.dart';
 import 'package:cli_kit/shared/process/process_models.dart';
 import 'package:meta/meta.dart';
 
+/// A host whose processes are scripted Swift and git tools.
 @internal
-final class FixtureLogOutput implements LogOutput {
-  final messages = <String>[];
-  @override
-  bool get supportsAnsi => false;
-  @override
-  int get terminalColumns => 80;
-  @override
-  void stdout(String message) => messages.add(message);
-  @override
-  void stderr(String message) => messages.add(message);
-  @override
-  void write(String message) => messages.add(message);
-}
-
-@internal
-final class FixtureHost implements PlatformHostInterface {
-  FixtureHost(this.base, this.processes);
+final class FixtureSwiftHost implements PlatformHostInterface {
+  FixtureSwiftHost(this.base, this.processes);
   final PlatformHostInterface base;
   @override
-  final HostProcessInterface processes;
+  final FixtureSwiftProcesses processes;
   @override
   String get name => base.name;
   @override
@@ -41,15 +25,18 @@ final class FixtureHost implements PlatformHostInterface {
   HostFileSystemInterface get fileSystem => base.fileSystem;
 }
 
+/// Answers `swiftc -print-target-info`, `swift build` and the git commands
+/// the OpenAppleMacros source fallback runs.
 @internal
 final class FixtureSwiftProcesses implements HostProcessInterface {
   FixtureSwiftProcesses(this.paths, {required this.resourcePath});
   final HostPathsInterface paths;
   final String resourcePath;
-  String compilerVersion = 'Swift version 6.3';
+  String compilerVersion = 'Swift version 6.4';
   int buildExitCode = 0;
   final calls = <List<String>>[];
   int builds = 0;
+  int fetches = 0;
 
   @override
   ProcessExitDiagnostic describeExit(int exitCode) =>
@@ -77,8 +64,17 @@ final class FixtureSwiftProcesses implements HostProcessInterface {
         }),
       );
     }
+    if (paths.context.basenameWithoutExtension(executable) == 'git') {
+      if (arguments.first == 'checkout') {
+        fetches++;
+        File(paths.context.join(workingDirectory!, 'Package.swift'))
+          ..createSync(recursive: true)
+          ..writeAsStringSync('// swift-tools-version: 6.1');
+      }
+      return FixtureChild();
+    }
     final scratch = _value(arguments, '--scratch-path');
-    final bin = paths.context.join(scratch, 'debug');
+    final bin = paths.context.join(scratch, 'release');
     if (arguments.contains('--show-bin-path')) {
       return FixtureChild(stdout: '$bin\n');
     }
@@ -110,7 +106,7 @@ final class FixtureSwiftProcesses implements HostProcessInterface {
     String name, {
     Map<String, String>? environment,
     bool includeParentEnvironment = true,
-  }) async => null;
+  }) async => name;
 }
 
 @internal
@@ -147,12 +143,3 @@ final class FixtureDiscardingConsumer implements StreamConsumer<List<int>> {
   @override
   Future<void> close() async {}
 }
-
-@internal
-ProcessRunner<FixtureHost> fixtureRunner(FixtureHost host) => ProcessRunner(
-  host,
-  log: Log(output: FixtureLogOutput()),
-  stdinStream: const Stream<List<int>>.empty(),
-  stdoutSink: IOSink(StreamController<List<int>>.broadcast().sink),
-  stderrSink: IOSink(StreamController<List<int>>.broadcast().sink),
-);

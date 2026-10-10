@@ -39,7 +39,6 @@ dependencies:
   frontend_server_kit: ^1.0.0
   http: ^1.6.0
   meta: ^1.19.0
-  open_apple_macros: ^1.0.0
   package_config: ^3.0.0
   path: ^1.9.1
   pointycastle: ^4.0.0
