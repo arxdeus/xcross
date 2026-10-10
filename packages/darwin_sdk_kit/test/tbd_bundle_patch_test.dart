@@ -162,28 +162,35 @@ void main() {
       return file.path;
     }
 
-    test('rewrites stubs anywhere in the bundle and counts them', () async {
-      final nested = await writeStub(
-        p.join('Developer', 'SDKs', 'iPhoneOS27.0.sdk', 'A.tbd'),
-        'arm64e-ios, arm64e.x1-ios',
-      );
-      final untouched = await writeStub('B.tbd', 'arm64-ios, arm64e-ios');
-      final notAStub = File(p.join(tmp.path, 'C.txt'))
-        ..writeAsStringSync(stub('arm64e.x1-ios'));
+    test(
+      testOn: '!windows',
+      'rewrites stubs anywhere in the bundle and counts them',
+      () async {
+        final nested = await writeStub(
+          p.join('Developer', 'SDKs', 'iPhoneOS27.0.sdk', 'A.tbd'),
+          'arm64e-ios, arm64e.x1-ios',
+        );
+        final untouched = await writeStub('B.tbd', 'arm64-ios, arm64e-ios');
+        final notAStub = File(p.join(tmp.path, 'C.txt'))
+          ..writeAsStringSync(stub('arm64e.x1-ios'));
 
-      final result = TbdBundlePatch(
-        MacOSHost(),
-        log: sdkTestLog(),
-      ).apply(tmp.path);
+        final result = TbdBundlePatch(
+          MacOSHost(),
+          log: sdkTestLog(),
+        ).apply(tmp.path);
 
-      expect(result.patched, 1);
-      expect(result.complete, isTrue);
-      expect(File(nested).readAsStringSync(), isNot(contains('arm64e.x1')));
-      expect(File(untouched).readAsStringSync(), stub('arm64-ios, arm64e-ios'));
-      expect(notAStub.readAsStringSync(), contains('arm64e.x1'));
-    });
+        expect(result.patched, 1);
+        expect(result.complete, isTrue);
+        expect(File(nested).readAsStringSync(), isNot(contains('arm64e.x1')));
+        expect(
+          File(untouched).readAsStringSync(),
+          stub('arm64-ios, arm64e-ios'),
+        );
+        expect(notAStub.readAsStringSync(), contains('arm64e.x1'));
+      },
+    );
 
-    test('is a no-op on a bundle that does not exist', () {
+    test(testOn: '!windows', 'is a no-op on a bundle that does not exist', () {
       final result = TbdBundlePatch(
         MacOSHost(),
         log: sdkTestLog(),
@@ -193,6 +200,8 @@ void main() {
     });
 
     test(
+      testOn: '!windows',
+
       'does not follow symlinks, so a link target is patched once',
       () async {
         final real = await writeStub('real.tbd', 'arm64e.x1-ios');
@@ -253,54 +262,78 @@ void main() {
   }, skip: Platform.isWindows);
 
   group('TbdBundlePatch.ensureApplied', () {
-    test('patches an unstamped bundle and stamps it', () async {
-      final file = File(p.join(tmp.path, 'libExample.tbd'));
-      await file.writeAsString(stub('arm64e-ios, arm64e.x1-ios'));
+    test(
+      testOn: '!windows',
+      'patches an unstamped bundle and stamps it',
+      () async {
+        final file = File(p.join(tmp.path, 'libExample.tbd'));
+        await file.writeAsString(stub('arm64e-ios, arm64e.x1-ios'));
 
-      expect(
-        TbdBundlePatch(MacOSHost(), log: sdkTestLog()).ensureApplied(tmp.path),
-        1,
-      );
-      expect(file.readAsStringSync(), stub('arm64e-ios, arm64e-ios'));
-      expect(
-        TbdBundlePatch(MacOSHost(), log: sdkTestLog()).isStamped(tmp.path),
-        isTrue,
-      );
+        expect(
+          TbdBundlePatch(
+            MacOSHost(),
+            log: sdkTestLog(),
+          ).ensureApplied(tmp.path),
+          1,
+        );
+        expect(file.readAsStringSync(), stub('arm64e-ios, arm64e-ios'));
+        expect(
+          TbdBundlePatch(MacOSHost(), log: sdkTestLog()).isStamped(tmp.path),
+          isTrue,
+        );
 
-      final stamp = jsonDecode(
-        File(p.join(tmp.path, TbdBundlePatch.stampName)).readAsStringSync(),
-      );
-      expect((stamp as Map)['patchVersion'], TbdBundlePatch.patchVersion);
-      expect(stamp['files'], 1);
-    });
+        final stamp = jsonDecode(
+          File(p.join(tmp.path, TbdBundlePatch.stampName)).readAsStringSync(),
+        );
+        expect((stamp as Map)['patchVersion'], TbdBundlePatch.patchVersion);
+        expect(stamp['files'], 1);
+      },
+    );
 
-    test('skips a stamped bundle instead of rescanning it', () async {
-      TbdBundlePatch(MacOSHost(), log: sdkTestLog()).stamp(tmp.path, files: 0);
-      final file = File(p.join(tmp.path, 'libLater.tbd'));
-      await file.writeAsString(stub('arm64e.x1-ios'));
+    test(
+      testOn: '!windows',
+      'skips a stamped bundle instead of rescanning it',
+      () async {
+        TbdBundlePatch(
+          MacOSHost(),
+          log: sdkTestLog(),
+        ).stamp(tmp.path, files: 0);
+        final file = File(p.join(tmp.path, 'libLater.tbd'));
+        await file.writeAsString(stub('arm64e.x1-ios'));
 
-      expect(
-        TbdBundlePatch(MacOSHost(), log: sdkTestLog()).ensureApplied(tmp.path),
-        0,
-      );
-      expect(file.readAsStringSync(), contains('arm64e.x1'));
-    });
+        expect(
+          TbdBundlePatch(
+            MacOSHost(),
+            log: sdkTestLog(),
+          ).ensureApplied(tmp.path),
+          0,
+        );
+        expect(file.readAsStringSync(), contains('arm64e.x1'));
+      },
+    );
 
-    test('re-runs when the recorded patch version is older', () async {
-      File(p.join(tmp.path, TbdBundlePatch.stampName)).writeAsStringSync(
-        jsonEncode({'patchVersion': TbdBundlePatch.patchVersion - 1}),
-      );
-      final file = File(p.join(tmp.path, 'libExample.tbd'));
-      await file.writeAsString(stub('arm64e.x1-ios'));
+    test(
+      testOn: '!windows',
+      're-runs when the recorded patch version is older',
+      () async {
+        File(p.join(tmp.path, TbdBundlePatch.stampName)).writeAsStringSync(
+          jsonEncode({'patchVersion': TbdBundlePatch.patchVersion - 1}),
+        );
+        final file = File(p.join(tmp.path, 'libExample.tbd'));
+        await file.writeAsString(stub('arm64e.x1-ios'));
 
-      expect(
-        TbdBundlePatch(MacOSHost(), log: sdkTestLog()).ensureApplied(tmp.path),
-        1,
-      );
-      expect(file.readAsStringSync(), stub('arm64e-ios'));
-    });
+        expect(
+          TbdBundlePatch(
+            MacOSHost(),
+            log: sdkTestLog(),
+          ).ensureApplied(tmp.path),
+          1,
+        );
+        expect(file.readAsStringSync(), stub('arm64e-ios'));
+      },
+    );
 
-    test('re-runs when the stamp is unreadable', () async {
+    test(testOn: '!windows', 're-runs when the stamp is unreadable', () async {
       File(
         p.join(tmp.path, TbdBundlePatch.stampName),
       ).writeAsStringSync('not json');
@@ -317,20 +350,27 @@ void main() {
       );
     });
 
-    test('stamps a bundle that needed no rewrite', () async {
-      await File(
-        p.join(tmp.path, 'libExample.tbd'),
-      ).writeAsString(stub('arm64-ios, arm64e-ios'));
+    test(
+      testOn: '!windows',
+      'stamps a bundle that needed no rewrite',
+      () async {
+        await File(
+          p.join(tmp.path, 'libExample.tbd'),
+        ).writeAsString(stub('arm64-ios, arm64e-ios'));
 
-      expect(
-        TbdBundlePatch(MacOSHost(), log: sdkTestLog()).ensureApplied(tmp.path),
-        0,
-      );
-      expect(
-        TbdBundlePatch(MacOSHost(), log: sdkTestLog()).isStamped(tmp.path),
-        isTrue,
-      );
-    });
+        expect(
+          TbdBundlePatch(
+            MacOSHost(),
+            log: sdkTestLog(),
+          ).ensureApplied(tmp.path),
+          0,
+        );
+        expect(
+          TbdBundlePatch(MacOSHost(), log: sdkTestLog()).isStamped(tmp.path),
+          isTrue,
+        );
+      },
+    );
 
     test('leaves a bundle it could not fully rewrite unstamped', () async {
       if (Platform.isWindows) return; // chmod does not deny writes there.

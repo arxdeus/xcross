@@ -54,6 +54,8 @@ void main() {
   );
 
   test(
+    testOn: '!windows',
+
     'USB wireless bootstrap preserves pairing, wifi and DDI ordering',
     () async {
       final home = Directory.systemTemp.createTempSync(

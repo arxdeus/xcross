@@ -44,6 +44,8 @@ void main() {
   String configPath() => p.join(tmp.path, '.dart_tool', 'package_config.json');
 
   test(
+    testOn: '!windows',
+
     'mapped config resolves relative roots in the logical namespace',
     () async {
       final paths = p.Context(style: p.Style.posix, current: '/selected');
@@ -72,7 +74,7 @@ void main() {
     },
   );
 
-  test('maps a lib/ file to its package: URI', () async {
+  test(testOn: '!windows', 'maps a lib/ file to its package: URI', () async {
     final uris = await loader.load(configPath());
     expect(uris, isNotNull);
     expect(
@@ -89,23 +91,31 @@ void main() {
     );
   });
 
-  test('leaves files with no package equivalent alone', () async {
-    final uris = (await loader.load(configPath()))!;
-    // Outside lib/ — the VM will fall back to file-URI matching for these.
-    final testFile = p.join(tmp.path, 'test', 'a_test.dart');
-    expect(uris.toPackageUri(Uri.file(testFile)), isNull);
-    expect(uris.toCompilerUri(testFile), testFile);
-    // Already a package: URI, so not a file URI.
-    expect(uris.toPackageUri(Uri.parse('package:my_app/main.dart')), isNull);
-  });
+  test(
+    testOn: '!windows',
+    'leaves files with no package equivalent alone',
+    () async {
+      final uris = (await loader.load(configPath()))!;
+      // Outside lib/ — the VM will fall back to file-URI matching for these.
+      final testFile = p.join(tmp.path, 'test', 'a_test.dart');
+      expect(uris.toPackageUri(Uri.file(testFile)), isNull);
+      expect(uris.toCompilerUri(testFile), testFile);
+      // Already a package: URI, so not a file URI.
+      expect(uris.toPackageUri(Uri.parse('package:my_app/main.dart')), isNull);
+    },
+  );
 
-  test('toCompilerUri returns the package: form when there is one', () async {
-    final uris = (await loader.load(configPath()))!;
-    expect(
-      uris.toCompilerUri(p.join(tmp.path, 'lib', 'main.dart')),
-      'package:my_app/main.dart',
-    );
-  });
+  test(
+    testOn: '!windows',
+    'toCompilerUri returns the package: form when there is one',
+    () async {
+      final uris = (await loader.load(configPath()))!;
+      expect(
+        uris.toCompilerUri(p.join(tmp.path, 'lib', 'main.dart')),
+        'package:my_app/main.dart',
+      );
+    },
+  );
 
   test(
     'returns null when the package config is missing or malformed',

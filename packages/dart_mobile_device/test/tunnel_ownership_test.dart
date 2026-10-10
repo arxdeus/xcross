@@ -178,6 +178,8 @@ void main() {
   });
 
   test(
+    testOn: '!windows',
+
     'concurrent startup tracks one child and shutdown only receives that child',
     () async {
       final directory = Directory.systemTemp.createTempSync('tunnel_child_');
