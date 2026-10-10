@@ -129,7 +129,7 @@ class ArchitectureWorkflowTests(unittest.TestCase):
     def test_each_branch_rule_context_gets_its_own_verdict(self):
         jobs = workflow_jobs((ROOT / '.github/workflows/integration.yml').read_text())
         for job, context, required in (
-            ('verdict', 'Integration Tests', ['flutter-build', 'flutter-aot-reference', 'flutter-aot-parity', 'flutter-simulator', 'flutter-example-simulator-run', 'native-host', 'simulator-report']),
+            ('verdict', 'Integration Tests', ['flutter-build', 'flutter-aot-reference', 'flutter-aot-macos', 'flutter-aot-parity', 'flutter-aot-run', 'flutter-simulator', 'flutter-example-simulator-run', 'native-host', 'simulator-report']),
             ('compose-verdict', 'Compose Integration Tests', ['compose-build', 'compose-simulator', 'simulator-report']),
         ):
             with self.subTest(job=job):
@@ -213,7 +213,8 @@ class ArchitectureWorkflowTests(unittest.TestCase):
         self.assertIn('    timeout-minutes: 15', parity)
         self.assertNotIn('jq', '\n'.join(parity))
         hosts = re.search(r'os: \[(.+)\]', '\n'.join(jobs['flutter-build'])).group(1).split(', ')
-        self.assertIn(f"      AOT_HOSTS: {' '.join(hosts)}", parity)
+        self.assertIn(f"      AOT_HOSTS: {' '.join(hosts)} macos-15", parity)
+        self.assertIn('    needs: [gate, flutter-build, flutter-aot-macos, flutter-aot-reference]', parity)
         self.assertIn('      AOT_APPS: smoke plugins', parity)
         steps = workflow_steps(parity)
         for mode, smoke, plugins in (
@@ -239,22 +240,98 @@ class ArchitectureWorkflowTests(unittest.TestCase):
         build = workflow_steps(jobs['flutter-build'])
         linux = build['Build precompiled Flutter apps on Linux']['script']
         windows = build['Build precompiled Flutter apps on Windows']['script']
+        macos = self.required_step(workflow_steps(jobs['flutter-aot-macos']), 'Build precompiled Flutter apps on macOS')
         reference = '\n'.join(workflow_steps(jobs['flutter-aot-reference'])['Record flutter build ios digests']['script'])
         self.assertIn('for app in smoke plugins; do', linux)
         self.assertIn("foreach ($app in 'smoke', 'plugins') {", windows)
+        self.assertIn('for app in smoke plugins; do', macos)
         self.assertIn('for app in smoke plugins; do', reference)
         self.assertIn('cp -R .github/fixtures/aot_plugins "$RUNNER_TEMP/aot-plugins"', linux)
         self.assertIn('Copy-Item -Recurse .github/fixtures/aot_plugins "$env:RUNNER_TEMP/aot-plugins"', windows)
+        self.assertIn('cp -R .github/fixtures/aot_plugins "$RUNNER_TEMP/aot-plugins"', macos)
         self.assertIn('cp -R .github/fixtures/aot_plugins "$RUNNER_TEMP/aot-plugins"', reference)
         self.assertIn('"$RUNNER_TEMP/aot-$app/build/xcross-ios" --dsym=required \\', linux)
         self.assertIn('"$env:RUNNER_TEMP/aot-$app/build/xcross-ios" --dsym=optional `', windows)
+        self.assertIn('(cd "$RUNNER_TEMP/aot-$app" && xcross --verbose flutter build "--$mode")', macos)
+        self.assertIn('"$RUNNER_TEMP/aot-$app/build/xcross-ios" --dsym=required \\', macos)
         registrant = '.dart_tool/flutter_build/dart_plugin_registrant.dart'
         self.assertIn(f'cp "$RUNNER_TEMP/aot-plugins/{registrant}" \\', linux)
         self.assertIn('"$RUNNER_TEMP/aot-digests/plugins-registrant.dart"', linux)
         self.assertIn(f'Copy-Item "$env:RUNNER_TEMP/aot-plugins/{registrant}" `', windows)
         self.assertIn('"$env:RUNNER_TEMP/aot-digests/plugins-registrant.dart"', windows)
+        self.assertIn(f'cp "$RUNNER_TEMP/aot-plugins/{registrant}" \\', macos)
+        self.assertIn('"$RUNNER_TEMP/aot-digests/plugins-registrant.dart"', macos)
         self.assertIn(f'cp "$RUNNER_TEMP/aot-plugins/{registrant}" \\', reference)
         self.assertIn('"$RUNNER_TEMP/aot-reference/plugins-registrant.dart"', reference)
+        macos_job = '\n'.join(jobs['flutter-aot-macos'])
+        self.assertIn("    if: needs.gate.outputs.run == 'true' && needs.gate.outputs.trusted == 'true'", jobs['flutter-aot-macos'])
+        self.assertIn('    runs-on: macos-15', jobs['flutter-aot-macos'])
+        self.assertIn('          name: flutter-aot-digests-macos-15', macos_job)
+        self.assertNotIn('continue-on-error', macos_job)
+
+    def check_aot_run(self, workflow):
+        jobs = workflow_jobs(workflow)
+        lines = jobs['flutter-aot-run']
+        text = '\n'.join(lines)
+        self.assertIn('    needs: [gate, flutter-build, flutter-aot-macos, flutter-aot-reference]', lines)
+        self.assertIn('    runs-on: macos-15', lines)
+        self.assertNotIn('continue-on-error', text)
+        self.assertIn("      needs.gate.outputs.trusted == 'true' }}", lines)
+        hosts = re.search(r'os: \[(.+)\]', '\n'.join(jobs['flutter-build'])).group(1).split(', ')
+        self.assertIn(f"      AOT_RUN_HOSTS: reference {' '.join(hosts)} macos-15", lines)
+        steps = workflow_steps(lines)
+        download = step_body(lines, 'Download precompiled apps')
+        self.assertIn('pattern: flutter-aot-apps-*', download)
+        run = self.required_step(steps, 'Run release and profile apps as Mac Catalyst')
+        self.assertIn('for host in $AOT_RUN_HOSTS; do', run)
+        self.assertIn('for mode in release profile; do', run)
+        self.assertIn('python3 .github/scripts/aot_run_smoke.py \\', run)
+        self.assertIn('"$RUNNER_TEMP/aot-apps/flutter-aot-apps-$host/$mode" --mode "$mode" \\', run)
+        self.assertIn('--ready-marker "XCROSS_AOT_READY mode=$mode probe=ios build=2.3.4+56" \\', run)
+        self.assertIn('{ echo "::error::$host $mode app did not run"; failed=1; }', run)
+        self.assertIn('exit "$failed"', run)
+        self.assertEqual(steps['Upload run evidence'].get('if'), 'failure() || cancelled()')
+        fixture = (ROOT / '.github/fixtures/aot_plugins/lib/main.dart').read_text()
+        self.assertIn('await WidgetsBinding.instance.waitUntilFirstFrameRasterized;', fixture)
+        self.assertIn("'XCROSS_AOT_READY mode=$_mode probe=${describeAotProbe()} '", fixture)
+        self.assertIn('version: 2.3.4+56', (ROOT / '.github/fixtures/aot_plugins/pubspec.yaml').read_text())
+        build = workflow_steps(jobs['flutter-build'])
+        for name, copy in (
+            ('Build precompiled Flutter apps on Linux', 'cp -R "$RUNNER_TEMP/aot-plugins/build/xcross-ios/aot_plugins.app" "$RUNNER_TEMP/aot-apps/$mode/"'),
+            ('Build precompiled Flutter apps on Windows', 'Copy-Item -Recurse "$env:RUNNER_TEMP/aot-plugins/build/xcross-ios/aot_plugins.app" "$env:RUNNER_TEMP/aot-apps/$mode/"'),
+        ):
+            self.assertIn(copy, build[name]['script'])
+        macos = workflow_steps(jobs['flutter-aot-macos'])['Build precompiled Flutter apps on macOS']['script']
+        self.assertIn('cp -R "$RUNNER_TEMP/aot-plugins/build/xcross-ios/aot_plugins.app" "$RUNNER_TEMP/aot-apps/$mode/"', macos)
+        reference = workflow_steps(jobs['flutter-aot-reference'])['Record flutter build ios digests']['script']
+        self.assertIn('cp -R "$RUNNER_TEMP/aot-plugins/build/ios/iphoneos/Runner.app" "$RUNNER_TEMP/aot-apps/$mode/"', reference)
+        for job, name in (
+            ('flutter-build', 'flutter-aot-apps-${{ matrix.os }}'),
+            ('flutter-aot-macos', 'flutter-aot-apps-macos-15'),
+            ('flutter-aot-reference', 'flutter-aot-apps-reference'),
+        ):
+            upload = step_body(jobs[job], 'Upload precompiled apps')
+            self.assertIn(f'          name: {name}\n', upload + '\n')
+            self.assertIn('          path: ${{ runner.temp }}/aot-apps', upload)
+            self.assertIn('          if-no-files-found: error', upload)
+
+    def test_precompiled_apps_from_every_host_run_as_mac_catalyst(self):
+        self.check_aot_run((ROOT / '.github/workflows/integration.yml').read_text())
+
+    def test_weakened_aot_run_is_rejected(self):
+        original = (ROOT / '.github/workflows/integration.yml').read_text()
+        for old, new in (
+            ('      AOT_RUN_HOSTS: reference ubuntu-24.04 ubuntu-24.04-arm windows-2022 windows-11-arm macos-15\n', '      AOT_RUN_HOSTS: reference\n'),
+            ('            for mode in release profile; do\n              echo "::group::$host $mode"\n', '            for mode in release; do\n              echo "::group::$host $mode"\n'),
+            ('                { echo "::error::$host $mode app did not run"; failed=1; }\n', '                true\n'),
+            ('      - name: Run release and profile apps as Mac Catalyst\n', '      - name: Run release and profile apps as Mac Catalyst\n        continue-on-error: true\n'),
+            ('              python3 .github/scripts/aot_run_smoke.py \\\n', '              echo python3 .github/scripts/aot_run_smoke.py \\\n'),
+            ('    needs: [gate, flutter-build, flutter-aot-macos, flutter-aot-reference]\n    if: >-\n      ${{ !cancelled() && needs.gate.outputs.run == \'true\' &&\n      needs.gate.outputs.trusted == \'true\' }}\n    permissions:\n      contents: read\n      actions: read\n    runs-on: macos-15\n    timeout-minutes: 30\n', '    needs: [gate, flutter-build, flutter-aot-reference]\n    if: >-\n      ${{ !cancelled() && needs.gate.outputs.run == \'true\' &&\n      needs.gate.outputs.trusted == \'true\' }}\n    permissions:\n      contents: read\n      actions: read\n    runs-on: macos-15\n    timeout-minutes: 30\n'),
+        ):
+            with self.subTest(new=new):
+                self.assertIn(old, original)
+                with self.assertRaises((AssertionError, KeyError, IndexError, AttributeError)):
+                    self.check_aot_run(original.replace(old, new))
 
     def test_aot_parity_compares_every_host_with_the_digest_verifier(self):
         self.check_aot_parity((ROOT / '.github/workflows/integration.yml').read_text())
@@ -263,7 +340,9 @@ class ArchitectureWorkflowTests(unittest.TestCase):
         original = (ROOT / '.github/workflows/integration.yml').read_text()
         for old, new in (
             ("    if: needs.gate.outputs.run == 'true' && needs.gate.outputs.trusted == 'true'\n    permissions:\n      contents: read\n    runs-on: macos-15\n    timeout-minutes: 45\n", "    if: needs.gate.outputs.run == 'true'\n    permissions:\n      contents: read\n    runs-on: macos-15\n    timeout-minutes: 45\n"),
-            ('      AOT_HOSTS: ubuntu-24.04 ubuntu-24.04-arm windows-2022 windows-11-arm\n', '      AOT_HOSTS: ubuntu-24.04\n'),
+            ('      AOT_HOSTS: ubuntu-24.04 ubuntu-24.04-arm windows-2022 windows-11-arm macos-15\n', '      AOT_HOSTS: ubuntu-24.04\n'),
+            ('      AOT_HOSTS: ubuntu-24.04 ubuntu-24.04-arm windows-2022 windows-11-arm macos-15\n', '      AOT_HOSTS: ubuntu-24.04 ubuntu-24.04-arm windows-2022 windows-11-arm\n'),
+            ('    needs: [gate, flutter-build, flutter-aot-macos, flutter-aot-reference]\n    if: >-\n      ${{ !cancelled() && needs.gate.outputs.run == \'true\' &&\n      needs.gate.outputs.trusted == \'true\' }}\n    permissions:\n      contents: read\n      actions: read\n    runs-on: ubuntu-24.04\n', '    needs: [gate, flutter-build, flutter-aot-reference]\n    if: >-\n      ${{ !cancelled() && needs.gate.outputs.run == \'true\' &&\n      needs.gate.outputs.trusted == \'true\' }}\n    permissions:\n      contents: read\n      actions: read\n    runs-on: ubuntu-24.04\n'),
             ('      AOT_APPS: smoke plugins\n', '      AOT_APPS: smoke\n'),
             ('          for app in smoke plugins; do\n            for mode in release profile; do\n              (cd "$RUNNER_TEMP/aot-$app" && flutter build ios', '          for app in smoke; do\n            for mode in release profile; do\n              (cd "$RUNNER_TEMP/aot-$app" && flutter build ios'),
             ('              [ "$app" = plugins ] && sections=Flutter.__text\n', '              [ "$app" = plugins ] && sections=\n'),
