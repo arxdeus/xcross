@@ -655,18 +655,24 @@ jobs:
           dart run "$env:GITHUB_WORKSPACE/packages/xcross/tool/verify_flutter_notices.dart" build/xcross-ios
           if ($LASTEXITCODE -ne 0) { throw 'Packaged Flutter notices are invalid' }
 
+      # aot_plugins resolves Dart plugin classes on every platform, so its
+      # kernel only matches flutter build ios with flutter_tools' registrant.
       - name: Build precompiled Flutter apps on Linux
         if: runner.os == 'Linux' && steps.darwin.outputs.available == 'true'
         shell: bash
         run: |
           set -euo pipefail
           flutter create --platforms=ios --project-name=aot_smoke "$RUNNER_TEMP/aot-smoke"
+          cp -R .github/fixtures/aot_plugins "$RUNNER_TEMP/aot-plugins"
+          flutter create --platforms=ios --project-name=aot_plugins "$RUNNER_TEMP/aot-plugins"
           mkdir -p "$RUNNER_TEMP/aot-digests"
-          for mode in release profile; do
-            (cd "$RUNNER_TEMP/aot-smoke" && "$RUNNER_TEMP/xcross-bundle/bin/xcross" --verbose flutter build "--$mode")
-            dart run "$GITHUB_WORKSPACE/packages/xcross/tool/verify_flutter_aot.dart" \
-              "$RUNNER_TEMP/aot-smoke/build/xcross-ios" --dsym=required \
-              "--write=$RUNNER_TEMP/aot-digests/$mode.json"
+          for app in smoke plugins; do
+            for mode in release profile; do
+              (cd "$RUNNER_TEMP/aot-$app" && "$RUNNER_TEMP/xcross-bundle/bin/xcross" --verbose flutter build "--$mode")
+              dart run "$GITHUB_WORKSPACE/packages/xcross/tool/verify_flutter_aot.dart" \
+                "$RUNNER_TEMP/aot-$app/build/xcross-ios" --dsym=required \
+                "--write=$RUNNER_TEMP/aot-digests/$app-$mode.json"
+            done
           done
 
       # The pinned LLVM Windows installers ship no dsymutil and the Swift
@@ -679,17 +685,22 @@ jobs:
           $ErrorActionPreference = 'Stop'
           flutter create --platforms=ios --project-name=aot_smoke "$env:RUNNER_TEMP/aot-smoke"
           if ($LASTEXITCODE -ne 0) { throw 'Creating the AOT fixture failed' }
+          Copy-Item -Recurse .github/fixtures/aot_plugins "$env:RUNNER_TEMP/aot-plugins"
+          flutter create --platforms=ios --project-name=aot_plugins "$env:RUNNER_TEMP/aot-plugins"
+          if ($LASTEXITCODE -ne 0) { throw 'Creating the AOT plugin fixture failed' }
           New-Item -ItemType Directory -Force "$env:RUNNER_TEMP/aot-digests" | Out-Null
-          foreach ($mode in 'release', 'profile') {
-            Push-Location "$env:RUNNER_TEMP/aot-smoke"
-            & "$env:RUNNER_TEMP\xcross-bundle\bin\xcross.exe" --verbose flutter build "--$mode"
-            $code = $LASTEXITCODE
-            Pop-Location
-            if ($code -ne 0) { throw "xcross flutter build --$mode failed" }
-            dart run "$env:GITHUB_WORKSPACE/packages/xcross/tool/verify_flutter_aot.dart" `
-              "$env:RUNNER_TEMP/aot-smoke/build/xcross-ios" --dsym=optional `
-              "--write=$env:RUNNER_TEMP/aot-digests/$mode.json"
-            if ($LASTEXITCODE -ne 0) { throw "Precompiled $mode app is invalid" }
+          foreach ($app in 'smoke', 'plugins') {
+            foreach ($mode in 'release', 'profile') {
+              Push-Location "$env:RUNNER_TEMP/aot-$app"
+              & "$env:RUNNER_TEMP\xcross-bundle\bin\xcross.exe" --verbose flutter build "--$mode"
+              $code = $LASTEXITCODE
+              Pop-Location
+              if ($code -ne 0) { throw "xcross flutter build --$mode of aot-$app failed" }
+              dart run "$env:GITHUB_WORKSPACE/packages/xcross/tool/verify_flutter_aot.dart" `
+                "$env:RUNNER_TEMP/aot-$app/build/xcross-ios" --dsym=optional `
+                "--write=$env:RUNNER_TEMP/aot-digests/$app-$mode.json"
+              if ($LASTEXITCODE -ne 0) { throw "Precompiled $mode aot-$app is invalid" }
+            }
           }
 
       - name: Upload precompiled app digests
@@ -714,6 +725,7 @@ jobs:
     timeout-minutes: 15
     env:
       AOT_HOSTS: ubuntu-24.04 ubuntu-24.04-arm windows-2022 windows-11-arm
+      AOT_APPS: smoke plugins
     steps:
       - name: Checkout
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
@@ -747,12 +759,14 @@ jobs:
           set -uo pipefail
           failed=0
           for host in $AOT_HOSTS; do
-            echo "::group::$host release"
-            dart run packages/xcross/tool/verify_flutter_aot.dart \
-              "$RUNNER_TEMP/cross/flutter-aot-digests-$host/release.json" \
-              "--expect=$RUNNER_TEMP/reference/release.json" ||
-              { echo "::error::$host release differs from flutter build ios"; failed=1; }
-            echo '::endgroup::'
+            for app in $AOT_APPS; do
+              echo "::group::$host $app release"
+              dart run packages/xcross/tool/verify_flutter_aot.dart \
+                "$RUNNER_TEMP/cross/flutter-aot-digests-$host/$app-release.json" \
+                "--expect=$RUNNER_TEMP/reference/$app-release.json" ||
+                { echo "::error::$host $app release differs from flutter build ios"; failed=1; }
+              echo '::endgroup::'
+            done
           done
           exit "$failed"
 
@@ -762,13 +776,15 @@ jobs:
           set -uo pipefail
           failed=0
           for host in $AOT_HOSTS; do
-            echo "::group::$host profile"
-            dart run packages/xcross/tool/verify_flutter_aot.dart \
-              "$RUNNER_TEMP/cross/flutter-aot-digests-$host/profile.json" \
-              "--expect=$RUNNER_TEMP/reference/profile.json" \
-              --sections=__text,Flutter.__text ||
-              { echo "::error::$host profile differs from flutter build ios"; failed=1; }
-            echo '::endgroup::'
+            for app in $AOT_APPS; do
+              echo "::group::$host $app profile"
+              dart run packages/xcross/tool/verify_flutter_aot.dart \
+                "$RUNNER_TEMP/cross/flutter-aot-digests-$host/$app-profile.json" \
+                "--expect=$RUNNER_TEMP/reference/$app-profile.json" \
+                --sections=__text,Flutter.__text ||
+                { echo "::error::$host $app profile differs from flutter build ios"; failed=1; }
+              echo '::endgroup::'
+            done
           done
           exit "$failed"
 
@@ -806,12 +822,16 @@ jobs:
           flutter precache --ios
           dart pub get
           flutter create --platforms=ios --project-name=aot_smoke "$RUNNER_TEMP/aot-smoke"
+          cp -R .github/fixtures/aot_plugins "$RUNNER_TEMP/aot-plugins"
+          flutter create --platforms=ios --project-name=aot_plugins "$RUNNER_TEMP/aot-plugins"
           mkdir -p "$RUNNER_TEMP/aot-reference"
-          for mode in release profile; do
-            (cd "$RUNNER_TEMP/aot-smoke" && flutter build ios "--$mode" --no-codesign)
-            dart run packages/xcross/tool/verify_flutter_aot.dart \
-              "$RUNNER_TEMP/aot-smoke/build/ios/iphoneos/Runner.app" \
-              "--write=$RUNNER_TEMP/aot-reference/$mode.json"
+          for app in smoke plugins; do
+            for mode in release profile; do
+              (cd "$RUNNER_TEMP/aot-$app" && flutter build ios "--$mode" --no-codesign)
+              dart run packages/xcross/tool/verify_flutter_aot.dart \
+                "$RUNNER_TEMP/aot-$app/build/ios/iphoneos/Runner.app" \
+                "--write=$RUNNER_TEMP/aot-reference/$app-$mode.json"
+            done
           done
 
       - name: Upload digests

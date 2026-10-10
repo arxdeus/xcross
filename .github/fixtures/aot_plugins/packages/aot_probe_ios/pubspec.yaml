@@ -1,0 +1,22 @@
+name: aot_probe_ios
+description: iOS implementation of the AOT parity fixture plugin.
+version: 1.0.0
+publish_to: none
+
+environment:
+  sdk: ^3.9.0
+  flutter: ">=3.35.0"
+
+dependencies:
+  aot_probe_platform_interface:
+    path: ../aot_probe_platform_interface
+  flutter:
+    sdk: flutter
+
+flutter:
+  plugin:
+    implements: aot_probe
+    platforms:
+      ios:
+        dartPluginClass: AotProbeIos
+        dartFileName: src/registration.dart

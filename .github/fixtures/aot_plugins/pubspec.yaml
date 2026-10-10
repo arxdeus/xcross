@@ -1,0 +1,16 @@
+name: aot_plugins
+description: Fixture app whose Dart plugin registrant covers several platforms.
+version: 2.3.4+56
+publish_to: none
+
+environment:
+  sdk: ^3.9.0
+
+dependencies:
+  aot_probe:
+    path: packages/aot_probe
+  flutter:
+    sdk: flutter
+
+flutter:
+  uses-material-design: true

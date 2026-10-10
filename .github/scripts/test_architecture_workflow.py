@@ -214,19 +214,30 @@ class ArchitectureWorkflowTests(unittest.TestCase):
         self.assertNotIn('jq', '\n'.join(parity))
         hosts = re.search(r'os: \[(.+)\]', '\n'.join(jobs['flutter-build'])).group(1).split(', ')
         self.assertIn(f"      AOT_HOSTS: {' '.join(hosts)}", parity)
+        self.assertIn('      AOT_APPS: smoke plugins', parity)
         steps = workflow_steps(parity)
         for mode, sections in (('release', None), ('profile', '--sections=__text,Flutter.__text ||')):
             compare = [name for name in steps if name.startswith(f'Compare {mode} ')]
             self.assertEqual(len(compare), 1)
             script = self.required_step(steps, compare[0])
+            self.assertIn('for app in $AOT_APPS; do', script)
             self.assertIn('dart run packages/xcross/tool/verify_flutter_aot.dart \\', script)
-            self.assertIn(f'"$RUNNER_TEMP/cross/flutter-aot-digests-$host/{mode}.json" \\', script)
-            self.assertIn(f'"--expect=$RUNNER_TEMP/reference/{mode}.json"' + (' \\' if sections else ' ||'), script)
+            self.assertIn(f'"$RUNNER_TEMP/cross/flutter-aot-digests-$host/$app-{mode}.json" \\', script)
+            self.assertIn(f'"--expect=$RUNNER_TEMP/reference/$app-{mode}.json"' + (' \\' if sections else ' ||'), script)
             self.assertEqual(sections is not None, sections in script)
             self.assertIn('exit "$failed"', script)
         build = workflow_steps(jobs['flutter-build'])
-        self.assertIn('"$RUNNER_TEMP/aot-smoke/build/xcross-ios" --dsym=required \\', build['Build precompiled Flutter apps on Linux']['script'])
-        self.assertIn('"$env:RUNNER_TEMP/aot-smoke/build/xcross-ios" --dsym=optional `', build['Build precompiled Flutter apps on Windows']['script'])
+        linux = build['Build precompiled Flutter apps on Linux']['script']
+        windows = build['Build precompiled Flutter apps on Windows']['script']
+        reference = '\n'.join(workflow_steps(jobs['flutter-aot-reference'])['Record flutter build ios digests']['script'])
+        self.assertIn('for app in smoke plugins; do', linux)
+        self.assertIn("foreach ($app in 'smoke', 'plugins') {", windows)
+        self.assertIn('for app in smoke plugins; do', reference)
+        self.assertIn('cp -R .github/fixtures/aot_plugins "$RUNNER_TEMP/aot-plugins"', linux)
+        self.assertIn('Copy-Item -Recurse .github/fixtures/aot_plugins "$env:RUNNER_TEMP/aot-plugins"', windows)
+        self.assertIn('cp -R .github/fixtures/aot_plugins "$RUNNER_TEMP/aot-plugins"', reference)
+        self.assertIn('"$RUNNER_TEMP/aot-$app/build/xcross-ios" --dsym=required \\', linux)
+        self.assertIn('"$env:RUNNER_TEMP/aot-$app/build/xcross-ios" --dsym=optional `', windows)
 
     def test_aot_parity_compares_every_host_with_the_digest_verifier(self):
         self.check_aot_parity((ROOT / '.github/workflows/integration.yml').read_text())
@@ -236,6 +247,8 @@ class ArchitectureWorkflowTests(unittest.TestCase):
         for old, new in (
             ("    if: needs.gate.outputs.run == 'true' && needs.gate.outputs.trusted == 'true'\n    permissions:\n      contents: read\n    runs-on: macos-15\n    timeout-minutes: 45\n", "    if: needs.gate.outputs.run == 'true'\n    permissions:\n      contents: read\n    runs-on: macos-15\n    timeout-minutes: 45\n"),
             ('      AOT_HOSTS: ubuntu-24.04 ubuntu-24.04-arm windows-2022 windows-11-arm\n', '      AOT_HOSTS: ubuntu-24.04\n'),
+            ('      AOT_APPS: smoke plugins\n', '      AOT_APPS: smoke\n'),
+            ('          for app in smoke plugins; do\n            for mode in release profile; do\n              (cd "$RUNNER_TEMP/aot-$app" && flutter build ios', '          for app in smoke; do\n            for mode in release profile; do\n              (cd "$RUNNER_TEMP/aot-$app" && flutter build ios'),
             ('              --sections=__text,Flutter.__text ||\n', '              --sections=__text ||\n'),
             ('          exit "$failed"\n', '          exit 0\n'),
             ('--dsym=required', '--dsym=optional'),

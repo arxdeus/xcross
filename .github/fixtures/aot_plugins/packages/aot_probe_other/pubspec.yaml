@@ -1,0 +1,27 @@
+name: aot_probe_other
+description: Non-iOS implementations of the AOT parity fixture plugin.
+version: 1.0.0
+publish_to: none
+
+environment:
+  sdk: ^3.9.0
+  flutter: ">=3.35.0"
+
+dependencies:
+  aot_probe_platform_interface:
+    path: ../aot_probe_platform_interface
+  flutter:
+    sdk: flutter
+
+flutter:
+  plugin:
+    implements: aot_probe
+    platforms:
+      android:
+        dartPluginClass: AotProbeOther
+      linux:
+        dartPluginClass: AotProbeOther
+      macos:
+        dartPluginClass: AotProbeOther
+      windows:
+        dartPluginClass: AotProbeOther
