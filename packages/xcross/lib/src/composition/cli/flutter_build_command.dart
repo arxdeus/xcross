@@ -8,6 +8,7 @@ import 'package:xcross/src/composition/ios_target.dart';
 import 'package:xcross/src/shared/cli/internal/parsed_command.dart';
 import 'package:xcross/src/shared/cli/shared/ipa_packager.dart';
 import 'package:xcross/src/shared/flutter/build/flutter_pack_operation.dart';
+import 'package:xcross/src/shared/flutter/models/flutter/flutter_build_mode.dart';
 import 'package:xcross/src/shared/runtime/xcross_runtime.dart';
 
 part 'flutter_build_command.g.dart';
@@ -36,6 +37,25 @@ class CommonFlutterArgs {
   late bool pub;
 }
 
+/// The single build mode selected by `--debug`/`--profile`/`--release`.
+@internal
+FlutterBuildMode flutterBuildModeOf({
+  required bool debug,
+  required bool profile,
+  required bool release,
+  required Never Function(String message) usageException,
+}) {
+  final selected = [
+    if (debug) FlutterBuildMode.debug,
+    if (profile) FlutterBuildMode.profile,
+    if (release) FlutterBuildMode.release,
+  ];
+  if (selected.length > 1) {
+    usageException('Choose only one of --debug, --profile or --release.');
+  }
+  return selected.singleOrNull ?? FlutterBuildMode.debug;
+}
+
 /// Options for `xcross flutter build`.
 @internal
 @CliOptions()
@@ -46,16 +66,19 @@ final class FlutterBuildArgs extends CommonFlutterArgs {
   )
   late String targetPlatform;
 
-  @CliOption(
-    negatable: false,
-    help: 'Build in debug mode (the only supported mode).',
-  )
+  @CliOption(negatable: false, help: 'Build a debug (JIT) app (default).')
   late bool debug;
 
-  @CliOption(negatable: false, help: 'Profile mode is unsupported by xcross.')
+  @CliOption(
+    negatable: false,
+    help: 'Build an ahead-of-time compiled profile app (devices only).',
+  )
   late bool profile;
 
-  @CliOption(negatable: false, help: 'Release mode is unsupported by xcross.')
+  @CliOption(
+    negatable: false,
+    help: 'Build an ahead-of-time compiled release app (devices only).',
+  )
   late bool release;
 
   @CliOption(help: 'Version name (CFBundleShortVersionString).')
@@ -73,6 +96,21 @@ final class FlutterBuildArgs extends CommonFlutterArgs {
   late bool treeShakeIcons;
 
   @CliOption(
+    help:
+        'Write Dart debug symbols to this directory instead of the app. '
+        'Applies to profile and release builds.',
+  )
+  late String? splitDebugInfo;
+
+  @CliOption(
+    negatable: false,
+    help:
+        'Obfuscate Dart symbol names. Requires --split-debug-info; applies '
+        'to profile and release builds.',
+  )
+  late bool obfuscate;
+
+  @CliOption(
     abbr: 'i',
     negatable: false,
     help: 'Output a .ipa file instead of a .app.',
@@ -82,8 +120,8 @@ final class FlutterBuildArgs extends CommonFlutterArgs {
 
 /// `xcross flutter build` — build a Flutter iOS `.app` (optionally ipa).
 ///
-/// xcross is debug-only; `build` produces an unsigned bundle and signing
-/// happens when `xcross flutter run` installs it.
+/// `build` produces an unsigned bundle; signing happens when `xcross flutter
+/// run` installs it.
 @internal
 final class FlutterBuildCommand<T extends PlatformHostInterface>
     extends ParsedCommand<FlutterBuildArgs, void> {
@@ -104,25 +142,19 @@ final class FlutterBuildCommand<T extends PlatformHostInterface>
 
   @override
   Future<void> run() async {
-    if ([
-          options.debug,
-          options.profile,
-          options.release,
-        ].where((enabled) => enabled).length >
-        1) {
-      usageException('Choose only one of --debug, --profile or --release.');
-    }
-    if (options.profile || options.release) {
-      usageException(
-        'xcross Flutter builds support debug mode only. Use --debug.',
-      );
-    }
+    final mode = flutterBuildModeOf(
+      debug: options.debug,
+      profile: options.profile,
+      release: options.release,
+      usageException: usageException,
+    );
     final features = composeBuildFeatures(
       options.targetPlatform,
       runtime,
       ipa: options.ipa,
     );
     final buildRuntime = features.flutterRuntime;
+    final projectRoot = runtime.host.paths.context.current;
     final buildOptions = await buildRuntime.options.resolve(
       target: options.target,
       dartDefine: options.dartDefine,
@@ -131,11 +163,15 @@ final class FlutterBuildCommand<T extends PlatformHostInterface>
       buildName: options.buildName,
       buildNumber: options.buildNumber,
       flavor: options.flavor,
+      buildMode: mode,
       treeShakeIcons: options.treeShakeIcons,
+      splitDebugInfo: options.splitDebugInfo,
+      obfuscate: options.obfuscate,
+      projectRoot: projectRoot,
     );
 
     final result = await FlutterPackOperation.pack(
-      projectRoot: runtime.host.paths.context.current,
+      projectRoot: projectRoot,
       runtime: buildRuntime,
       options: buildOptions,
     );

@@ -1,12 +1,14 @@
 import 'package:cli_kit/shared/platform/platform_host.dart';
 import 'package:meta/meta.dart';
 import 'package:xcross/src/shared/flutter/build/dart_plugin_registrant.dart';
+import 'package:xcross/src/shared/flutter/build/flutter_aot_snapshotter.dart';
 import 'package:xcross/src/shared/flutter/build/flutter_debug_bundler.dart';
 import 'package:xcross/src/shared/flutter/build/internal/swiftpm_workspace.dart';
 import 'package:xcross/src/shared/flutter/build/ios_deployment_target.dart';
 import 'package:xcross/src/shared/flutter/build/ios_native_assets.dart';
 import 'package:xcross/src/shared/flutter/build/ios_plugin_package.dart';
 import 'package:xcross/src/shared/flutter/build/ios_plugins.dart';
+import 'package:xcross/src/shared/flutter/errors.dart';
 import 'package:xcross/src/shared/flutter/flutter_assets_compiler.dart';
 import 'package:xcross/src/shared/flutter/flutter_build_runtime.dart';
 import 'package:xcross/src/shared/flutter/flutter_build_steps.dart';
@@ -45,14 +47,14 @@ final class FlutterArtifactCompiler<T extends PlatformHostInterface>
         hooks: runtime.nativeAssetHooks,
         runner: runtime.runner,
         tools: runtime.nativeTools,
-        engineCache: runtime.engineCache(flutterRoot),
+        engineCache: runtime.engineCache(flutterRoot, mode: options.buildMode),
         renderer: runtime.toolShimRenderer,
         projectRoot: projectRoot,
         flutterRoot: flutterRoot,
         deploymentTarget: deploymentTarget,
         entrypoint: options.target,
-        dartDefines: options.dartDefines,
-        flavor: options.flavor,
+        dartDefines: context.dartDefines,
+        debugSymbols: runtime.debugSymbols,
       ).build(),
     );
     runtime.notices.copy(
@@ -93,11 +95,15 @@ final class FlutterArtifactCompiler<T extends PlatformHostInterface>
     String flutterRoot, {
     required IosDeploymentTarget deploymentTarget,
   }) async {
-    final assembleOut = _buildDirectory('xcross-flutter-debug');
+    final assembleOut = _buildDirectory(
+      options.buildMode.intermediatesDirectory,
+    );
     final assembleDir = runtime.host.fileSystem.directory(assembleOut);
     if (assembleDir.existsSync()) await assembleDir.delete(recursive: true);
     await assembleDir.create(recursive: true);
 
+    final mode = options.buildMode;
+    final snapshotter = aotSnapshotter();
     final debugBundle = await FlutterDebugBundler(
       runtime: runtime,
       assets: FlutterAssetsCompiler(
@@ -109,24 +115,54 @@ final class FlutterArtifactCompiler<T extends PlatformHostInterface>
       ),
       kernel: FlutterKernelCompiler(
         runtime: runtime,
-        registrant: DartPluginRegistrant(runtime.host.fileSystem),
-        plugins: PluginDiscovery(runtime.host.fileSystem),
+        registrant: DartPluginRegistrant(
+          runtime.host.fileSystem,
+          runtime.host.paths.context,
+          onWarning: runtime.runner.log.logWarn,
+        ),
         projectRoot: projectRoot,
         flutterRoot: flutterRoot,
         entrypoint: options.target,
-        dartDefines: options.dartDefines,
-        flavor: options.flavor,
+        dartDefines: context.dartDefines,
+        buildMode: mode,
       ),
       projectRoot: projectRoot,
       flutterRoot: flutterRoot,
       outputDir: assembleOut,
       deploymentTarget: deploymentTarget,
       entrypoint: options.target,
-      dartDefines: options.dartDefines,
-      flavor: options.flavor,
       treeShakeIcons: options.shakesIcons,
+      snapshotter: snapshotter,
+      splitDebugInfo: options.splitDebugInfo,
+      obfuscate: options.obfuscate,
     ).build();
     return debugBundle;
+  }
+
+  /// Creates the AOT snapshotter from the engine the build uses, or `null`
+  /// for debug builds.
+  @visibleForTesting
+  FlutterAotSnapshotterFactory<T>? aotSnapshotter() {
+    final mode = options.buildMode.genSnapshotMode;
+    if (mode == null) return null;
+    final locate = runtime.aotCompilers;
+    if (locate == null) {
+      throw FlutterBuildError(
+        '${options.buildMode.name} builds need the iOS AOT compiler, which '
+        'this xcross host does not provide.',
+      );
+    }
+    return (engineCache) async => FlutterAotSnapshotter(
+      runtime: runtime,
+      compiler: await locate(
+        flutterRoot: engineCache.flutterRoot,
+        engineDirectory: engineCache.engineDirectory,
+        mode: mode,
+      ),
+      minimumOsVersion:
+          engineCache.engineMinimumOsVersion ??
+          FlutterAotSnapshotter.fallbackMinimumOsVersion,
+    );
   }
 
   /// Discover the project's iOS plugins and build the aggregate Swift
@@ -172,7 +208,9 @@ final class FlutterArtifactCompiler<T extends PlatformHostInterface>
     }
     if (spmPlugins.isEmpty) return null;
 
-    final xcframework = runtime.engineCache(flutterRoot).flutterXcframework;
+    final xcframework = runtime
+        .engineCache(flutterRoot, mode: options.buildMode)
+        .flutterXcframework;
     final capabilities =
         await artifactJunctionCapabilityResolver?.call() ??
         (

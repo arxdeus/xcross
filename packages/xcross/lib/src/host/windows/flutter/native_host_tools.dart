@@ -55,16 +55,22 @@ final class WindowsNativeHostTools<T extends WindowsHostInterface>
 
   @override
   Future<void> link(String path, String target) async {
+    final directory = host.fileSystem.directory(target).existsSync();
     final result = await runner.run(await runner.locateTool('cmd'), [
       '/c',
       'mklink',
-      if (host.fileSystem.directory(target).existsSync()) '/J' else '/H',
+      if (directory) '/J' else '/H',
       host.paths.ioPath(path),
       host.paths.ioPath(target),
     ]);
-    if (result.exitCode != 0) {
-      throw FileSystemException(result.stderr.trim(), path);
+    if (result.exitCode == 0) return;
+    if (!directory) {
+      final source = host.fileSystem.file(target);
+      final copy = await source.copy(host.paths.ioPath(path));
+      copy.setLastModifiedSync(source.lastModifiedSync());
+      return;
     }
+    throw FileSystemException(result.stderr.trim(), path);
   }
 
   bool _native(String path) =>

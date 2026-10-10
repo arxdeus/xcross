@@ -14,7 +14,9 @@ abstract final class FlutterPackOperation {
     required FlutterBuildOptions options,
     required String projectRoot,
   }) async {
-    options.validate();
+    options.validate(
+      supportsPrecompiledModes: runtime.policy.supportsPrecompiledModes,
+    );
     final bundleId = runtime.bundleIds.resolve(projectRoot);
     final workspace = SwiftPmWorkspace.forProject(
       projectRoot,
@@ -33,11 +35,12 @@ abstract final class FlutterPackOperation {
       p.join(packer.outputDirectory, '${packer.appName}.app'),
     );
     if (bundleDir.existsSync()) await bundleDir.delete(recursive: true);
-    final appPath = await packer.pack();
+    final built = await packer.pack();
     return PackResult(
-      outputPath: appPath,
+      outputPath: built.appPath,
       bundleId: bundleId,
       projectRoot: projectRoot,
+      dartDefines: built.dartDefines,
     );
   }
 }

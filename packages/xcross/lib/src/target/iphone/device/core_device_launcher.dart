@@ -18,6 +18,7 @@ import 'package:xcross/src/shared/errors/errors.dart';
 import 'package:xcross/src/shared/flutter/hot_reload/dart_vm_service_client.dart';
 import 'package:xcross/src/shared/flutter/hot_reload/hot_reload_controller.dart';
 import 'package:xcross/src/shared/flutter/hot_reload/vm_service_output.dart';
+import 'package:xcross/src/shared/flutter/models/flutter/flutter_build_mode.dart';
 import 'package:xcross/src/shared/flutter/models/hot_reload_config.dart';
 import 'package:xcross/src/shared/flutter/vm_service_connector.dart';
 import 'package:xcross/src/shared/runtime/constants.dart';
@@ -83,11 +84,7 @@ final class CoreDeviceLauncher {
         transport: transport,
         udid: udid,
         bundleId: bundleId,
-        arguments: profile.argumentsForLaunch(
-          isDap: _isDap,
-          vmServiceBindAddress: transport.vmServiceBindAddress,
-        ),
-        hotReload: profile.hotReload,
+        profile: profile,
         onRestartRequested: onRestartRequested,
       );
     } finally {
@@ -151,8 +148,7 @@ final class CoreDeviceLauncher {
     required DeviceTransport transport,
     required String udid,
     required String bundleId,
-    required List<String> arguments,
-    required HotReloadConfig? hotReload,
+    required CoreDeviceLaunchProfile profile,
     Future<bool> Function()? onRestartRequested,
   }) async {
     final debugproxy = await transport.debugproxyEndpoint();
@@ -160,7 +156,10 @@ final class CoreDeviceLauncher {
     final pid = await _launchSuspended(
       transport: transport,
       bundleId: bundleId,
-      appArgs: arguments,
+      appArgs: profile.argumentsForLaunch(
+        isDap: _isDap,
+        vmServiceBindAddress: transport.vmServiceBindAddress,
+      ),
     );
     // Always on, verbose or not: a native abort (uncaught NSException,
     // misconfigured Firebase, failed plugin assertion) prints its reason to
@@ -171,6 +170,7 @@ final class CoreDeviceLauncher {
       pid: pid,
       udid: udid,
       verbose: pymd.runner.log.isVerbose,
+      echoDartOutput: profile.dartOutputFromDeviceLog,
     );
 
     try {
@@ -178,7 +178,7 @@ final class CoreDeviceLauncher {
       await _holdDebugSession(
         gdb: gdb,
         transport: transport,
-        hotReload: hotReload,
+        profile: profile,
         deviceLog: deviceLog,
         onRestartRequested: onRestartRequested,
       );
@@ -190,10 +190,11 @@ final class CoreDeviceLauncher {
   Future<void> _holdDebugSession({
     required GdbRemoteClient gdb,
     required DeviceTransport transport,
-    required HotReloadConfig? hotReload,
+    required CoreDeviceLaunchProfile profile,
     required DeviceLog? deviceLog,
     Future<bool> Function()? onRestartRequested,
   }) async {
+    final hotReload = profile.hotReload;
     HotReloadController? hotReloadController;
     PortForwarder? vmService;
     // Hot-reload setup is inside the same cleanup boundary as the session. A
@@ -201,7 +202,7 @@ final class CoreDeviceLauncher {
     // launch paused forever.
     final console = _createSessionConsole(
       gdb: gdb,
-      hotReload: hotReload,
+      profile: profile,
       deviceLog: deviceLog,
       onRestartRequested: onRestartRequested,
     );
@@ -225,8 +226,8 @@ final class CoreDeviceLauncher {
       }
       pymd.runner.log.logDone('Debugger attached');
       if (hotReload != null) pymd.runner.log.logInfo('Preparing hot reload…');
-      final setupFuture = _trySpinUpHotReload(
-        hotReload: hotReload,
+      final setupFuture = _prepareSession(
+        profile: profile,
         transport: transport,
         // The session can end while setup is still polling, for example a
         // crash reported moments after launch. Stop polling then instead of
@@ -264,7 +265,7 @@ final class CoreDeviceLauncher {
 
   SessionConsole _createSessionConsole({
     required GdbRemoteClient gdb,
-    required HotReloadConfig? hotReload,
+    required CoreDeviceLaunchProfile profile,
     required DeviceLog? deviceLog,
     Future<bool> Function()? onRestartRequested,
   }) {
@@ -275,8 +276,8 @@ final class CoreDeviceLauncher {
       allowPipedKeyboard: _isDap,
       gdb: gdb,
       hotReload: null,
-      hotReloadUnavailable: hotReload == null
-          ? null
+      hotReloadUnavailable: profile.hotReload == null
+          ? reloadUnavailableReason(profile.buildMode)
           : 'hot reload is still preparing; wait for "Hot reload ready".',
       onRestartRequested: onRestartRequested,
       crashReason: () => deviceLog?.crashReason,
@@ -463,43 +464,116 @@ final class CoreDeviceLauncher {
     return 'Launch failed: $details';
   }
 
-  /// Spin up hot reload if [hotReload] config is provided.
+  /// Why `r`/`R` do nothing in a session without hot reload.
+  @visibleForTesting
+  static String reloadUnavailableReason(FlutterBuildMode? buildMode) =>
+      switch (buildMode) {
+        FlutterBuildMode.profile || FlutterBuildMode.release =>
+          'hot reload is not supported in ${buildMode!.name} mode: press '
+              'Ctrl-C and run again after changing sources.',
+        // Compose (Kotlin/Native, AOT) has no in-place reload at all, so the
+        // Flutter-specific "frontend_server artifacts missing" wording would
+        // be actively misleading there. The Compose path supplies its own
+        // rebuild-and-restart handler instead, and never reaches this text.
+        _ =>
+          'this session has no in-place reload: press Ctrl-C and run again '
+              'after changing sources.',
+      };
+
+  /// Spin up hot reload when [profile] carries its config. Otherwise publish
+  /// the VM Service, if the app serves one, and stream the app's output.
+  Future<_HotReloadSetup> _prepareSession({
+    required CoreDeviceLaunchProfile profile,
+    required DeviceTransport transport,
+    required Future<void> Function() onVmServiceReady,
+    required bool Function() cancelled,
+  }) => switch (profile.hotReload) {
+    final hotReload? => _trySpinUpHotReload(
+      hotReload: hotReload,
+      transport: transport,
+      onVmServiceReady: onVmServiceReady,
+      cancelled: cancelled,
+    ),
+    null => _streamAppOutput(
+      profile: profile,
+      transport: transport,
+      onVmServiceReady: onVmServiceReady,
+      cancelled: cancelled,
+    ),
+  };
+
+  Future<_HotReloadSetup> _streamAppOutput({
+    required CoreDeviceLaunchProfile profile,
+    required DeviceTransport transport,
+    required Future<void> Function() onVmServiceReady,
+    required bool Function() cancelled,
+  }) async {
+    if (profile.debuggingEnabled) {
+      await _tryPublishVmService(
+        transport: transport,
+        onVmServiceReady: onVmServiceReady,
+        cancelled: cancelled,
+      );
+    }
+    pymd.runner.log.logInfo(
+      'Streaming app output ${pymd.runner.log.dim('— Ctrl-C to stop')}',
+    );
+    return (
+      controller: null,
+      unavailable: reloadUnavailableReason(profile.buildMode),
+    );
+  }
+
+  /// Wait for the app's VM Service and publish it for DevTools and other
+  /// clients. A failure leaves the session running without it.
+  Future<void> _tryPublishVmService({
+    required DeviceTransport transport,
+    required Future<void> Function() onVmServiceReady,
+    required bool Function() cancelled,
+  }) async {
+    DartVmServiceClient? vm;
+    try {
+      final endpoint = await transport.devicePortEndpoint(
+        TunnelConstants.vmServicePort,
+      );
+      vm = await _waitForVmService(
+        _vmServiceWsUri(endpoint),
+        cancelled: cancelled,
+      );
+      await onVmServiceReady();
+    } on Object catch (e) {
+      if (cancelled()) return;
+      pymd.runner.log.logWarn('VM Service unavailable: $e');
+    } finally {
+      await vm?.close();
+    }
+  }
+
+  static Uri _vmServiceWsUri(DeviceEndpoint endpoint) => Uri.parse(
+    'ws://${ProcessRunner.bracketHost(endpoint.host)}:${endpoint.port}/ws',
+  );
+
+  /// Spin up hot reload with [hotReload].
   ///
   /// Returns the reason alongside a null controller instead of swallowing it:
   /// the session stays alive without hot reload, and `r`/`R` have to be able
   /// to say why they do nothing.
   Future<_HotReloadSetup> _trySpinUpHotReload({
-    required HotReloadConfig? hotReload,
+    required HotReloadConfig hotReload,
     required DeviceTransport transport,
     Future<void> Function()? onVmServiceReady,
     bool Function()? cancelled,
   }) async {
-    if (hotReload == null) {
-      pymd.runner.log.logInfo(
-        'Streaming app output ${pymd.runner.log.dim('— Ctrl-C to stop')}',
-      );
-      return (
-        controller: null,
-        // Compose (Kotlin/Native, AOT) has no in-place reload at all, so the
-        // Flutter-specific "frontend_server artifacts missing" wording would
-        // be actively misleading there. The Compose path supplies its own
-        // rebuild-and-restart handler instead, and never reaches this text.
-        unavailable:
-            'this session has no in-place reload: press Ctrl-C and run again '
-            'after changing sources.',
-      );
-    }
     DartVmServiceClient? vm;
     HotReloadController? controller;
     try {
       final vmService = await transport.devicePortEndpoint(
         TunnelConstants.vmServicePort,
       );
-      final wsUri = Uri.parse(
-        'ws://${ProcessRunner.bracketHost(vmService.host)}:'
-        '${vmService.port}/ws',
+      vm = await _waitForVmService(
+        _vmServiceWsUri(vmService),
+        cancelled: cancelled,
       );
-      vm = await _waitForVmService(wsUri, cancelled: cancelled);
       await onVmServiceReady?.call();
       // A wireless session dies quietly when the phone locks, sleeps off the
       // network, or the tunnel drops. Without this, `r`/`R` just start

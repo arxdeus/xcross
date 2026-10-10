@@ -145,7 +145,8 @@ void main() {
           same(build.runtime.target.buildPlatform),
         );
       }
-      expect(output, build.outputDirectory);
+      expect(output.appPath, build.outputDirectory);
+      expect(output.dartDefines, same(pipeline.contexts.first.dartDefines));
     },
   );
 

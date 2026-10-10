@@ -5,22 +5,20 @@ import 'package:path/path.dart' as p;
 import 'package:xcross/src/shared/flutter/build/dart_plugin_registrant.dart';
 import 'package:xcross/src/shared/flutter/build/internal/kernel_compiler.dart';
 import 'package:xcross/src/shared/flutter/build/ios_engine_cache.dart';
-import 'package:xcross/src/shared/flutter/build/ios_plugins.dart';
 import 'package:xcross/src/shared/flutter/errors.dart';
 import 'package:xcross/src/shared/flutter/flutter_build_runtime.dart';
-import 'package:xcross/src/shared/flutter/models/flutter/dart_defines.dart';
+import 'package:xcross/src/shared/flutter/models/flutter/flutter_build_mode.dart';
 
 @internal
 final class FlutterKernelCompiler<T extends PlatformHostInterface> {
   FlutterKernelCompiler({
     required this.runtime,
     required this.registrant,
-    required this.plugins,
     required this.projectRoot,
     required this.flutterRoot,
     this.entrypoint = 'lib/main.dart',
     this.dartDefines = const [],
-    this.flavor,
+    this.buildMode = FlutterBuildMode.debug,
   }) : packageUriLoader = PackageUriLoader(
          fileSystem: runtime.host.fileSystem,
          paths: runtime.host.paths.context,
@@ -28,12 +26,17 @@ final class FlutterKernelCompiler<T extends PlatformHostInterface> {
   final PackageUriLoader packageUriLoader;
   final FlutterBuildRuntime<T> runtime;
   final DartPluginRegistrant registrant;
-  final PluginDiscovery plugins;
   final String projectRoot;
   final String flutterRoot;
   final String entrypoint;
+
+  /// The build's complete dart-defines (`FlutterBuildContext.dartDefines`),
+  /// forwarded as `-D<KEY=VALUE>`.
   final List<String> dartDefines;
-  final String? flavor;
+
+  /// Debug compiles a hot-reloadable kernel; profile and release compile a
+  /// whole-program AOT kernel for `gen_snapshot`.
+  final FlutterBuildMode buildMode;
   Future<String> compile(IosEngineCache<T> engineCache) async {
     final compiler = _resolveKernelCompiler(engineCache);
     _validateKernelDependencies(compiler, engineCache);
@@ -47,10 +50,14 @@ final class FlutterKernelCompiler<T extends PlatformHostInterface> {
     // Without it the app boots but the first plugin call throws
     // "a platform implementation has not been set", usually before runApp,
     // which reaches the device as a black screen.
+    final paths = runtime.host.paths.context;
     final registrationPath = await registrant.generate(
       projectRoot: projectRoot,
-      plugins: await plugins.discover(projectRoot),
-      entrypointUri: entrypointArg,
+      packageConfigPath: packageConfig,
+      entrypoint: paths.isAbsolute(entrypoint)
+          ? entrypoint
+          : paths.join(projectRoot, entrypoint),
+      flutterRoot: flutterRoot,
     );
     final packageUris = await packageUriLoader.load(packageConfig);
     final registrantUri = registrationPath == null
@@ -150,7 +157,10 @@ final class FlutterKernelCompiler<T extends PlatformHostInterface> {
   Future<String> _prepareKernelScratch() async {
     final scratch = runtime.host.fileSystem.directory(
       p.join(
-        runtime.policy.buildDirectory(projectRoot, 'xcross-flutter-debug'),
+        runtime.policy.buildDirectory(
+          projectRoot,
+          buildMode.intermediatesDirectory,
+        ),
         '.kernel',
       ),
     );
@@ -177,8 +187,9 @@ final class FlutterKernelCompiler<T extends PlatformHostInterface> {
   /// ORDER MATTERS: dartaotruntime takes `<snapshot>` as its first arg, so
   /// `dart`'s --disable-dart-dev must precede it. --sdk-root needs its
   /// trailing slash: frontend_server resolves platform_strong.dill by string
-  /// concatenation. The -Ddart.* / --track-widget-creation quartet is what
-  /// makes the kernel hot-reloadable.
+  /// concatenation. The defines and mode options follow flutter_tools'
+  /// `KernelCompiler.compile` order, so a release build's `dart.vm.*` values
+  /// come after, and override, the user's.
   ///
   /// The registrant [path] as the compiler and the VM must see it: a URI,
   /// never a bare filesystem path.
@@ -213,17 +224,19 @@ final class FlutterKernelCompiler<T extends PlatformHostInterface> {
     '--sdk-root', '${engineCache.patchedSdkRoot}/',
     '--target=flutter',
     '--no-print-incremental-dependencies',
-    '-Ddart.developer.serviceExtensionStream.enabled=true',
-    '-Ddart.vm.profile=false',
-    '-Ddart.vm.product=false',
-    '--track-widget-creation',
+    if (!buildMode.isPrecompiled)
+      '-Ddart.developer.serviceExtensionStream.enabled=true',
+    for (final define in dartDefines) '-D$define',
+    ...buildMode.frontendServerOptions(dartDefines),
+    if (buildMode.isPrecompiled) ...[
+      '--aot',
+      '--tfa',
+      '--target-os',
+      'ios',
+    ] else
+      '--track-widget-creation',
     '--packages', packageConfig,
     '--output-dill', outputDill,
-    // User-supplied dart-defines forwarded as -D<KEY=VALUE>.
-    // --flavor → FLUTTER_APP_FLAVOR dart-define, unless already set
-    // explicitly above (explicit define wins).
-    for (final define in DartDefines.withFlavor(dartDefines, flavor))
-      '-D$define',
     // All three go together: the generated registrant, the flutter library
     // that calls it, and the define naming which library to look in. Passing
     // fewer means the VM never runs the registrant.

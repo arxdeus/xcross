@@ -56,7 +56,9 @@ final class FlutterProjectResolver<T extends PlatformHostInterface>
     if (!identical(runtime, request.runtime)) {
       throw ArgumentError('Flutter request and resolver must share a runtime');
     }
-    request.options.validate();
+    request.options.validate(
+      supportsPrecompiledModes: runtime.policy.supportsPrecompiledModes,
+    );
     final root = await resolveFlutterRoot(projectRoot: request.projectRoot);
     runtime.runner.log.logTrace('Flutter SDK: $root');
     if (request.options.pub) {

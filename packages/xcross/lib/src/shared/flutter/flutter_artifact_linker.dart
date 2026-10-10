@@ -105,7 +105,9 @@ final class FlutterArtifactLinker<T extends PlatformHostInterface>
     String? pluginsLibrary,
     List<String> nativeAssetFrameworks = const [],
   }) async {
-    final xcframework = runtime.engineCache(flutterRoot).flutterXcframework;
+    final xcframework = runtime
+        .engineCache(flutterRoot, mode: options.buildMode)
+        .flutterXcframework;
 
     final darwin = runtime.sdkRepository.current();
     if (darwin == null) {

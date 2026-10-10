@@ -10,6 +10,8 @@ import 'package:xcross/src/host/shared/flutter/flutter_sdk_host_policy.dart';
 import 'package:xcross/src/host/shared/flutter/native_host_tools.dart';
 import 'package:xcross/src/shared/artifact/plist_storyboard_policy.dart';
 import 'package:xcross/src/shared/flutter/build/adhoc_signature_refresher.dart';
+import 'package:xcross/src/shared/flutter/build/apple_debug_symbols.dart';
+import 'package:xcross/src/shared/flutter/build/flutter_aot_snapshotter.dart';
 import 'package:xcross/src/shared/flutter/build/flutter_notice_artifact.dart';
 import 'package:xcross/src/shared/flutter/build/internal/apple_tool_shims.dart';
 import 'package:xcross/src/shared/flutter/build/internal/native_asset_frameworks.dart';
@@ -24,6 +26,7 @@ import 'package:xcross/src/shared/flutter/build/ios_plugin_package.dart';
 import 'package:xcross/src/shared/flutter/flutter_build_options_resolver.dart';
 import 'package:xcross/src/shared/flutter/flutter_framework_copier.dart';
 import 'package:xcross/src/shared/flutter/flutter_project_resolver.dart';
+import 'package:xcross/src/shared/flutter/models/flutter/flutter_build_mode.dart';
 import 'package:xcross/src/shared/flutter/project/dart_defines_reader.dart';
 import 'package:xcross/src/shared/flutter/project/ios_bundle_versions_resolver.dart';
 import 'package:xcross/src/shared/flutter/project/ios_deployment_target_resolver.dart';
@@ -67,6 +70,7 @@ final class FlutterBuildRuntime<T extends PlatformHostInterface> {
     required this.plugins,
     required this.downloader,
     required this.resolution,
+    this.aotCompilers,
   }) {
     if (!identical(target.host, runner.host) ||
         !identical(target.host, sdkRepository.host) ||
@@ -160,6 +164,10 @@ final class FlutterBuildRuntime<T extends PlatformHostInterface> {
   );
   late final IosDeploymentTargetResolver deployments =
       IosDeploymentTargetResolver(host.fileSystem, host.paths.context);
+  late final AppleDebugSymbols<T> debugSymbols = AppleDebugSymbols(
+    runner: runner,
+    toolchain: toolchain,
+  );
 
   IosTarget<T> get target => policy.target;
   T get host => target.host;
@@ -169,16 +177,24 @@ final class FlutterBuildRuntime<T extends PlatformHostInterface> {
   final DarwinSdkRepository<T> sdkRepository;
   final DarwinToolchainResolver<T> toolchain;
   final FlutterResolutionConfiguration resolution;
+
+  /// Finds the iOS AOT compiler for profile and release builds; `null` when
+  /// this runtime builds debug only.
+  final IosAotCompilerLocator? aotCompilers;
   final FlutterTargetBuildPolicy<T> policy;
   final NativeHostTools<T> hostTools;
   final AppleToolShimRenderer<T> toolShimRenderer;
   final FlutterSdkHostPolicy<T> sdkHostPolicy;
-  IosEngineCache<T> engineCache(String flutterRoot) => IosEngineCache(
+  IosEngineCache<T> engineCache(
+    String flutterRoot, {
+    FlutterBuildMode mode = FlutterBuildMode.debug,
+  }) => IosEngineCache(
     downloader: downloader,
     log: runner.log,
     hostTools: hostTools,
     targetPolicy: policy,
     flutterRoot: flutterRoot,
+    mode: mode,
   );
   Future<String> resolveFlutterRoot({
     required String projectRoot,

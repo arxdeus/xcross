@@ -43,6 +43,7 @@ dependencies:
   path: ^1.9.1
   pointycastle: ^4.0.0
   propertylistserialization: ^1.5.0
+  pub_semver: ^2.2.0
   pure: ^1.0.0
   standard_message_codec: ^0.0.1+5
   vm_service: ^15.3.0

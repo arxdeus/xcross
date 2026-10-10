@@ -11,7 +11,6 @@ import 'package:xcross/src/shared/flutter/build/dart_plugin_registrant.dart';
 import 'package:xcross/src/shared/flutter/build/flutter_debug_bundler.dart';
 import 'package:xcross/src/shared/flutter/build/internal/toolchain.dart';
 import 'package:xcross/src/shared/flutter/build/ios_deployment_target.dart';
-import 'package:xcross/src/shared/flutter/build/ios_plugins.dart';
 import 'package:xcross/src/shared/flutter/flutter_assets_compiler.dart';
 import 'package:xcross/src/shared/flutter/flutter_kernel_compiler.dart';
 import 'package:xcross/src/target/iphone/flutter/iphone_flutter_target.dart';
@@ -54,8 +53,7 @@ printf '%s' "$source" > "$output"
         runtime: runtime,
         kernel: FlutterKernelCompiler(
           runtime: runtime,
-          registrant: DartPluginRegistrant(host.fileSystem),
-          plugins: PluginDiscovery(host.fileSystem),
+          registrant: DartPluginRegistrant(host.fileSystem, host.paths.context),
           projectRoot: project.path,
           flutterRoot: '/unused',
         ),

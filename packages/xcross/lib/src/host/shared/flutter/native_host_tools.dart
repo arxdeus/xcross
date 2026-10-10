@@ -21,5 +21,9 @@ abstract interface class NativeHostTools<T extends PlatformHostInterface> {
   ToolchainPluginLayoutInterface get toolchainPluginLayout;
   Future<HostCompiler> compiler(String clang);
   Future<String> forwarder(String executable, String? launcher);
+
+  /// Makes [path] read the existing [target]: a link where the host can make
+  /// one, else, for a file a hard link cannot reach (another volume), a copy
+  /// that keeps the target's size and modification time.
   Future<void> link(String path, String target);
 }

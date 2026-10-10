@@ -164,6 +164,54 @@ void main() {
     ]);
   });
 
+  group('Windows native tools without a hard link across volumes', () {
+    late Directory temp;
+    late WindowsNativeHostTools<WindowsHost> tools;
+
+    setUp(() async {
+      temp = await Directory.systemTemp.createTemp('native_windows_copy-');
+      final host = WindowsHost(
+        architecture: 'x64',
+        paths: WindowsFixturePaths(),
+        processes: LinkRecordingProcesses(exitCode: 1),
+        environment: const {'PATH': '', 'PATHEXT': '.EXE'},
+      );
+      tools = WindowsNativeHostTools(
+        host,
+        ProcessRunner(
+          host,
+          log: nativeTestLog(),
+          stdinStream: const Stream<List<int>>.empty(),
+          stdoutSink: nativeTestSink(),
+          stderrSink: nativeTestSink(),
+        ),
+      );
+    });
+    tearDown(() => temp.delete(recursive: true));
+
+    test('copy a file instead', () async {
+      final source = File(p.join(temp.path, 'source'))
+        ..writeAsStringSync('payload')
+        ..setLastModifiedSync(DateTime.utc(2020));
+      final copy = p.join(temp.path, 'copy');
+      await tools.link(copy, source.path);
+      expect(File(copy).readAsStringSync(), 'payload');
+      expect(File(copy).lastModifiedSync(), source.lastModifiedSync());
+      expect(
+        FileSystemEntity.typeSync(copy, followLinks: false),
+        FileSystemEntityType.file,
+      );
+    });
+
+    test('still fail for a directory', () async {
+      final source = Directory(p.join(temp.path, 'source'))..createSync();
+      await expectLater(
+        tools.link(p.join(temp.path, 'junction'), source.path),
+        throwsA(isA<FileSystemException>()),
+      );
+    });
+  });
+
   test('keeps the workspace root one short key below the cache root', () async {
     final tmp = await Directory.systemTemp.createTemp('workspace_depth-');
     try {

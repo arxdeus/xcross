@@ -10,6 +10,7 @@ import 'package:dart_mobile_device/target/iphone/device/device_prepare.dart';
 import 'package:dart_mobile_device/target/iphone/diagnostics/pymd_device_diagnostics.dart';
 import 'package:darwin_sdk_kit/shared/errors/errors.dart';
 import 'package:meta/meta.dart';
+import 'package:xcross/src/composition/cli/cache_command.dart';
 import 'package:xcross/src/composition/cli/compose_command.dart';
 import 'package:xcross/src/composition/cli/doctor_sections.dart';
 import 'package:xcross/src/composition/cli/flutter_command.dart';
@@ -127,6 +128,7 @@ abstract final class XcrossCli {
         createNativeLibraryLoader: runtime.createNativeLibraryLoader,
       ),
       SdkCommand(runtime.sdkInstall),
+      composeCacheCommand(runtime),
       IdeCommand(ideLauncher),
       UpdateCommand(runtime),
       CompletionCommand(write: runtime.log.output.write),

@@ -19,6 +19,7 @@ import 'package:darwin_sdk_kit/shared/sdk/darwin_sdk_repository.dart';
 import 'package:darwin_sdk_kit/shared/toolchain/darwin_toolchain_resolver.dart';
 import 'package:http/http.dart' as http;
 import 'package:meta/meta.dart';
+import 'package:xcross/src/composition/flutter/ios_gen_snapshot.dart';
 import 'package:xcross/src/composition/flutter/swiftpm_checkout.dart';
 import 'package:xcross/src/composition/flutter/windows_flutter_feature_services.dart';
 import 'package:xcross/src/composition/host_operations.dart';
@@ -207,6 +208,7 @@ final class WindowsXcrossHostContext
       installer: installer,
       operations: operations,
       resolution: resolution,
+      config: config,
     );
     final runtime = _createRuntime(
       config: config,
@@ -270,6 +272,7 @@ final class WindowsXcrossHostContext
     required SdkInstall<WindowsHostInterface> installer,
     required HostOperations operations,
     required FlutterResolutionConfiguration resolution,
+    required XcrossRuntimeConfig config,
   }) {
     final artifactFileSystem = WindowsSwiftPmArtifactFileSystem(host, runner);
     final publicationCoordinator = SwiftPmPublicationCoordinator(
@@ -333,6 +336,12 @@ final class WindowsXcrossHostContext
         platformIdentity: '${host.name}-${host.architecture}',
       ),
       resolution: resolution,
+      aotCompilers: composeIosAotCompilerLocator(
+        runner: runner,
+        downloader: downloader,
+        createHttpClient: createHttpClient,
+        config: config,
+      ),
     );
   }
 

@@ -41,6 +41,13 @@ void main() {
   });
   tearDown(() => project.deleteSync(recursive: true));
 
+  const defines = [
+    'VALUE=1',
+    'FLUTTER_BUILD_NAME=1.0.0',
+    'FLUTTER_BUILD_NUMBER=1',
+    'FLUTTER_VERSION=3.47.0',
+  ];
+
   Future<void> verify(
     FlutterBuildRuntime<LinuxHost> runtime,
     String intermediate,
@@ -49,14 +56,14 @@ void main() {
       runtime: runtime,
       projectRoot: project.path,
       target: 'lib/main.dart',
-      dartDefines: const ['VALUE=1'],
+      dartDefines: defines,
     );
     expect(config, isNotNull);
     expect(config!.projectRoot, project.path);
     expect(config.entrypoint, p.join(project.path, 'lib', 'main.dart'));
     expect(config.outputDill, p.join(intermediate, '.hotreload', 'app.dill'));
     expect(config.warmDill, p.join(intermediate, '.kernel', 'app.dill'));
-    expect(config.dartDefines, ['VALUE=1']);
+    expect(config.dartDefines, defines);
     expect(Directory(p.dirname(config.outputDill)).existsSync(), isTrue);
   }
 

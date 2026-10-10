@@ -1,0 +1,14 @@
+name: old_desktop
+version: 1.0.0
+environment:
+  sdk: ^3.4.0
+flutter:
+  plugin:
+    platforms:
+      ios:
+        dartPluginClass: OldDesktopIOS
+      linux:
+        dartPluginClass: OldDesktopLinux
+      windows:
+        dartPluginClass: OldDesktopWindows
+        pluginClass: OldDesktopWindowsNative

@@ -1,0 +1,11 @@
+name: fed_ios
+version: 1.0.0
+environment:
+  sdk: ^3.4.0
+flutter:
+  plugin:
+    implements: fed
+    platforms:
+      ios:
+        dartPluginClass: FedIOS
+        dartFileName: src/fed_ios_impl.dart

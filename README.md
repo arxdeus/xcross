@@ -35,7 +35,7 @@ xcross reimplements the Flutter iOS build pipeline and the iOS 17+ CoreDevice la
 | **Direct build pipeline** | `frontend_server` → `clang` → `ld64.lld` → `.app` / `.ipa` - no Xcode build system involved |
 
 > [!IMPORTANT]
-> xcross produces **debug (JIT) device builds**. Release/AOT builds still require Flutter's macOS build tooling. Launching with xcross requires **iOS 17 or later** on the device.
+> xcross builds **debug (JIT)** device and simulator apps, and **profile/release (AOT)** device apps. Launching with xcross requires **iOS 17 or later** on the device.
 
 ## Requirements
 
@@ -354,11 +354,14 @@ Edit it with `xcross config`, inspect it with `xcross config show`, prove it wit
 | `xcross config show` / `validate` | Print the selected YAML configuration or validate all configured paths |
 | `xcross sdk install <Xcode.xip>` | Extract a private Darwin Swift SDK from an Xcode archive, patched against the Swift toolchain currently on `PATH` |
 | `xcross sdk clean` | Remove the installed Darwin Swift SDK and any leftover backup or staging copies |
+| `xcross flutter precache [--mode debug\|profile\|release\|all]` | Download the iOS engine artifacts and, for profile and release, the iOS AOT compiler for the current Flutter SDK, so CI images and offline machines build without the network |
+| `xcross cache prune [--dry-run] [--older-than <days>]` | Remove cached Flutter engine artifacts and AOT compilers for engines no discoverable Flutter SDK uses and that went unused for `--older-than` days (default 30) |
 | `xcross auth` | Save Apple ID or App Store Connect credentials |
 | `xcross auth clean` | Delete saved credentials, sessions, and signing material |
 | `xcross tunnel` | Mount the Developer Disk Image + start the iOS 17+ RSD tunnel over USB |
 | `xcross tunnel --wifi` | Prepare wireless pairing, reconnect or advertise pair-host, mount DDI, and open the Wi-Fi RSD tunnel |
 | `xcross flutter run` | Build → sign → install → launch → hot reload |
+| `xcross flutter build --release` | Build an ahead-of-time compiled `.app` or `.ipa` (also `--profile`) |
 | `xcross flutter doctor` | Read-only check of the Flutter project, Swift/LLVM iOS toolchain, Darwin SDK, authentication, and devices |
 | `xcross compose setup` | Install Kotlin/Compose iOS cross-build helpers |
 | `xcross compose doctor` | Read-only check of the Gradle project, Kotlin/Native, JDK 21+, Gradle, swiftc, clang, Darwin SDK, `ld64.lld`, authentication, and devices |
@@ -496,9 +499,13 @@ Writes `.run/xcross_ios_device.run.xml` - a shared [LSP4IJ](https://plugins.jetb
 ## FAQ
 
 <details>
-<summary><b>Why can't it build release/AOT?</b></summary>
+<summary><b>How does it build release/AOT?</b></summary>
 
-Flutter's `gen_snapshot` for iOS AOT only runs on macOS hosts - Dart does not cross-compile an iOS AOT executable from Windows/Linux. Debug (JIT) builds don't need it, which is exactly what xcross produces. Release builds still need Flutter's macOS toolchain.
+Flutter publishes its iOS AOT compiler (`gen_snapshot`) for macOS only. On macOS xcross uses that compiler. On Linux and Windows it downloads the compiler [xcross_gen_snapshot](https://github.com/arxdeus/xcross_gen_snapshot) builds in GitHub Actions for each Flutter release, from the Dart revision that release pins. Each published compiler produced output byte-identical to Flutter's own on the reference app before it was released. xcross checks the engine revision and both digests before it uses a download. To use a compiler of your own, set `ios_gen_snapshot` in the xcross config. Simulators stay debug-only, because Flutter's simulator engines are JIT-only.
+
+A downloaded compiler is cached per engine revision. Once a day a build checks the release again (a few seconds at most, and never failing offline), so a compiler xcross_gen_snapshot republishes for the same Flutter version replaces the cached one. `xcross flutter doctor` reports for profile and release whether a compiler is shipped, cached, pinned, published, or missing. `xcross flutter precache` fetches it ahead of time. `xcross cache prune` removes engine artifacts and compilers left behind by Flutter versions you no longer use; Kotlin/Native in `~/.konan` is shared with Gradle and never pruned. A release manifest written for a newer xcross asks you to run `xcross update`.
+
+On Windows, output byte-identical to a macOS build needs an LF checkout of the Flutter SDK (`git config --global core.autocrlf false` before cloning). A CRLF checkout still produces working snapshots, but not byte-identical ones, because the source offsets they record shift.
 </details>
 
 <details>
@@ -560,13 +567,15 @@ Note that the two versions in Swift's own message can look identical: the mismat
 
 ## Under the hood
 
-xcross does not wrap or patch `flutter build ios` - that command simply refuses to run off-macOS. Instead, it re-implements the parts of Flutter's toolchain that matter for a debug device build, using the same engine artifacts, the same compilers, and the same device protocols the official tooling uses.
+xcross does not wrap or patch `flutter build ios` - that command simply refuses to run off-macOS. Instead, it re-implements the parts of Flutter's toolchain that matter for a device build (debug JIT, profile and release AOT), using the same engine artifacts, the same compilers, and the same device protocols the official tooling uses.
 
 ```text
-xcross flutter run
+xcross flutter run / build
    ├─ FlutterPacker
    │    ├─ IosEngineCache        download engine artifacts pinned to the SDK's engine hash
-   │    ├─ FlutterDebugBundler   frontend_server → app.dill → App.framework (JIT)
+   │    ├─ FlutterDebugBundler   frontend_server → app.dill → App.framework (JIT, debug)
+   │    ├─ FlutterAotSnapshotter AOT app.dill → gen_snapshot → App.framework/App + dSYM (profile/release)
+   │    │    └─ IosGenSnapshotResolver  Flutter's gen_snapshot on macOS, xcross_gen_snapshot releases elsewhere
    │    ├─ Native assets         Dart build hooks → arm64 frameworks + manifest
    │    ├─ SwiftPM plugins       swift build (Darwin SDK) → libFlutterPluginsGenerated.dylib
    │    ├─ RunnerShim            clang / ld64.lld → Runner Mach-O
@@ -589,7 +598,7 @@ In debug mode Flutter apps are not compiled to machine code - the Dart VM runs *
 - `AssetManifest.bin/json`, `FontManifest.json`, fonts and assets - generated in Dart from your `pubspec.yaml`, replicating Flutter's asset bundling
 - The `App.framework` *binary* in a debug build is only a stub - xcross compiles that stub with `clang` targeting `arm64-apple-ios` and writes the framework's `Info.plist` itself.
 
-Because the app is pure JIT, no `gen_snapshot` is needed - which is precisely what makes macOS unnecessary (and why release/AOT is out of scope).
+Because a debug app is pure JIT, no `gen_snapshot` is needed. Profile and release builds instead compile a whole-program AOT kernel and `FlutterAotSnapshotter` lets `gen_snapshot` write `App.framework/App` directly, then extracts its dSYM and strips it, as `flutter build ios` does. `IosGenSnapshotResolver` picks the compiler: the one in your Flutter SDK on macOS, and on Linux and Windows a verified download from the [xcross_gen_snapshot](https://github.com/arxdeus/xcross_gen_snapshot) releases (see the FAQ).
 
 ### 3. Native code without Xcode
 

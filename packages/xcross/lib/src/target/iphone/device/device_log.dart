@@ -107,15 +107,39 @@ final class DeviceLog {
     }
   }
 
+  /// The Flutter engine logs the app's Dart output (`print`, `debugPrint`)
+  /// under this tag.
+  static const _dartOutputPrefix = 'flutter: ';
+
+  /// The line to show live for [message], or null to keep it quiet.
+  ///
+  /// [verbose] shows everything the app logs. [dartOutput] shows only the
+  /// app's Dart output, without the engine's tag, for sessions where the
+  /// device log is the only place it arrives.
+  @visibleForTesting
+  static String? echoLine(
+    String message, {
+    required bool verbose,
+    required bool dartOutput,
+  }) {
+    if (verbose) return '[device] $message';
+    if (dartOutput && message.startsWith(_dartOutputPrefix)) {
+      return message.substring(_dartOutputPrefix.length);
+    }
+    return null;
+  }
+
   /// Start streaming the launched app's logs.
   ///
-  /// [verbose] only decides whether lines are echoed live; the stream itself
-  /// always runs so [crashReason] can explain a fatal stop.
+  /// [verbose] and [echoDartOutput] only decide which lines are echoed live
+  /// (see [echoLine]); the stream itself always runs so [crashReason] can
+  /// explain a fatal stop.
   static Future<DeviceLog?> start({
     required Pymd pymd,
     required int pid,
     String? udid,
     bool verbose = false,
+    bool echoDartOutput = false,
   }) async {
     try {
       final invocation = await pymd.resolve();
@@ -129,12 +153,13 @@ final class DeviceLog {
         '--format',
         'json',
       ], environment: processEnvironment(pymd.usbmuxEnvironment()));
-      final log = DeviceLog._(
-        process,
-        pid,
-        pymd.runner.log,
-        pymd.runner.killTree,
-      ).._listen(echo: verbose, output: pymd.console.writeln);
+      final log =
+          DeviceLog._(process, pid, pymd.runner.log, pymd.runner.killTree)
+            .._listen(
+              verbose: verbose,
+              dartOutput: echoDartOutput,
+              output: pymd.console.writeln,
+            );
       unawaited(
         process.exitCode.then((code) {
           if (code != 0) {
@@ -152,7 +177,11 @@ final class DeviceLog {
     }
   }
 
-  void _listen({required bool echo, required void Function(String) output}) {
+  void _listen({
+    required bool verbose,
+    required bool dartOutput,
+    required void Function(String) output,
+  }) {
     final process = _process!;
     _stdout = process.stdout
         .transform(const Utf8Decoder(allowMalformed: true))
@@ -161,7 +190,12 @@ final class DeviceLog {
           final message = appLogMessage(line, _pid);
           if (message == null) return;
           _remember(message);
-          if (echo) output('[device] $message');
+          final echoed = echoLine(
+            message,
+            verbose: verbose,
+            dartOutput: dartOutput,
+          );
+          if (echoed != null) output(echoed);
         });
     _stderr = process.stderr
         .transform(const Utf8Decoder(allowMalformed: true))

@@ -549,4 +549,101 @@ environment:
       );
     },
   );
+
+  group('ios_gen_snapshot pins', () {
+    XcrossConfig parse(String source) => XcrossConfig.parse(
+      source,
+      environment: const {'HOME': '/home/test'},
+      host: LinuxHost(),
+      policy: const PosixConfigHost(),
+    );
+
+    test('decode per Flutter version and round trip through YAML', () {
+      final config = parse('''
+ios_gen_snapshot:
+  "3.47.0":
+    release: ~/gen/release/gen_snapshot
+    profile: /opt/gen/profile/gen_snapshot
+  5f77625673248ee5846fbcaf5d3e1a3878386fd7:
+    release: /opt/engine/gen_snapshot
+''');
+      final pin = config.iosGenSnapshot['3.47.0']!;
+      expect(pin.release, '/home/test/gen/release/gen_snapshot');
+      expect(pin.forMode('profile'), '/opt/gen/profile/gen_snapshot');
+      expect(
+        config
+            .iosGenSnapshot['5f77625673248ee5846fbcaf5d3e1a3878386fd7']!
+            .profile,
+        isNull,
+      );
+      final yaml = config.toYaml();
+      expect(
+        yaml,
+        contains(
+          'ios_gen_snapshot:\n  "3.47.0":\n'
+          '    release: "/home/test/gen/release/gen_snapshot"\n'
+          '    profile: "/opt/gen/profile/gen_snapshot"\n',
+        ),
+      );
+      expect(parse(yaml).toYaml(), yaml);
+      expect(XcrossConfig().toYaml(), isNot(contains('ios_gen_snapshot')));
+    });
+
+    for (final (label, source, message) in [
+      (
+        'unknown modes',
+        'ios_gen_snapshot:\n  "3.47.0":\n    debug: /opt/gen_snapshot\n',
+        'Unknown key',
+      ),
+      (
+        'relative paths',
+        'ios_gen_snapshot:\n  "3.47.0":\n    release: gen_snapshot\n',
+        'absolute path',
+      ),
+      (
+        'empty pins',
+        'ios_gen_snapshot:\n  "3.47.0": {}\n',
+        'must set release or profile',
+      ),
+      (
+        'keys with whitespace',
+        'ios_gen_snapshot:\n  "3.47 .0":\n    release: /opt/gen_snapshot\n',
+        'Flutter version or engine revision',
+      ),
+      (
+        'a scalar pin',
+        'ios_gen_snapshot:\n  "3.47.0": /opt/gen_snapshot\n',
+        'must be a mapping',
+      ),
+    ]) {
+      test('reject $label', () {
+        expect(
+          () => parse(source),
+          throwsA(
+            isA<XcrossConfigException>().having(
+              (error) => error.message,
+              'message',
+              contains(message),
+            ),
+          ),
+        );
+      });
+    }
+
+    test('copyWith keeps and replaces pins', () {
+      final config = XcrossConfig(
+        iosGenSnapshot: const {
+          '3.47.0': XcrossIosGenSnapshotPin(release: '/opt/gen_snapshot'),
+        },
+      );
+      expect(config.copyWith().iosGenSnapshot, config.iosGenSnapshot);
+      expect(config.copyWith(iosGenSnapshot: const {}).iosGenSnapshot, isEmpty);
+      expect(
+        () => config.iosGenSnapshot['3.47.1'] = const XcrossIosGenSnapshotPin(
+          release: '/x',
+        ),
+        throwsUnsupportedError,
+      );
+    });
+  });
 }

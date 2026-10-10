@@ -7,7 +7,10 @@ import 'package:xcross/src/shared/flutter/build/ios_deployment_target.dart';
 import 'package:xcross/src/shared/flutter/build/ios_native_assets.dart';
 import 'package:xcross/src/shared/flutter/build/ios_plugin_package.dart';
 import 'package:xcross/src/shared/flutter/flutter_build_runtime.dart';
+import 'package:xcross/src/shared/flutter/flutter_version_defines.dart';
+import 'package:xcross/src/shared/flutter/models/flutter/dart_defines.dart';
 import 'package:xcross/src/shared/flutter/models/flutter/flutter_build_options.dart';
+import 'package:xcross/src/shared/flutter/models/pubspec_info.dart';
 
 @internal
 final class FlutterBuildRequest<T extends PlatformHostInterface> {
@@ -44,12 +47,43 @@ final class FlutterBuildContext<T extends PlatformHostInterface> {
         platform: request.runtime.target.buildPlatform,
       ),
       appName = request.appName,
-      versions = request.versions;
+      versions = request.versions,
+      dartDefines = _resolveDartDefines(request, flutterRoot);
   final FlutterBuildRequest<T> request;
   final String flutterRoot;
   final IosDeploymentTarget deploymentTarget;
   final String appName;
   final IosBundleVersions versions;
+
+  /// The build's complete dart-defines ([DartDefines.resolve]), shared by
+  /// the kernel, the native-assets assembly and hot reload.
+  final List<String> dartDefines;
+
+  static List<String> _resolveDartDefines<T extends PlatformHostInterface>(
+    FlutterBuildRequest<T> request,
+    String flutterRoot,
+  ) {
+    final runtime = request.runtime;
+    final options = request.options;
+    final pubspec = runtime.pubspecs.loadSync(request.projectRoot);
+    if (pubspec.version case final version?
+        when pubspec.appVersion == null &&
+            (options.buildName == null || options.buildNumber == null)) {
+      runtime.runner.log.logWarn(PubspecInfo.invalidVersionHint(version));
+    }
+    return DartDefines.resolve(
+      options.dartDefines,
+      flavor: options.flavor,
+      buildName: options.buildName ?? pubspec.buildName,
+      buildNumber: options.buildNumber ?? pubspec.buildNumber,
+      versionDefines: FlutterVersionDefines.read(runtime.host, flutterRoot),
+      environment: (name) => runtime.runner.environmentValue(
+        runtime.runner.effectiveEnvironment,
+        name,
+      ),
+    );
+  }
+
   FlutterBuildRuntime<T> get runtime => request.runtime;
   String get projectRoot => request.projectRoot;
   String get bundleId => request.bundleId;

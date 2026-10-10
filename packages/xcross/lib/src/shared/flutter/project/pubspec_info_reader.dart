@@ -28,6 +28,7 @@ final class PubspecInfoReader {
       fonts: _parseFonts(flutter?['fonts']),
       shaders: _parseShaders(flutter?['shaders']),
       dependencies: _parseDependencies(projectRoot, doc['dependencies']),
+      version: doc['version']?.toString().trim(),
     );
   }
 

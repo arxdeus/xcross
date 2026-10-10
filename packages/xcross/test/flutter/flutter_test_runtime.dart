@@ -2,8 +2,10 @@ import 'dart:io';
 
 import 'package:cli_kit/host/linux/linux_host.dart';
 import 'package:cli_kit/shared/download/download.dart';
+import 'package:cli_kit/shared/logging/logging.dart';
 import 'package:cli_kit/shared/process/process.dart';
 import 'package:darwin_sdk_kit/host/linux/linux_darwin_toolchain_locations.dart';
+import 'package:darwin_sdk_kit/host/shared/darwin_toolchain_locations.dart';
 import 'package:darwin_sdk_kit/shared/sdk/darwin_sdk_repository.dart';
 import 'package:darwin_sdk_kit/shared/toolchain/darwin_toolchain_resolver.dart';
 import 'package:darwin_sdk_kit/target/iphone/iphone_target.dart';
@@ -27,6 +29,7 @@ import 'package:xcross/src/host/shared/flutter/swiftpm/posix_checkout_link_polic
 import 'package:xcross/src/host/shared/flutter/swiftpm/posix_checkout_manifest_policy.dart';
 import 'package:xcross/src/host/shared/flutter/swiftpm/posix_dependency_preparation.dart';
 import 'package:xcross/src/host/shared/flutter/swiftpm/posix_gate_platform.dart';
+import 'package:xcross/src/shared/flutter/build/flutter_aot_snapshotter.dart';
 import 'package:xcross/src/shared/flutter/build/internal/apple_tool_shims.dart';
 import 'package:xcross/src/shared/flutter/build/ios_plugin_package.dart';
 import 'package:xcross/src/shared/flutter/flutter_build_runtime.dart';
@@ -46,9 +49,14 @@ FlutterBuildRuntime<LinuxHost> testIPhoneRuntime({
   FlutterSdkHostPolicy<LinuxHost>? sdkHostPolicy,
   FlutterResolutionConfiguration resolution =
       const FlutterResolutionConfiguration(executable: '/xcross'),
+  Map<String, String> environment = const {},
+  List<String>? llvmToolDirectories,
+  Log? log,
+  IosAotCompilerLocator? aotCompilers,
 }) {
   final host = LinuxHost(
     architecture: 'arm64',
+    environment: environment,
     currentDirectory: Directory.current.path,
     temporaryDirectory: Directory.systemTemp.path,
   );
@@ -56,6 +64,9 @@ FlutterBuildRuntime<LinuxHost> testIPhoneRuntime({
     IPhoneFlutterTarget(IPhoneTarget(host)),
     resolution: resolution,
     sdkHostPolicy: sdkHostPolicy,
+    llvmToolDirectories: llvmToolDirectories,
+    log: log,
+    aotCompilers: aotCompilers,
   );
 }
 
@@ -81,11 +92,14 @@ FlutterBuildRuntime<LinuxHost> testFlutterRuntime(
   FlutterSdkHostPolicy<LinuxHost>? sdkHostPolicy,
   FlutterResolutionConfiguration resolution =
       const FlutterResolutionConfiguration(executable: '/xcross'),
+  List<String>? llvmToolDirectories,
+  Log? log,
+  IosAotCompilerLocator? aotCompilers,
 }) {
   final host = policy.target.host;
   final runner = ProcessRunner(
     host,
-    log: testFlutterLog(),
+    log: log ?? testFlutterLog(),
     stdinStream: const Stream<List<int>>.empty(),
     stdoutSink: stdout,
     stderrSink: stderr,
@@ -93,7 +107,9 @@ FlutterBuildRuntime<LinuxHost> testFlutterRuntime(
   final repository = DarwinSdkRepository(host, log: runner.log);
   final toolchain = DarwinToolchainResolver(
     runner,
-    LinuxDarwinToolchainLocations(host),
+    llvmToolDirectories == null
+        ? LinuxDarwinToolchainLocations(host)
+        : FixedLlvmToolLocations(llvmToolDirectories),
   );
   final hostTools = LinuxNativeHostTools(host, runner);
   final renderer = PosixAppleToolShimRenderer(host);
@@ -201,7 +217,21 @@ FlutterBuildRuntime<LinuxHost> testFlutterRuntime(
     plugins: plugins,
     downloader: Downloader(createClient: HttpClient.new, log: runner.log),
     resolution: resolution,
+    aotCompilers: aotCompilers,
   );
+}
+
+@internal
+final class FixedLlvmToolLocations
+    implements DarwinToolchainLocationsInterface {
+  const FixedLlvmToolLocations(this.directories);
+  final List<String> directories;
+  @override
+  List<String> llvmToolDirectories() => directories;
+  @override
+  String get linkerInstallationHint => '';
+  @override
+  String get clangInstallationHint => '';
 }
 
 @internal

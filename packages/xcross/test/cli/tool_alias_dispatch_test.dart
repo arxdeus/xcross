@@ -119,6 +119,65 @@ void main() {
     },
   );
 
+  test('plutil adds MinimumOSVersion to a plist that lacks it, as Flutter '
+      "assemble's AppFrameworkInfo.plist does", () {
+    const plist = '''
+<?xml version="1.0" encoding="UTF-8"?>
+<plist version="1.0">
+<dict>
+	<key>CFBundleExecutable</key>
+	<string>App</string>
+	<key>Nested</key>
+	<dict>
+		<key>A</key>
+		<string>b</string>
+	</dict>
+</dict>
+</plist>
+''';
+    final updated = ToolAliasOperation.replaceMinimumOsVersion(plist, '15.0')!;
+    expect(
+      updated,
+      endsWith(
+        '\t</dict>\n\t<key>MinimumOSVersion</key>\n\t<string>15.0</string>\n'
+        '</dict>\n</plist>\n',
+      ),
+    );
+    expect(
+      ToolAliasOperation.replaceMinimumOsVersion(updated, '16.0'),
+      updated.replaceFirst('<string>15.0</string>', '<string>16.0</string>'),
+    );
+    expect(
+      ToolAliasOperation.replaceMinimumOsVersion('bplist00', '15.0'),
+      isNull,
+    );
+  });
+
+  test(
+    testOn: '!windows',
+    'a POSIX plutil shim reaches the alias through the marker argument, '
+    'whatever the executable is called',
+    () async {
+      final temp = Directory.systemTemp.createTempSync('xcross_plutil_marker_');
+      addTearDown(() => temp.deleteSync(recursive: true));
+      final plist = File(p.join(temp.path, 'Info.plist'))
+        ..writeAsStringSync('<plist><dict>\n</dict></plist>\n');
+
+      expect(
+        await ToolAliasOperation(windowsAliasRunner()).run([
+          ToolAliasOperation.plutilAliasMarker,
+          '-replace',
+          'MinimumOSVersion',
+          '-string',
+          '15.0',
+          plist.path,
+        ], executablePath: '/bundle/bin/xcross'),
+        0,
+      );
+      expect(plist.readAsStringSync(), contains('<string>15.0</string>'));
+    },
+  );
+
   test('does not intercept the normal xcross executable', () async {
     expect(
       await ToolAliasOperation(windowsAliasRunner()).run(

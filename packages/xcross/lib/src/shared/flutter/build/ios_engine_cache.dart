@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:cli_kit/shared/download/download.dart';
@@ -11,6 +12,7 @@ import 'package:xcross/src/host/shared/flutter/engine_archive_writer.dart';
 import 'package:xcross/src/host/shared/flutter/native_host_tools.dart';
 import 'package:xcross/src/shared/flutter/constants.dart';
 import 'package:xcross/src/shared/flutter/errors.dart';
+import 'package:xcross/src/shared/flutter/models/flutter/flutter_build_mode.dart';
 import 'package:xcross/src/target/shared/flutter/flutter_target_build_policy.dart';
 
 /// Resolves Flutter iOS engine artifacts needed for a debug iOS bundle.
@@ -36,6 +38,7 @@ final class IosEngineCache<T extends PlatformHostInterface> {
     required this.targetPolicy,
     required this.hostTools,
     required this.flutterRoot,
+    this.mode = FlutterBuildMode.debug,
     String? cacheRoot,
   }) : cacheRoot =
            cacheRoot ??
@@ -57,6 +60,14 @@ final class IosEngineCache<T extends PlatformHostInterface> {
   final String cacheRoot;
   final NativeHostTools<T> hostTools;
   final FlutterTargetBuildPolicy<T> targetPolicy;
+
+  /// Build mode whose engine and platform kernel this cache provides.
+  final FlutterBuildMode mode;
+
+  /// Engine artifact directory for [mode]: the target's JIT engine in debug,
+  /// the device AOT engine (`ios-release`, `ios-profile`) otherwise.
+  String get engineArtifact =>
+      mode.isPrecompiled ? mode.engineArtifact : targetPolicy.engineArtifact;
   String get hostArtifactPlatform => hostTools.artifactPlatform;
   String get hostEngineCacheDirectory => hostTools.engineCacheDirectory;
 
@@ -76,20 +87,18 @@ final class IosEngineCache<T extends PlatformHostInterface> {
   String get _userEngineRoot =>
       host.paths.context.join(cacheRoot, engineHash, 'artifacts', 'engine');
 
-  /// Directory containing the debug/JIT iOS engine artifacts.
-  String get _engineDir {
+  /// The [engineArtifact] directory a build embeds `Flutter.xcframework`
+  /// from: the Flutter SDK's copy when it matches the engine, else the
+  /// xcross cache. On macOS it also holds the `gen_snapshot_arm64` that
+  /// compiles for that engine.
+  String get engineDirectory {
     if (_sdkIosEngineUsable) return _flutterSdkIosEngineDir;
 
-    return host.paths.context.join(
-      _userEngineRoot,
-      targetPolicy.engineArtifact,
-    );
+    return host.paths.context.join(_userEngineRoot, engineArtifact);
   }
 
-  String get _flutterSdkIosEngineDir => host.paths.context.join(
-    _flutterSdkEngineRoot,
-    targetPolicy.engineArtifact,
-  );
+  String get _flutterSdkIosEngineDir =>
+      host.paths.context.join(_flutterSdkEngineRoot, engineArtifact);
 
   bool get _sdkIosEngineUsable {
     final directory = _flutterSdkIosEngineDir;
@@ -116,8 +125,9 @@ final class IosEngineCache<T extends PlatformHostInterface> {
   /// directory current, `bin/cache/ios-sdk.stamp` is the fallback.
   @visibleForTesting
   String? get sdkIosEngineRevision =>
-      _frameworkEngineRevision(
+      _frameworkInfoString(
         host.paths.context.join(_flutterSdkIosEngineDir, 'Flutter.xcframework'),
+        'FlutterEngine',
       ) ??
       (_flutterManagesIosArtifacts ? _readStamp('ios-sdk') : null);
 
@@ -146,7 +156,14 @@ final class IosEngineCache<T extends PlatformHostInterface> {
     }
   }
 
-  String? _frameworkEngineRevision(String xcframework) {
+  /// `MinimumOSVersion` of the engine's `Flutter.framework`, or `null` when
+  /// its `Info.plist` records none.
+  String? get engineMinimumOsVersion =>
+      _frameworkInfoString(flutterXcframework, 'MinimumOSVersion');
+
+  /// The string [key] of the first engine slice's `Flutter.framework`
+  /// `Info.plist` in [xcframework], or `null` when it is absent or empty.
+  String? _frameworkInfoString(String xcframework, String key) {
     final context = host.paths.context;
     for (final identifier in targetPolicy.engineSliceIdentifiers) {
       final plist = host.fileSystem.file(
@@ -163,7 +180,7 @@ final class IosEngineCache<T extends PlatformHostInterface> {
         final binary = _isBinaryPlist(bytes);
         // The XML reader prints a stack trace for malformed input, so only
         // hand it something that could carry the key.
-        if (!binary && !utf8.decode(bytes).contains('FlutterEngine')) {
+        if (!binary && !utf8.decode(bytes).contains(key)) {
           return null;
         }
         final decoded = binary
@@ -173,10 +190,9 @@ final class IosEngineCache<T extends PlatformHostInterface> {
             : PropertyListSerialization.propertyListWithString(
                 utf8.decode(bytes),
               );
-        if (decoded case {
-          'FlutterEngine': final String revision,
-        } when revision.trim().isNotEmpty) {
-          return revision.trim();
+        final value = decoded is Map ? decoded[key] : null;
+        if (value is String && value.trim().isNotEmpty) {
+          return value.trim();
         }
       } on Object {
         // Unreadable or malformed plist: no evidence either way.
@@ -228,9 +244,9 @@ final class IosEngineCache<T extends PlatformHostInterface> {
     };
   }
 
-  /// Flutter.xcframework inside [_engineDir].
+  /// Flutter.xcframework inside [engineDirectory].
   String get flutterXcframework =>
-      host.paths.context.join(_engineDir, 'Flutter.xcframework');
+      host.paths.context.join(engineDirectory, 'Flutter.xcframework');
 
   String flutterSlice(String xcframework) {
     final identifiers = targetPolicy.engineSliceIdentifiers;
@@ -366,7 +382,7 @@ final class IosEngineCache<T extends PlatformHostInterface> {
     final flutterSdkDirectory = host.paths.context.join(
       _flutterSdkEngineRoot,
       'common',
-      'flutter_patched_sdk',
+      mode.patchedSdk,
     );
     final sdkCommonIsCurrent = !_isStale(sdkCommonEngineRevision);
     if (sdkCommonIsCurrent &&
@@ -374,11 +390,7 @@ final class IosEngineCache<T extends PlatformHostInterface> {
       return flutterSdkDirectory;
     }
 
-    return host.paths.context.join(
-      _userEngineRoot,
-      'common',
-      'flutter_patched_sdk',
-    );
+    return host.paths.context.join(_userEngineRoot, 'common', mode.patchedSdk);
   }
 
   /// Reads the engine hash that pins the artifact set.
@@ -421,6 +433,25 @@ final class IosEngineCache<T extends PlatformHostInterface> {
     }
     if (!host.fileSystem.directory(patchedSdkRoot).existsSync()) {
       await _downloadPatchedSdk();
+    }
+    _markUsed();
+  }
+
+  /// Name of the stamp `xcross cache prune` reads to tell a cache entry
+  /// still in use from one left behind by an old Flutter version.
+  static const lastUsedStamp = '.last_used';
+
+  /// Best effort: only the cache under [cacheRoot] is stamped, never the
+  /// Flutter SDK, and a read-only cache only costs prune accuracy.
+  void _markUsed() {
+    final root = host.paths.context.join(cacheRoot, engineHash);
+    if (!host.fileSystem.directory(root).existsSync()) return;
+    try {
+      host.fileSystem
+          .file(host.paths.context.join(root, lastUsedStamp))
+          .writeAsStringSync(DateTime.now().toUtc().toIso8601String());
+    } on FileSystemException {
+      // Ignored on purpose.
     }
   }
 
@@ -508,12 +539,11 @@ final class IosEngineCache<T extends PlatformHostInterface> {
 
   Future<void> _downloadIosArtifacts() async {
     final hash = _readEngineHash();
-    final url =
-        '$flutterArtifactBaseUrl/$hash/${targetPolicy.engineArtifact}/artifacts.zip';
+    final url = '$flutterArtifactBaseUrl/$hash/$engineArtifact/artifacts.zip';
     log.logTrace('downloading Flutter iOS engine artifacts from $url');
     await _fetchAndExtract(
       url,
-      _engineDir,
+      engineDirectory,
       'ios-artifacts-',
       label: 'Flutter iOS engine',
     );

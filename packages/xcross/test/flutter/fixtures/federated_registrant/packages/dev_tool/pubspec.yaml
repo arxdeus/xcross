@@ -1,0 +1,9 @@
+name: dev_tool
+version: 1.0.0
+environment:
+  sdk: ^3.4.0
+flutter:
+  plugin:
+    platforms:
+      android:
+        dartPluginClass: DevToolAndroid

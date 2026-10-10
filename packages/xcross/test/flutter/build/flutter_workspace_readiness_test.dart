@@ -47,9 +47,8 @@ void main() {
         'engine',
       );
       for (final name in ['ios', 'linux-arm64', 'common']) {
-        final link = Link(p.join(engine, name));
-        await link.delete();
-        await link.create(
+        await Directory(p.join(engine, name)).delete(recursive: true);
+        await Link(p.join(engine, name)).create(
           p.join(alias.path, 'bin', 'cache', 'artifacts', 'engine', name),
         );
       }
@@ -60,23 +59,9 @@ void main() {
         engineCache: aliasCache,
       );
       expect(migrated.flutterRoot, legacy.flutterRoot);
-      expect(marker.readAsStringSync(), 'ready-v2\n');
+      expect(marker.readAsStringSync(), 'ready-v3\n');
       expect(untouched.readAsStringSync(), 'keep');
-      for (final name in ['ios', 'linux-arm64', 'common']) {
-        expect(
-          await Link(p.join(engine, name)).target(),
-          await Directory(
-            p.join(
-              firstCache.flutterRoot,
-              'bin',
-              'cache',
-              'artifacts',
-              'engine',
-              name,
-            ),
-          ).resolveSymbolicLinks(),
-        );
-      }
+      expectSelfContainedWorkspace(migrated, firstCache);
       for (final removeAlias in [false, true]) {
         await alias.delete();
         if (!removeAlias) await alias.create(secondCache.flutterRoot);
@@ -98,10 +83,46 @@ void main() {
     (p.join('packages'), false),
     (p.join('bin', 'cache', 'dart-sdk'), false),
     (p.join('bin', 'cache', 'dart-sdk'), true),
-    (p.join('bin', 'cache', 'artifacts', 'fonts'), false),
-    (p.join('bin', 'cache', 'artifacts', 'engine', 'linux-arm64'), false),
-    (p.join('bin', 'cache', 'artifacts', 'engine', 'ios'), false),
-    (p.join('bin', 'cache', 'artifacts', 'engine', 'common'), false),
+    (p.join('bin', 'cache', 'artifacts', 'fonts', 'source'), false),
+    (
+      p.join(
+        'bin',
+        'cache',
+        'artifacts',
+        'engine',
+        'linux-arm64',
+        'vm_isolate_snapshot.bin',
+      ),
+      false,
+    ),
+    (
+      p.join(
+        'bin',
+        'cache',
+        'artifacts',
+        'engine',
+        'ios',
+        'Flutter.xcframework',
+      ),
+      false,
+    ),
+    (
+      p.join(
+        'bin',
+        'cache',
+        'artifacts',
+        'engine',
+        'common',
+        'flutter_patched_sdk',
+        'source',
+      ),
+      false,
+    ),
+    (
+      p.join('bin', 'cache', 'artifacts', 'engine', 'ios-release', 'LICENSE'),
+      false,
+    ),
+    (p.join('bin', 'cache', 'ios-sdk.stamp'), false),
     (p.join('bin', 'cache', 'flutter_tools.snapshot'), false),
     (p.join('bin', 'internal', 'engine.version'), false),
   ]) {
@@ -165,17 +186,23 @@ void main() {
             'engine',
           );
           expect(
-            await Directory(p.join(engine, 'ios')).resolveSymbolicLinks(),
             await Directory(
-              p.dirname(cache.flutterXcframework),
+              p.join(engine, 'ios', 'Flutter.xcframework'),
             ).resolveSymbolicLinks(),
+            await Directory(cache.flutterXcframework).resolveSymbolicLinks(),
+          );
+          final patchedSdk = p.join(engine, 'common', 'flutter_patched_sdk');
+          expect(
+            FileSystemEntity.typeSync(patchedSdk, followLinks: false),
+            FileSystemEntityType.directory,
           );
           expect(
-            await Directory(p.join(engine, 'common')).resolveSymbolicLinks(),
-            await Directory(
-              p.dirname(cache.patchedSdkRoot),
+            await File(p.join(patchedSdk, 'source')).resolveSymbolicLinks(),
+            await File(
+              p.join(cache.patchedSdkRoot, 'source'),
             ).resolveSymbolicLinks(),
           );
+          expectSelfContainedWorkspace(second, cache);
         } finally {
           await tmp.delete(recursive: true);
         }

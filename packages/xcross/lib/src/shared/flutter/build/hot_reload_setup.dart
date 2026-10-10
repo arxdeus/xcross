@@ -1,12 +1,15 @@
 import 'package:cli_kit/shared/platform/platform_host.dart';
 import 'package:meta/meta.dart';
 import 'package:xcross/src/shared/flutter/flutter_build_runtime.dart';
+import 'package:xcross/src/shared/flutter/models/flutter/flutter_build_mode.dart';
 import 'package:xcross/src/shared/flutter/models/hot_reload_config.dart';
 
 /// Groups hot-reload configuration setup.
 @internal
 abstract final class HotReloadSetup {
   /// Resolve the paths a persistent `frontend_server` needs for hot reload.
+  /// [dartDefines] must be the debug build's complete defines
+  /// (`PackResult.dartDefines`).
   ///
   /// Returns null (with a warning) if a required artifact is missing —
   /// callers then launch without hot reload.
@@ -57,11 +60,11 @@ abstract final class HotReloadSetup {
     );
 
     // Persistent dill output for incremental reloads.
-    final outputDill = paths.join(
-      runtime.policy.buildDirectory(projectRoot, 'xcross-flutter-debug'),
-      '.hotreload',
-      'app.dill',
+    final intermediates = runtime.policy.buildDirectory(
+      projectRoot,
+      FlutterBuildMode.debug.intermediatesDirectory,
     );
+    final outputDill = paths.join(intermediates, '.hotreload', 'app.dill');
     await runtime.host.fileSystem
         .directory(paths.dirname(outputDill))
         .create(recursive: true);
@@ -75,11 +78,7 @@ abstract final class HotReloadSetup {
       projectRoot: projectRoot,
       outputDill: outputDill,
       dartDefines: dartDefines,
-      warmDill: paths.join(
-        runtime.policy.buildDirectory(projectRoot, 'xcross-flutter-debug'),
-        '.kernel',
-        'app.dill',
-      ),
+      warmDill: paths.join(intermediates, '.kernel', 'app.dill'),
       verbose: verbose,
     );
   }

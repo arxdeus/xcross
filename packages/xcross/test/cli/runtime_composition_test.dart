@@ -382,7 +382,8 @@ void main() {
         await context.runApplication([
           'flutter',
           'build',
-          '--profile',
+          '--debug',
+          '--release',
         ], configTerminal: TestTerminal()),
         64,
       );
@@ -540,14 +541,16 @@ void main() {
       );
       final runtime = application.runtime;
       final code = await XcrossCli.run(
-        ['flutter', 'build', '--profile'],
+        ['flutter', 'build', '--debug', '--release'],
         application,
         configTerminal: TestTerminal(),
       );
       expect(code, 64);
       expect(
         (runtime.log.output as TestLogOutput).messages,
-        contains(contains('support debug mode only')),
+        contains(
+          contains('Choose only one of --debug, --profile or --release'),
+        ),
       );
     },
   );

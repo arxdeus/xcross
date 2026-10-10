@@ -15,7 +15,7 @@ final class FlutterToolWorkspace {
     required this.dart,
     required this.flutterToolsSnapshot,
   });
-  static const _readyMarkerContents = 'ready-v2\n';
+  static const _readyMarkerContents = 'ready-v3\n';
 
   final String flutterRoot;
   final String dart;
@@ -104,9 +104,10 @@ final class FlutterToolWorkspace {
   /// "invalidated build due to missing files" and re-ran the whole
   /// native-assets pipeline, including every build hook, every single time.
   ///
-  /// The path is scoped by engine hash, so a different engine still gets its
-  /// own workspace and its contents stay consistent with the artifacts they
-  /// were overlaid from.
+  /// The path is scoped by engine hash and build mode, so a different engine
+  /// or mode gets its own workspace and its contents stay consistent with
+  /// the artifacts they were overlaid from. Switching between debug and
+  /// release therefore reuses each mode's workspace instead of rebuilding.
   static String _workspaceRoot(
     IosEngineCache engineCache,
     String flutterRoot,
@@ -119,6 +120,8 @@ final class FlutterToolWorkspace {
             [
               engineCache.engineHash,
               engineCache.hostArtifactPlatform,
+              engineCache.mode.name,
+              engineCache.engineArtifact,
               engineCache.host.paths.pathKey(flutterRoot),
             ].join('\n'),
           ),

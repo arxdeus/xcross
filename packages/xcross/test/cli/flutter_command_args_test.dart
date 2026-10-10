@@ -9,11 +9,64 @@ import 'package:xcross/src/composition/cli/flutter_run_command.dart';
 import 'package:xcross/src/composition/cli/runner.dart';
 import 'package:xcross/src/shared/cli/basic/auth_command.dart';
 import 'package:xcross/src/shared/errors/errors.dart';
+import 'package:xcross/src/shared/flutter/errors.dart';
+import 'package:xcross/src/shared/flutter/models/flutter/flutter_build_mode.dart';
+import 'package:xcross/src/shared/flutter/models/flutter/flutter_build_options.dart';
+import 'package:xcross/src/shared/models/pack_result.dart';
+import 'package:xcross/src/target/iphone/device/core_device_launch_profile.dart';
 
 import '../log_fixture.dart';
 import 'runtime_fixture.dart';
 
 void main() {
+  group('flutterBuildModeOf', () {
+    Never usage(String message) => throw UsageException(message, '');
+    FlutterBuildMode modeOf({
+      bool debug = false,
+      bool profile = false,
+      bool release = false,
+    }) => flutterBuildModeOf(
+      debug: debug,
+      profile: profile,
+      release: release,
+      usageException: usage,
+    );
+
+    test('defaults to debug when no mode flag is given', () {
+      expect(modeOf(), FlutterBuildMode.debug);
+    });
+
+    test('selects the single given mode', () {
+      expect(modeOf(debug: true), FlutterBuildMode.debug);
+      expect(modeOf(profile: true), FlutterBuildMode.profile);
+      expect(modeOf(release: true), FlutterBuildMode.release);
+    });
+
+    test('rejects several mode flags', () {
+      for (final flags in [
+        (debug: true, profile: true, release: false),
+        (debug: true, profile: false, release: true),
+        (debug: false, profile: true, release: true),
+        (debug: true, profile: true, release: true),
+      ]) {
+        expect(
+          () => modeOf(
+            debug: flags.debug,
+            profile: flags.profile,
+            release: flags.release,
+          ),
+          throwsA(
+            isA<UsageException>().having(
+              (e) => e.message,
+              'message',
+              'Choose only one of --debug, --profile or --release.',
+            ),
+          ),
+        );
+      }
+    });
+  });
+
   group('FlutterRunCommand.shouldUseCoreDevice', () {
     test('uses CoreDevice for confirmed iOS 17+ and unknown devices', () {
       expect(FlutterRunCommand.shouldUseCoreDevice(17), isTrue);
@@ -104,6 +157,97 @@ void main() {
     });
   });
 
+  group('FlutterRunCommand precompiled launch', () {
+    late List<FlutterBuildOptions> packed;
+    late List<CoreDeviceLaunchProfile> launched;
+
+    Future<void> run(
+      List<String> args, {
+      Map<String, String> environment = const {},
+    }) {
+      final application = testApplication(environment: environment);
+      final runner = CommandRunner<void>('xcross', 'test')
+        ..addCommand(
+          FlutterRunCommand.withSeams(
+            application.runtime,
+            application.pymd,
+            sockets: application.sockets,
+            pack: (options) async {
+              packed.add(options);
+              return const PackResult(
+                outputPath: 'build/Runner.app',
+                bundleId: 'dev.example.app',
+              );
+            },
+            runDevice:
+                ({
+                  required pack,
+                  required selector,
+                  required mode,
+                  required launchProfile,
+                }) async => launched.add(launchProfile),
+          ),
+        );
+      return runner.run(['run', ...args]);
+    }
+
+    setUp(() {
+      packed = [];
+      launched = [];
+    });
+
+    test('profile builds AOT and launches with the VM Service', () async {
+      await run(['--profile', '--route=/home']);
+
+      expect(packed.single.buildMode, FlutterBuildMode.profile);
+      final profile = launched.single;
+      expect(profile.buildMode, FlutterBuildMode.profile);
+      expect(profile.hotReload, isNull);
+      expect(profile.debuggingEnabled, isTrue);
+      expect(
+        profile.argumentsForLaunch(
+          isDap: false,
+          vmServiceBindAddress: '0.0.0.0',
+        ),
+        containsAll([
+          '--vm-service-host=0.0.0.0',
+          '--enable-dart-profiling',
+          '--route=/home',
+        ]),
+      );
+    });
+
+    test('release builds AOT and launches without debugging', () async {
+      await run(['--release']);
+
+      expect(packed.single.buildMode, FlutterBuildMode.release);
+      final profile = launched.single;
+      expect(profile.buildMode, FlutterBuildMode.release);
+      expect(profile.hotReload, isNull);
+      expect(profile.debuggingEnabled, isFalse);
+      expect(
+        profile.argumentsForLaunch(isDap: false, vmServiceBindAddress: '::0'),
+        isEmpty,
+      );
+    });
+
+    for (final mode in ['--profile', '--release']) {
+      test('DAP rejects a $mode launch', () async {
+        await expectLater(
+          run([mode], environment: const {'XCROSS_DAP': '1'}),
+          throwsA(
+            isA<XcrossError>().having(
+              (e) => e.message,
+              'message',
+              'DAP launch requires a debug build.',
+            ),
+          ),
+        );
+        expect(launched, isEmpty);
+      });
+    }
+  });
+
   group('FlutterBuildCommand', () {
     test('accepts explicit simulator debug and preserves device default', () {
       final command = FlutterBuildCommand(testRuntime());
@@ -130,11 +274,19 @@ void main() {
             ..addCommand(FlutterBuildCommand(testRuntime()));
           await expectLater(
             runner.run(['build', ...flags]),
-            throwsA(
-              flags.contains('--ipa')
-                  ? isA<XcrossError>()
-                  : isA<UsageException>(),
-            ),
+            throwsA(switch (flags) {
+              _ when flags.contains('--ipa') => isA<XcrossError>(),
+              _ when flags.contains('simulator') =>
+                isA<FlutterBuildError>().having(
+                  (e) => e.message,
+                  'message',
+                  startsWith(
+                    '${flags.last == '--release' ? 'Release' : 'Profile'} '
+                    'mode is not supported for simulators.',
+                  ),
+                ),
+              _ => isA<UsageException>(),
+            }),
           );
         },
       );

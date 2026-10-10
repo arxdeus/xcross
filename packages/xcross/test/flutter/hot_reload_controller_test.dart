@@ -55,6 +55,11 @@ void main() {
           projectRoot: root,
           outputDill: '$root/output/app.dill',
           warmDill: '$root/artifacts/warm.dill',
+          dartDefines: const [
+            'USER=1',
+            'FLUTTER_BUILD_NAME=1.0.0',
+            'FLUTTER_VERSION=3.47.0',
+          ],
         ),
         log: testFlutterLog(),
         localHttp: LocalHttp<PlatformHostInterface>(
@@ -72,6 +77,18 @@ void main() {
       );
       addTearDown(controller.close);
       await controller.initialSync();
+      expect(
+        process.arguments,
+        containsAllInOrder([
+          '-DUSER=1',
+          '-DFLUTTER_BUILD_NAME=1.0.0',
+          '-DFLUTTER_VERSION=3.47.0',
+          '-Ddart.vm.profile=false',
+          '-Ddart.vm.product=false',
+          '--enable-asserts',
+          '--track-widget-creation',
+        ]),
+      );
       expect(
         process.arguments,
         containsAllInOrder([

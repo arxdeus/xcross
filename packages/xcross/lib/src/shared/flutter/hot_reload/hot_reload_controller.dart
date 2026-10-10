@@ -15,6 +15,7 @@ import 'package:xcross/src/shared/flutter/constants.dart';
 import 'package:xcross/src/shared/flutter/errors.dart';
 import 'package:xcross/src/shared/flutter/hot_reload/dart_vm_service_client.dart';
 import 'package:xcross/src/shared/flutter/hot_reload/source_watcher.dart';
+import 'package:xcross/src/shared/flutter/models/flutter/flutter_build_mode.dart';
 import 'package:xcross/src/shared/flutter/models/hot_reload_config.dart';
 
 /// Drives Flutter hot reload / hot restart by:
@@ -98,6 +99,9 @@ final class HotReloadController {
       entrypoint: config.entrypoint,
       outputDill: config.outputDill,
       dartDefines: config.dartDefines,
+      modeOptions: FlutterBuildMode.debug.frontendServerOptions(
+        config.dartDefines,
+      ),
       initializeFromDill: initializeFromDill,
       onTrace: log.logTrace,
     );

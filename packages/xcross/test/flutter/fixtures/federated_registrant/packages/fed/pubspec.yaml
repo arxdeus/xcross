@@ -1,0 +1,25 @@
+name: fed
+version: 1.0.0
+environment:
+  sdk: ^3.4.0
+  flutter: '>=3.0.0'
+dependencies:
+  fed_android:
+    path: ../fed_android
+  fed_ios:
+    path: ../fed_ios
+  fed_macos:
+    path: ../fed_macos
+  fed_macos_alt:
+    path: ../fed_macos_alt
+flutter:
+  plugin:
+    platforms:
+      android:
+        default_package: fed_android
+      ios:
+        default_package: fed_ios
+      macos:
+        default_package: fed_macos
+      windows:
+        dartPluginClass: FedWindows

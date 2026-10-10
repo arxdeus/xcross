@@ -87,8 +87,7 @@ void main() {
           platform: SimulatorBuildPlatform(),
         ),
         entrypoint: 'lib/flavored.dart',
-        dartDefines: const ['CUSTOM=value'],
-        flavor: 'development',
+        dartDefines: const ['CUSTOM=value', 'FLUTTER_APP_FLAVOR=development'],
       );
       final arguments = builder.assembleArguments(
         output: '/output',
@@ -107,14 +106,11 @@ void main() {
         ]),
       );
       final defines = arguments
-          .singleWhere((arg) => arg.startsWith('-dDartDefines='))
-          .substring('-dDartDefines='.length)
+          .singleWhere((arg) => arg.startsWith('--DartDefines='))
+          .substring('--DartDefines='.length)
           .split(',')
           .map((value) => utf8.decode(base64.decode(value)));
-      expect(
-        defines,
-        containsAll(['CUSTOM=value', 'FLUTTER_APP_FLAVOR=development']),
-      );
+      expect(defines, ['CUSTOM=value', 'FLUTTER_APP_FLAVOR=development']);
       expect(
         builder.assembleArguments(output: '/bundle').last,
         'copy_flutter_bundle',

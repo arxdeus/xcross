@@ -1,0 +1,32 @@
+name: aot_probe
+description: App-facing plugin of the AOT parity fixture.
+version: 1.0.0
+publish_to: none
+
+environment:
+  sdk: ^3.9.0
+  flutter: ">=3.35.0"
+
+dependencies:
+  aot_probe_ios:
+    path: ../aot_probe_ios
+  aot_probe_other:
+    path: ../aot_probe_other
+  aot_probe_platform_interface:
+    path: ../aot_probe_platform_interface
+  flutter:
+    sdk: flutter
+
+flutter:
+  plugin:
+    platforms:
+      android:
+        default_package: aot_probe_other
+      ios:
+        default_package: aot_probe_ios
+      linux:
+        default_package: aot_probe_other
+      macos:
+        default_package: aot_probe_other
+      windows:
+        default_package: aot_probe_other

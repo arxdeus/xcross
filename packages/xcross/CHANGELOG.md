@@ -1,3 +1,10 @@
+## Unreleased
+
+- Build and run Flutter iOS apps in `--profile` and `--release` mode from Linux, Windows and macOS, x64 and arm64, like `flutter build ios`/`flutter run`: whole-program AOT kernels with flutter_tools' arguments and Dart plugin registrant, `App.framework` from the iOS `gen_snapshot` (on Linux and Windows the compiler [arxdeus/xcross_gen_snapshot](https://github.com/arxdeus/xcross_gen_snapshot) builds for that Flutter version and proves byte-identical to Flutter's), dSYMs next to the `.app`, `--split-debug-info` and `--obfuscate`. Profile runs serve the VM Service for DevTools.
+- Revalidate a cached iOS `gen_snapshot` against its release once a day, so a compiler republished for the same Flutter version replaces the cached one; offline builds keep using the verified cache. A manifest schema newer than this xcross asks for `xcross update`.
+- Add `xcross flutter precache` to fetch iOS engine artifacts and AOT compilers ahead of the first build, and report in `xcross flutter doctor` whether a release and profile compiler is shipped, cached, pinned, published, or missing.
+- Add `xcross cache prune` to remove cached Flutter engine artifacts and AOT compilers for engines no discoverable Flutter SDK uses (`--dry-run`, `--older-than <days>`).
+
 ## 2.0.1
 
 - Resolve `packages/<package>/...` shader and font paths in a package's `pubspec.yaml` inside that package's `lib/` directory, like `flutter build`. Apps depending on `material_ui` (for example through `cached_network_image`) no longer fail with "shader not found: packages/material_ui/packages/material_ui/shaders/ink_sparkle.frag". ([#110](https://github.com/arxdeus/xcross/issues/110))

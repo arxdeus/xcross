@@ -1,0 +1,8 @@
+name: legacy
+version: 1.0.0
+environment:
+  sdk: ^3.4.0
+flutter:
+  plugin:
+    pluginClass: LegacyPlugin
+    iosPrefix: LP

@@ -25,6 +25,7 @@ import 'package:xcross/src/host/windows/flutter/native_host_tools.dart';
 import 'package:xcross/src/shared/flutter/build/internal/apple_tool_shims.dart';
 import 'package:xcross/src/shared/flutter/build/internal/flutter_tool_workspace.dart';
 import 'package:xcross/src/shared/flutter/build/ios_engine_cache.dart';
+import 'package:xcross/src/shared/flutter/models/flutter/flutter_build_mode.dart';
 import 'package:xcross/src/target/iphone/flutter/iphone_flutter_target.dart';
 import 'package:xcross/src/target/shared/flutter/flutter_target_build_policy.dart';
 
@@ -34,8 +35,10 @@ IosEngineCache workspaceSdk(
   String cacheRoot,
   String label, {
   bool sdkLocalEngine = false,
+  FlutterBuildMode mode = FlutterBuildMode.debug,
 }) {
   for (final path in [
+    'LICENSE',
     p.join('packages', 'source'),
     p.join('bin', 'internal', 'source'),
     p.join('bin', 'cache', 'dart-sdk', 'source'),
@@ -120,9 +123,15 @@ IosEngineCache workspaceSdk(
 <plist version="1.0"><dict><key>FlutterEngine</key><string>engine-hash</string></dict></plist>
 ''');
   }
-  final cache = nativeLinuxEngineCache(flutterRoot: root, cacheRoot: cacheRoot);
+  final cache = nativeLinuxEngineCache(
+    flutterRoot: root,
+    cacheRoot: cacheRoot,
+    mode: mode,
+  );
   Directory(cache.flutterXcframework).createSync(recursive: true);
-  Directory(cache.patchedSdkRoot).createSync(recursive: true);
+  File(p.join(cache.patchedSdkRoot, 'source'))
+    ..createSync(recursive: true)
+    ..writeAsStringSync(label);
   File(cache.vmSnapshotData)
     ..createSync(recursive: true)
     ..writeAsStringSync(sdkLocalEngine ? label : 'host');
@@ -142,6 +151,75 @@ void expectWorkspaceSdk(FlutterToolWorkspace workspace, String label) {
     p.join('bin', 'cache', 'flutter_tools.snapshot'),
   ]) {
     expect(File(p.join(workspace.flutterRoot, path)).readAsStringSync(), label);
+  }
+}
+
+/// Asserts the layout flutter_tools may write into is the workspace's own:
+/// real iOS engine, host and `common` directories holding only links to
+/// read-only leaves, a `LICENSE` in every iOS engine directory and xcross's
+/// own `ios-sdk.stamp`.
+@internal
+void expectSelfContainedWorkspace(
+  FlutterToolWorkspace workspace,
+  IosEngineCache cache,
+) {
+  final root = workspace.flutterRoot;
+  final engine = p.join(root, 'bin', 'cache', 'artifacts', 'engine');
+  for (final name in [
+    'ios',
+    'ios-profile',
+    'ios-release',
+    cache.hostEngineCacheDirectory,
+    'common',
+  ]) {
+    final directory = p.join(engine, name);
+    expect(
+      FileSystemEntity.typeSync(directory, followLinks: false),
+      FileSystemEntityType.directory,
+      reason: '$name must be a real directory',
+    );
+  }
+  for (final name in ['ios', 'ios-profile', 'ios-release']) {
+    final license = p.join(engine, name, 'LICENSE');
+    expect(
+      FileSystemEntity.typeSync(license, followLinks: false),
+      FileSystemEntityType.file,
+      reason: '$name/LICENSE must be a real file',
+    );
+  }
+  for (final stamp in ['engine', 'ios-sdk', 'flutter_sdk', 'font-subset']) {
+    final file = p.join(root, 'bin', 'cache', '$stamp.stamp');
+    expect(
+      FileSystemEntity.typeSync(file, followLinks: false),
+      FileSystemEntityType.file,
+      reason: '$stamp.stamp must belong to the workspace',
+    );
+    expect(File(file).readAsStringSync(), cache.engineHash);
+  }
+  for (final name in [
+    'bin',
+    p.join('bin', 'cache'),
+    p.join('bin', 'cache', 'artifacts'),
+    p.join('bin', 'cache', 'artifacts', 'engine'),
+    p.join('bin', 'cache', 'downloads'),
+    p.join('bin', 'cache', 'pkg'),
+  ]) {
+    expect(
+      FileSystemEntity.typeSync(p.join(root, name), followLinks: false),
+      FileSystemEntityType.directory,
+      reason: '$name must be a real directory',
+    );
+  }
+  for (final entity in Directory(
+    p.join(root, 'bin', 'cache'),
+  ).listSync(followLinks: false)) {
+    if (entity is Link) {
+      expect(
+        FileSystemEntity.typeSync(entity.path),
+        FileSystemEntityType.directory,
+        reason: 'only directories are shared from bin/cache: ${entity.path}',
+      );
+    }
   }
 }
 
@@ -272,6 +350,11 @@ final class WindowsFixtureProcesses implements HostProcessInterface {
 
 @internal
 final class LinkRecordingProcesses implements HostProcessInterface {
+  LinkRecordingProcesses({this.exitCode = 0});
+
+  /// What every recorded `mklink` returns, like 1 for a hard link to a file
+  /// on another volume.
+  final int exitCode;
   final List<List<String>> arguments = [];
   @override
   ProcessExitDiagnostic describeExit(int exitCode) =>
@@ -288,7 +371,7 @@ final class LinkRecordingProcesses implements HostProcessInterface {
     ProcessStartMode mode = ProcessStartMode.normal,
   }) async {
     this.arguments.add(arguments);
-    return LinkRecordingChild();
+    return LinkRecordingChild(code: exitCode);
   }
 
   @override
@@ -309,6 +392,8 @@ final class LinkRecordingProcesses implements HostProcessInterface {
 
 @internal
 final class LinkRecordingChild implements Process {
+  LinkRecordingChild({this.code = 0});
+  final int code;
   @override
   final IOSink stdin = nativeTestSink();
   Future<void> close() => stdin.close();
@@ -317,7 +402,7 @@ final class LinkRecordingChild implements Process {
   @override
   Stream<List<int>> get stderr => const Stream.empty();
   @override
-  Future<int> get exitCode async => 0;
+  Future<int> get exitCode async => code;
   @override
   int get pid => 1;
   @override
@@ -437,6 +522,7 @@ Downloader nativeTestDownloader() => Downloader(
 IosEngineCache<LinuxHost> nativeLinuxEngineCache({
   required String flutterRoot,
   String? cacheRoot,
+  FlutterBuildMode mode = FlutterBuildMode.debug,
 }) {
   final host = LinuxHost(architecture: 'arm64', paths: nativeFixturePaths());
   final log = nativeTestLog();
@@ -452,6 +538,7 @@ IosEngineCache<LinuxHost> nativeLinuxEngineCache({
     hostTools: LinuxNativeHostTools(host, runner),
     flutterRoot: flutterRoot,
     cacheRoot: cacheRoot,
+    mode: mode,
     log: log,
     downloader: nativeTestDownloader(),
   );

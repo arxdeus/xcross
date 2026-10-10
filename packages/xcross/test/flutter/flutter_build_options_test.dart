@@ -3,31 +3,81 @@ import 'dart:io';
 import 'package:cli_kit/host/linux/linux_host.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
+import 'package:xcross/src/shared/flutter/errors.dart';
 import 'package:xcross/src/shared/flutter/flutter_build_options_resolver.dart';
+import 'package:xcross/src/shared/flutter/models/flutter/flutter_build_mode.dart';
 import 'package:xcross/src/shared/flutter/models/flutter/flutter_build_options.dart';
 import 'package:xcross/src/shared/flutter/project/dart_defines_reader.dart';
 
 void main() {
-  test('defaults to debug and rejects unsupported build modes', () {
+  test('defaults to debug; precompiled modes need a device target', () {
     const device = FlutterBuildOptions();
-    expect(device.buildMode, 'debug');
-    expect(device.validate, returnsNormally);
-    for (final mode in ['profile', 'release']) {
+    expect(device.buildMode, FlutterBuildMode.debug);
+    expect(
+      () => device.validate(supportsPrecompiledModes: false),
+      returnsNormally,
+    );
+    for (final mode in [FlutterBuildMode.profile, FlutterBuildMode.release]) {
+      final options = FlutterBuildOptions(buildMode: mode);
       expect(
-        FlutterBuildOptions(buildMode: mode).validate,
-        throwsA(isA<Exception>()),
+        () => options.validate(supportsPrecompiledModes: true),
+        returnsNormally,
+      );
+      expect(
+        () => options.validate(supportsPrecompiledModes: false),
+        throwsA(
+          isA<FlutterBuildError>().having(
+            (e) => e.message,
+            'message',
+            contains('not supported for simulators'),
+          ),
+        ),
       );
     }
+  });
+
+  test('--obfuscate needs --split-debug-info, and both need AOT', () {
+    expect(
+      () => const FlutterBuildOptions(
+        buildMode: FlutterBuildMode.release,
+        obfuscate: true,
+      ).validate(supportsPrecompiledModes: true),
+      throwsA(isA<FlutterBuildError>()),
+    );
+    expect(
+      () => const FlutterBuildOptions(
+        buildMode: FlutterBuildMode.release,
+        obfuscate: true,
+        splitDebugInfo: 'symbols',
+      ).validate(supportsPrecompiledModes: true),
+      returnsNormally,
+    );
+    expect(
+      () => const FlutterBuildOptions(
+        splitDebugInfo: 'symbols',
+      ).validate(supportsPrecompiledModes: true),
+      throwsA(isA<FlutterBuildError>()),
+    );
   });
 
   test('shakes icons only for precompiled builds that allow it, like flutter '
       'build', () {
     expect(const FlutterBuildOptions().shakesIcons, isFalse);
-    expect(const FlutterBuildOptions(buildMode: 'release').shakesIcons, isTrue);
-    expect(const FlutterBuildOptions(buildMode: 'profile').shakesIcons, isTrue);
     expect(
       const FlutterBuildOptions(
-        buildMode: 'release',
+        buildMode: FlutterBuildMode.release,
+      ).shakesIcons,
+      isTrue,
+    );
+    expect(
+      const FlutterBuildOptions(
+        buildMode: FlutterBuildMode.profile,
+      ).shakesIcons,
+      isTrue,
+    );
+    expect(
+      const FlutterBuildOptions(
+        buildMode: FlutterBuildMode.release,
         treeShakeIcons: false,
       ).shakesIcons,
       isFalse,

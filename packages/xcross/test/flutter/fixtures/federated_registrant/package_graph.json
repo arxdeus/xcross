@@ -1,0 +1,129 @@
+{
+  "roots": [
+    "registrant_app"
+  ],
+  "packages": [
+    {
+      "name": "registrant_app",
+      "version": "0.0.0",
+      "dependencies": [
+        "chooser",
+        "chooser_b",
+        "fed",
+        "flutter",
+        "legacy",
+        "old_desktop"
+      ],
+      "devDependencies": [
+        "dev_tool"
+      ]
+    },
+    {
+      "name": "dev_tool",
+      "version": "1.0.0",
+      "dependencies": []
+    },
+    {
+      "name": "legacy",
+      "version": "1.0.0",
+      "dependencies": []
+    },
+    {
+      "name": "chooser_b",
+      "version": "1.0.0",
+      "dependencies": []
+    },
+    {
+      "name": "chooser",
+      "version": "1.0.0",
+      "dependencies": [
+        "chooser_a"
+      ]
+    },
+    {
+      "name": "old_desktop",
+      "version": "1.0.0",
+      "dependencies": []
+    },
+    {
+      "name": "fed",
+      "version": "1.0.0",
+      "dependencies": [
+        "fed_android",
+        "fed_ios",
+        "fed_macos",
+        "fed_macos_alt"
+      ]
+    },
+    {
+      "name": "flutter",
+      "version": "0.0.0",
+      "dependencies": [
+        "characters",
+        "collection",
+        "material_color_utilities",
+        "meta",
+        "sky_engine",
+        "vector_math"
+      ]
+    },
+    {
+      "name": "chooser_a",
+      "version": "1.0.0",
+      "dependencies": []
+    },
+    {
+      "name": "fed_macos_alt",
+      "version": "1.0.0",
+      "dependencies": []
+    },
+    {
+      "name": "fed_macos",
+      "version": "1.0.0",
+      "dependencies": []
+    },
+    {
+      "name": "fed_ios",
+      "version": "1.0.0",
+      "dependencies": []
+    },
+    {
+      "name": "fed_android",
+      "version": "1.0.0",
+      "dependencies": []
+    },
+    {
+      "name": "sky_engine",
+      "version": "0.0.0",
+      "dependencies": []
+    },
+    {
+      "name": "material_color_utilities",
+      "version": "0.13.0",
+      "dependencies": [
+        "collection"
+      ]
+    },
+    {
+      "name": "collection",
+      "version": "1.19.1",
+      "dependencies": []
+    },
+    {
+      "name": "characters",
+      "version": "1.4.1",
+      "dependencies": []
+    },
+    {
+      "name": "meta",
+      "version": "1.19.0",
+      "dependencies": []
+    },
+    {
+      "name": "vector_math",
+      "version": "2.4.3",
+      "dependencies": []
+    }
+  ],
+  "configVersion": 1
+}
