@@ -348,6 +348,11 @@ final class WindowsFixtureProcesses implements HostProcessInterface {
 
 @internal
 final class LinkRecordingProcesses implements HostProcessInterface {
+  LinkRecordingProcesses({this.exitCode = 0});
+
+  /// What every recorded `mklink` returns, like 1 for a hard link to a file
+  /// on another volume.
+  final int exitCode;
   final List<List<String>> arguments = [];
   @override
   ProcessExitDiagnostic describeExit(int exitCode) =>
@@ -364,7 +369,7 @@ final class LinkRecordingProcesses implements HostProcessInterface {
     ProcessStartMode mode = ProcessStartMode.normal,
   }) async {
     this.arguments.add(arguments);
-    return LinkRecordingChild();
+    return LinkRecordingChild(code: exitCode);
   }
 
   @override
@@ -385,6 +390,8 @@ final class LinkRecordingProcesses implements HostProcessInterface {
 
 @internal
 final class LinkRecordingChild implements Process {
+  LinkRecordingChild({this.code = 0});
+  final int code;
   @override
   final IOSink stdin = nativeTestSink();
   Future<void> close() => stdin.close();
@@ -393,7 +400,7 @@ final class LinkRecordingChild implements Process {
   @override
   Stream<List<int>> get stderr => const Stream.empty();
   @override
-  Future<int> get exitCode async => 0;
+  Future<int> get exitCode async => code;
   @override
   int get pid => 1;
   @override

@@ -67,6 +67,9 @@ final class FlutterWorkspaceReadiness<T extends PlatformHostInterface> {
             type == FileSystemEntityType.notFound) {
           return false;
         }
+        if (type == FileSystemEntityType.file) {
+          return _sameFile(path, target);
+        }
         final host = engineCache.host;
         return host.paths.pathKey(
               await fileSystem.file(path).resolveSymbolicLinks(),
@@ -75,5 +78,15 @@ final class FlutterWorkspaceReadiness<T extends PlatformHostInterface> {
               await fileSystem.file(target).resolveSymbolicLinks(),
             );
     }
+  }
+
+  /// A file leaf the host linked by hard link or copied, which still has its
+  /// target's size and modification time.
+  bool _sameFile(String path, String target) {
+    if (fileSystem.typeSync(target) != FileSystemEntityType.file) return false;
+    final file = fileSystem.file(path);
+    final source = fileSystem.file(target);
+    return file.lengthSync() == source.lengthSync() &&
+        file.lastModifiedSync() == source.lastModifiedSync();
   }
 }

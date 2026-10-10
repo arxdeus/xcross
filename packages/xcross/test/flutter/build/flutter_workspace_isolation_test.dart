@@ -319,5 +319,38 @@ void main() {
       expect(second.flutterRoot, first.flutterRoot);
       expect(sentinel.readAsStringSync(), 'retained');
     });
+
+    group('with a file leaf copied rather than linked', () {
+      late IosEngineCache cache;
+      late String leaf;
+      late String target;
+      late File sentinel;
+
+      setUp(() async {
+        cache = engine(FlutterBuildMode.release);
+        final workspace = await create(cache);
+        target = cache.vmSnapshotData;
+        leaf = p.join(
+          workspaceEngine(workspace, cache.hostEngineCacheDirectory),
+          p.basename(target),
+        );
+        Link(leaf).deleteSync();
+        File(target).copySync(leaf);
+        File(leaf).setLastModifiedSync(File(target).lastModifiedSync());
+        sentinel = File(p.join(workspace.flutterRoot, 'retained'))
+          ..writeAsStringSync('retained');
+      });
+
+      test('reuses it while it matches its target', () async {
+        await create(cache);
+        expect(sentinel.existsSync(), isTrue);
+      });
+
+      test('rebuilds it after its target changed', () async {
+        File(target).writeAsStringSync('updated engine');
+        await create(cache);
+        expect(sentinel.existsSync(), isFalse);
+      });
+    });
   });
 }
