@@ -17,6 +17,8 @@ env:
     76169A85BCBA82854A0CD8F9655FFB74B3758D60C35A245457510095F2823C03
   SWIFT_WINDOWS_ARM64_SHA256: >-
     F48E393634995CB589F547E40D64673BC641CA76B099697BA8227A8904BE4A49
+  SWIFT_STATIC_LINUX_SDK_SHA256: >-
+    47d2fd89eebfdf9eb4d536b6710414297f755c17926cdebc4742c08982b40a9e
 
 jobs:
   build:
@@ -77,6 +79,7 @@ jobs:
           version: ${{ env.SWIFT_VERSION }}
           windows-x64-sha256: ${{ env.SWIFT_WINDOWS_X64_SHA256 }}
           windows-arm64-sha256: ${{ env.SWIFT_WINDOWS_ARM64_SHA256 }}
+          static-linux-sdk-sha256: ${{ env.SWIFT_STATIC_LINUX_SDK_SHA256 }}
 
       - name: Build xcross
         working-directory: packages/xcross
@@ -228,6 +231,7 @@ jobs:
           version: ${{ env.SWIFT_VERSION }}
           windows-x64-sha256: ${{ env.SWIFT_WINDOWS_X64_SHA256 }}
           windows-arm64-sha256: ${{ env.SWIFT_WINDOWS_ARM64_SHA256 }}
+          static-linux-sdk-sha256: ${{ env.SWIFT_STATIC_LINUX_SDK_SHA256 }}
 
       - name: Build xcross
         shell: pwsh

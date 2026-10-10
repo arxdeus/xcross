@@ -197,14 +197,16 @@ Future<int> _bundleOpenAppleMacros(
     'release',
     '--product',
     'OpenAppleMacrosServer',
-    // Linux links the Swift runtime statically so the server runs on any
-    // glibc distribution without a Swift installation.
-    if (linux) '--static-swift-stdlib',
+    // Linux builds against the official static Linux SDK (musl), as upstream
+    // OpenAppleMacros does, so the server runs on any distribution without a
+    // Swift installation. `--static-swift-stdlib` on glibc cannot link a
+    // static Foundation.
+    if (linux) ...['--swift-sdk', _staticLinuxSdk(runner.host.architecture)],
   ];
   final built = await run(swift, arguments, workingDirectory: source);
   if (built != 0) return built;
   final binPath = await runner.run(swift, [
-    ...arguments.where((argument) => argument != '--static-swift-stdlib'),
+    ...arguments,
     '--show-bin-path',
   ], workingDirectory: source);
   final bin = binPath.stdout.trim().split('\n').last.trim();
@@ -222,6 +224,13 @@ Future<int> _bundleOpenAppleMacros(
   }
   return 0;
 }
+
+/// Static Linux SDK id for the host architecture.
+String _staticLinuxSdk(String architecture) => switch (architecture) {
+  'x64' => 'x86_64-swift-linux-musl',
+  'arm64' => 'aarch64-swift-linux-musl',
+  _ => throw UnsupportedError('No static Linux SDK for $architecture'),
+};
 
 /// Copies the Swift runtime DLLs found beside `swiftCore.dll`.
 Future<void> _copyWindowsSwiftRuntime(

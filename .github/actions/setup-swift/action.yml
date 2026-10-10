@@ -15,6 +15,11 @@ inputs:
   windows-arm64-sha256:
     description: SHA-256 of the Windows ARM64 installer.
     required: true
+  static-linux-sdk-sha256:
+    description: >-
+      SHA-256 of the matching Static Linux SDK bundle; installed on Linux so
+      tools link fully static musl executables.
+    required: true
 
 runs:
   using: composite
@@ -63,6 +68,23 @@ runs:
         swift --version | tee "$RUNNER_TEMP/swift-version.txt"
         grep -Fq "$tag" "$RUNNER_TEMP/swift-version.txt"
         grep -Eq "Target: $arch-.*linux" "$RUNNER_TEMP/swift-version.txt"
+
+    - name: Install Static Linux SDK
+      if: runner.os == 'Linux'
+      shell: bash
+      env:
+        SWIFT_VERSION: ${{ inputs.version }}
+        STATIC_SDK_SHA256: ${{ inputs.static-linux-sdk-sha256 }}
+      run: |
+        set -euo pipefail
+        release="swift-$SWIFT_VERSION-release"
+        version="swift-$SWIFT_VERSION-RELEASE"
+        if ! swift sdk list | grep -Fq "${version}_static-linux"; then
+          swift sdk install \
+            "https://download.swift.org/$release/static-sdk/$version/${version}_static-linux-0.1.0.artifactbundle.tar.gz" \
+            --checksum "$STATIC_SDK_SHA256"
+        fi
+        swift sdk list
 
     - name: Install Swift on Windows
       if: runner.os == 'Windows'

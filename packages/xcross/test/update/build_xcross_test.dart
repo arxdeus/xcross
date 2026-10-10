@@ -64,6 +64,10 @@ void main() {
         released: false,
         runBuild: (executable, arguments, {required workingDirectory}) async {
           targets.add(executable);
+          // The fixture host is Linux, so xcross copies an extensionless xcrun.
+          File(p.join(sandbox.path, 'build', 'xcrun', 'bundle', 'bin', 'xcrun'))
+            ..createSync(recursive: true)
+            ..writeAsStringSync('xcrun');
           return 0;
         },
       );

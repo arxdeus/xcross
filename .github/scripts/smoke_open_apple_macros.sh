@@ -20,8 +20,10 @@ esac
 }
 
 if [ "$(uname -s)" = Linux ]; then
-	if ldd "$server" | grep -E 'libswift|libFoundation|lib_FoundationICU'; then
-		echo "bundled server links the Swift runtime dynamically" >&2
+	# The static Linux SDK produces a fully static executable.
+	if file "$server" | grep -q 'dynamically linked'; then
+		file "$server" >&2
+		echo "bundled server is not statically linked" >&2
 		exit 1
 	fi
 fi
