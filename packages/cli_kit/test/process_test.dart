@@ -796,8 +796,10 @@ void main() {
 
       expect(await process.exitCode, 0);
       expect(output, isNot(startsWith(r'\\?\')));
+      // The child may report an 8.3 short name (RUNNER~1), so compare the
+      // canonical long paths.
       expect(
-        output.toLowerCase(),
+        Directory(output).resolveSymbolicLinksSync().toLowerCase(),
         directory.resolveSymbolicLinksSync().toLowerCase(),
       );
     }, skip: !Platform.isWindows);
@@ -823,7 +825,7 @@ void main() {
       expect(await process.exitCode, 0);
       expect(errors, isNot(contains('UNC')));
       expect(
-        output.trim().toLowerCase(),
+        Directory(output.trim()).resolveSymbolicLinksSync().toLowerCase(),
         directory.resolveSymbolicLinksSync().toLowerCase(),
       );
     }, skip: !Platform.isWindows);

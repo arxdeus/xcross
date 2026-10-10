@@ -104,6 +104,8 @@ void main() {
       );
     },
     skip: !Platform.isWindows,
+    // PowerShell junction creation is slow on Windows ARM64 runners.
+    timeout: const Timeout(Duration(minutes: 3)),
   );
 
   test('long-path staging leaves POSIX plans untouched', () async {
