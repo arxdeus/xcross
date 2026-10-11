@@ -6,7 +6,6 @@ import 'package:apple_developer_kit/shared/errors/errors.dart';
 import 'package:apple_developer_kit/shared/signing/bundle_signer.dart';
 import 'package:apple_developer_kit/shared/signing/signing_asset.dart';
 import 'package:apple_developer_kit/src/shared/signing/bundle_paths.dart';
-import 'package:basic_utils/basic_utils.dart';
 import 'package:cli_kit/host/linux/linux_host.dart';
 import 'package:cli_kit/host/windows/windows_host.dart';
 import 'package:crypto/crypto.dart';
@@ -16,6 +15,7 @@ import 'package:test/test.dart';
 
 import '../support/host_services.dart';
 import '../support/mapped_apple_fixture.dart';
+import '../support/signing_fixture.dart';
 
 void main() {
   test(
@@ -511,6 +511,119 @@ void main() {
     );
   });
 
+  test(
+    'seals resource-only .bundle directories inside frameworks (#118)',
+    () async {
+      final app = _app(temporaryDirectory, 'cast', 'dev.xcross.Runner');
+      final framework = p.join(app.path, 'Frameworks', 'GoogleCast.framework');
+      _framework(
+        p.join(app.path, 'Frameworks'),
+        'GoogleCast',
+        'com.google.GoogleCast',
+      );
+      final resources = p.join(framework, 'GoogleCastCoreResources.bundle');
+      File(
+        p.join(resources, 'en.lproj', 'GoogleCastCore.strings'),
+      ).createSync(recursive: true);
+      File(
+        p.join(resources, 'CastFrameworkDB.momd', 'Info.plist'),
+      ).createSync(recursive: true);
+      // A SwiftPM resource bundle at the app root, which also has no code.
+      final swiftpmBundle = Directory(p.join(app.path, 'Package_Target.bundle'))
+        ..createSync();
+      File(p.join(swiftpmBundle.path, 'Info.plist')).writeAsStringSync(
+        PropertyListSerialization.stringWithPropertyList({
+          'CFBundleIdentifier': 'Package.Target.resources',
+        }),
+      );
+      File(p.join(swiftpmBundle.path, 'data.json')).writeAsStringSync('{}');
+
+      await BundleSigner(
+        exactAsset,
+        hostServices: testHostServices,
+      ).signApp(app.path, signingTime: signingTime);
+
+      final frameworkSeal = _plist(
+        File(
+          p.join(framework, '_CodeSignature', 'CodeResources'),
+        ).readAsBytesSync(),
+      );
+      final frameworkFiles = _map(frameworkSeal['files2']);
+      expect(
+        frameworkFiles.keys,
+        containsAll(<String>[
+          'GoogleCastCoreResources.bundle/en.lproj/GoogleCastCore.strings',
+          'GoogleCastCoreResources.bundle/CastFrameworkDB.momd/Info.plist',
+        ]),
+      );
+      final rootSeal = _plist(
+        File(
+          p.join(app.path, '_CodeSignature', 'CodeResources'),
+        ).readAsBytesSync(),
+      );
+      expect(
+        _map(rootSeal['files2']).keys,
+        containsAll(<String>[
+          'Package_Target.bundle/Info.plist',
+          'Package_Target.bundle/data.json',
+        ]),
+      );
+    },
+  );
+
+  test('still rejects .bundle directories that carry code', () async {
+    final executable = _app(
+      temporaryDirectory,
+      'bundle-executable',
+      'dev.xcross.Runner',
+    );
+    final loadable = Directory(p.join(executable.path, 'Loadable.bundle'))
+      ..createSync();
+    _writeInfo(loadable.path, 'Loadable', 'dev.xcross.Loadable');
+    File(p.join(loadable.path, 'Loadable')).writeAsBytesSync(_macho());
+    await expectLater(
+      BundleSigner(
+        exactAsset,
+        hostServices: testHostServices,
+      ).preflight(executable.path),
+      throwsA(
+        isA<AppleError>().having(
+          (error) => error.message,
+          'message',
+          allOf(
+            contains('Loadable.bundle'),
+            contains('unsupported nested code bundle'),
+          ),
+        ),
+      ),
+    );
+
+    final hidden = _app(
+      temporaryDirectory,
+      'bundle-hidden-macho',
+      'dev.xcross.Runner',
+    );
+    final resources = Directory(p.join(hidden.path, 'Resources.bundle'))
+      ..createSync();
+    File(p.join(resources.path, 'payload')).writeAsBytesSync(_macho());
+    await expectLater(
+      BundleSigner(
+        exactAsset,
+        hostServices: testHostServices,
+      ).preflight(hidden.path),
+      throwsA(
+        isA<AppleError>().having(
+          (error) => error.message,
+          'message',
+          allOf(
+            contains('Resources.bundle/payload'),
+            contains('unknown nested Mach-O code'),
+          ),
+        ),
+      ),
+    );
+  });
+
   test('preflights every loose Mach-O before any mutation', () async {
     final app = _app(temporaryDirectory, 'bad-macho', 'dev.xcross.Runner');
     final profile = File(p.join(app.path, 'embedded.mobileprovision'))
@@ -852,114 +965,13 @@ Future<SigningAsset> _signingAsset(
   String name,
   String applicationIdentifier, {
   String teamIdentifier = 'TESTTEAM123',
-}) {
-  final fixture = Directory(p.join(directory.path, name))..createSync();
-  final keyPair = CryptoUtils.generateRSAKeyPair(keySize: 1024);
-  final privateKey = keyPair.privateKey as RSAPrivateKey;
-  final publicKey = keyPair.publicKey as RSAPublicKey;
-  final csr = X509Utils.generateRsaCsrPem(
-    {'CN': 'xcross Test Developer'},
-    privateKey,
-    publicKey,
-  );
-  final certificatePem = X509Utils.generateSelfSignedCertificate(
-    privateKey,
-    csr,
-    7300,
-    notBefore: DateTime.utc(2029),
-  );
-  final certificateDer = CryptoUtils.getBytesFromPEMString(certificatePem);
-  final profile = <String, Object>{
-    'CreationDate': DateTime.utc(2029),
-    'ExpirationDate': DateTime.utc(2040),
-    'TeamIdentifier': [teamIdentifier],
-    'ApplicationIdentifierPrefix': [teamIdentifier],
-    'Entitlements': <String, Object>{
-      'application-identifier': applicationIdentifier,
-      'get-task-allow': true,
-    },
-    'DeveloperCertificates': [ByteData.sublistView(certificateDer)],
-  };
-  final plist = Uint8List.fromList(
-    utf8.encode(PropertyListSerialization.stringWithPropertyList(profile)),
-  );
-  final profileCms = _sequence([
-    _oid('1.2.840.113549.1.7.2'),
-    _tlv(
-      0xa0,
-      _sequence([
-        _integer(1),
-        _set([_algorithmIdentifier('2.16.840.1.101.3.4.2.1')]),
-        _sequence([
-          _oid('1.2.840.113549.1.7.1'),
-          _tlv(0xa0, _tlv(0x04, plist)),
-        ]),
-        _tlv(0xa0, certificateDer),
-        _set(const []),
-      ]),
-    ),
-  ]);
-  final keyPath = p.join(fixture.path, 'key.pem');
-  final certificatePath = p.join(fixture.path, 'certificate.pem');
-  final profilePath = p.join(fixture.path, 'profile.mobileprovision');
-  File(
-    keyPath,
-  ).writeAsStringSync(CryptoUtils.encodeRSAPrivateKeyToPem(privateKey));
-  File(certificatePath).writeAsStringSync(certificatePem);
-  File(profilePath).writeAsBytesSync(profileCms);
-  return SigningAssetLoader(hostServices: testHostServices).load(
-    privateKeyPemPath: keyPath,
-    certificatePemPath: certificatePath,
-    provisioningProfilePath: profilePath,
-    now: DateTime.utc(2030),
-    trustedRootCertificates: [certificateDer],
-  );
-}
-
-Uint8List _algorithmIdentifier(String oid) =>
-    _sequence([_oid(oid), _tlv(0x05, const [])]);
-
-Uint8List _sequence(Iterable<Uint8List> values) =>
-    _tlv(0x30, [for (final value in values) ...value]);
-
-Uint8List _set(Iterable<Uint8List> values) =>
-    _tlv(0x31, [for (final value in values) ...value]);
-
-Uint8List _integer(int value) => _tlv(0x02, [value]);
-
-Uint8List _oid(String value) {
-  final arcs = value.split('.').map(int.parse).toList();
-  return _tlv(0x06, [
-    ..._base128(arcs[0] * 40 + arcs[1]),
-    for (final arc in arcs.skip(2)) ..._base128(arc),
-  ]);
-}
-
-List<int> _base128(int value) {
-  final result = <int>[value & 0x7f];
-  var remaining = value >> 7;
-  while (remaining > 0) {
-    result.insert(0, (remaining & 0x7f) | 0x80);
-    remaining >>= 7;
-  }
-  return result;
-}
-
-Uint8List _tlv(int tag, Iterable<int> value) {
-  final body = value.toList();
-  final length = <int>[];
-  var remaining = body.length;
-  do {
-    length.insert(0, remaining & 0xff);
-    remaining >>= 8;
-  } while (remaining > 0);
-  return Uint8List.fromList([
-    tag,
-    if (body.length < 128) body.length else 0x80 | length.length,
-    if (body.length >= 128) ...length,
-    ...body,
-  ]);
-}
+}) => createTestSigningAsset(
+  directory,
+  name,
+  applicationIdentifier,
+  hostServices: testHostServices,
+  teamIdentifier: teamIdentifier,
+);
 
 void _name(Uint8List bytes, int offset, String value) {
   bytes.setRange(offset, offset + value.length, ascii.encode(value));

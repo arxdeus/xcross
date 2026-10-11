@@ -718,6 +718,33 @@ class SmokeTests(unittest.TestCase):
         self.assertTrue((self.smoke.output / "crashes/0-Runner-2026.ips").exists())
         self.assert_scoped_cleanup()
 
+    def test_crash_report_mtime_slightly_before_start_is_still_captured(self):
+        # Linux stamps mtimes from a coarse clock that can trail time.time();
+        # a report written right after start must not look like a stale one.
+        reports = self.root / "home/Library/Logs/DiagnosticReports"
+        reports.mkdir(parents=True)
+        report = reports / "Runner-lagged.ips"
+        report.write_text(json.dumps({
+            "pid": 1234, "bundleInfo": {"CFBundleIdentifier": self.info["CFBundleIdentifier"]},
+        }))
+        lagged = self.smoke.started - 0.005
+        os.utime(report, (lagged, lagged))
+        with self.assertRaisesRegex(RuntimeError, "found crashes"):
+            self.smoke.run()
+        self.assertEqual(len(self.result()["crashes"]), 1)
+
+    def test_crash_report_from_before_the_run_is_ignored(self):
+        reports = self.root / "home/Library/Logs/DiagnosticReports"
+        reports.mkdir(parents=True)
+        report = reports / "Runner-stale.ips"
+        report.write_text(json.dumps({
+            "pid": 1234, "bundleInfo": {"CFBundleIdentifier": self.info["CFBundleIdentifier"]},
+        }))
+        stale = self.smoke.started - 60
+        os.utime(report, (stale, stale))
+        self.smoke.run()
+        self.assertEqual(self.result()["crashes"], [])
+
     def test_unrelated_same_executable_global_crashes_are_ignored(self):
         reports = self.root / "home/Library/Logs/DiagnosticReports"
         reports.mkdir(parents=True)

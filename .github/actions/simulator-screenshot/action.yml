@@ -1,0 +1,37 @@
+name: Simulator screenshot
+description: >-
+  Upload one simulator screenshot as an unzipped, expiring Actions artifact so
+  the run report can link to it and the browser opens it directly. Nothing is
+  written to the repository.
+
+inputs:
+  screenshot:
+    description: screenshot.png written by simulator_smoke.py.
+    required: true
+  slug:
+    description: Report slug (kind-host-app); the artifact is named simulator-<slug>.png.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Name the screenshot after its report slug
+      id: name
+      shell: bash
+      env:
+        SCREENSHOT: ${{ inputs.screenshot }}
+        SLUG: ${{ inputs.slug }}
+      run: |
+        set -euo pipefail
+        directory="$RUNNER_TEMP/simulator-screenshot"
+        mkdir -p "$directory"
+        cp "$SCREENSHOT" "$directory/simulator-$SLUG.png"
+        echo "path=$directory/simulator-$SLUG.png" >> "$GITHUB_OUTPUT"
+
+    - name: Upload the screenshot unzipped
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+      with:
+        path: ${{ steps.name.outputs.path }}
+        archive: false
+        if-no-files-found: error
+        retention-days: 30

@@ -66,6 +66,10 @@ final class WindowsSwiftPmHostPolicy implements SwiftPmHostPolicy {
   @override
   bool get captureBuildOutput => runner.log.isVerbose;
 
+  /// Implicit module locks are off here, so warm the module cache serially.
+  @override
+  bool get warmsImplicitModules => true;
+
   @override
   Future<bool> repairBuildPlan(String scratchPath, String targetBuildDir) =>
       repairs.repairWindowsGeneratedBuildFiles(scratchPath, targetBuildDir);

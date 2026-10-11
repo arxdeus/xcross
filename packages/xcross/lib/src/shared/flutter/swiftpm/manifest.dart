@@ -4,6 +4,7 @@ import 'package:xcross/src/shared/flutter/build/ios_deployment_target.dart';
 import 'package:xcross/src/shared/flutter/build/ios_plugins.dart';
 import 'package:xcross/src/shared/flutter/constants.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/filesystem.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/module_warmup.dart';
 import 'package:xcross/src/target/shared/flutter/flutter_target_build_policy.dart';
 
 @internal
@@ -42,6 +43,7 @@ let package = Package(
     String frameworkDir, {
     required IosDeploymentTarget deploymentTarget,
     Map<String, String>? pluginPackageDirs,
+    bool moduleWarmup = false,
   }) {
     final dependencies = StringBuffer()
       ..writeln(
@@ -69,6 +71,19 @@ let package = Package(
       );
     }
 
+    // Standalone: nothing depends on it and it depends on nothing, so it only
+    // builds when asked for by name (see `SwiftPmModuleWarmup`).
+    final warmupTarget = moduleWarmup
+        ? '''
+        .target(
+            name: "$moduleWarmupTargetName",
+            swiftSettings: [
+                .unsafeFlags([${SwiftPmModuleWarmup.swiftFlags.map((flag) => '"$flag"').join(', ')}])
+            ]
+        ),
+'''
+        : '';
+
     return '''
 // swift-tools-version: 5.9
 import PackageDescription
@@ -84,7 +99,7 @@ let package = Package(
     dependencies: [
 $dependencies    ],
     targets: [
-        .target(
+$warmupTarget        .target(
             name: "$pluginsProductName",
             dependencies: [
 $targetDependencies            ]

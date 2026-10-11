@@ -22,6 +22,7 @@ import 'package:xcross/src/shared/flutter/swiftpm/host_policy.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/interop_build_recovery.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/interop_consumer_repair.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/manifest_target_alias.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/module_warmup.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/plan_reader.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/process_policy.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/sdk_identity.dart';
@@ -163,11 +164,20 @@ final class SwiftPmBuildDriver<T extends PlatformHostInterface> {
       environment: initialEnvironment,
       reconcileDependencies: reconcileDependencies,
     );
+    final iosSdk = sdkRepository.iosSdk(sdk, target: deploymentTarget.platform);
+    if (hostPolicy.warmsImplicitModules) {
+      await _refreshModuleWarmup(
+        pluginsDir: pluginsDir,
+        packagesDir: p.join(outputDir, 'Packages'),
+        scratchPath: scratchPath,
+        iosSdk: iosSdk,
+      );
+    }
     final baseArguments = buildPlan.swiftBuildArguments(
       pluginsDir: pluginsDir,
       scratchPath: scratchPath,
       swiftSdksPath: swiftSdksPath,
-      iosSdk: sdkRepository.iosSdk(sdk, target: deploymentTarget.platform),
+      iosSdk: iosSdk,
       swiftSdkTriple: deploymentTarget.swiftSdkTriple,
       flutterFrameworkSlice: flutterFrameworkSlice,
       objectiveCCompatibilityHeader: objectiveCCompatibilityHeader,
@@ -183,16 +193,18 @@ final class SwiftPmBuildDriver<T extends PlatformHostInterface> {
       scratchPath: scratchPath,
       deploymentTarget: deploymentTarget,
     );
+    final command = SwiftPmBuildCommand(
+      executable: swiftBuild,
+      arguments: [...baseArguments, ...interopArguments],
+      environment: environment,
+      scratchPath: scratchPath,
+      targetBuildDir: targetBuildDir,
+      consumerProducts: interopConsumers,
+    );
+    if (hostPolicy.warmsImplicitModules) await _warmImplicitModules(command);
     final operation = SwiftPmBuildSession<T>(
       execution: buildExecution,
-      command: SwiftPmBuildCommand(
-        executable: swiftBuild,
-        arguments: [...baseArguments, ...interopArguments],
-        environment: environment,
-        scratchPath: scratchPath,
-        targetBuildDir: targetBuildDir,
-        consumerProducts: interopConsumers,
-      ),
+      command: command,
       consumerRepair: consumerRepair,
       targetAlias: SwiftPmManifestTargetAlias(
         fileSystem: planReader.fileSystem,
@@ -213,6 +225,51 @@ final class SwiftPmBuildDriver<T extends PlatformHostInterface> {
             skipInitialRecovery: true,
           ),
     );
+  }
+
+  /// Points the warm-up target at every SDK module the resolved plugin graph
+  /// imports. Runs after resolution, so the checkouts exist to be scanned.
+  Future<void> _refreshModuleWarmup({
+    required String pluginsDir,
+    required String packagesDir,
+    required String scratchPath,
+    required String iosSdk,
+  }) async {
+    final modules = await SwiftPmModuleWarmup(fileSystem: planReader.fileSystem)
+        .refresh(
+          pluginsDir: pluginsDir,
+          roots: [packagesDir, p.join(scratchPath, 'checkouts')],
+          iosSdk: iosSdk,
+          write: buildPlan.filesystem.writeStable,
+        );
+    runner.log.logTrace(
+      '[module warm-up] ${modules.length} SDK modules: ${modules.join(', ')}',
+    );
+  }
+
+  /// Builds the warm-up target alone, so the SDK's implicit Clang modules are
+  /// compiled by one process before the parallel build reads them (see
+  /// [SwiftPmModuleWarmup]).
+  ///
+  /// Only an optimisation: on failure the parallel build still runs and
+  /// builds whatever modules are missing itself, as it did before.
+  Future<void> _warmImplicitModules(SwiftPmBuildCommand command) async {
+    try {
+      await buildExecution.execute(
+        SwiftPmBuildCommand(
+          executable: command.executable,
+          arguments: [...command.arguments, '--target', moduleWarmupTargetName],
+          environment: command.environment,
+          scratchPath: command.scratchPath,
+          targetBuildDir: command.targetBuildDir,
+          consumerProducts: command.consumerProducts,
+        ),
+      );
+    } on Object catch (error) {
+      runner.log.logTrace(
+        '[module warm-up] failed, continuing without it: $error',
+      );
+    }
   }
 
   Future<DarwinSdk> _requireCompatibleSdk() async {

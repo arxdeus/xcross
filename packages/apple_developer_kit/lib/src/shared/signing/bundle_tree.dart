@@ -23,11 +23,18 @@ const _forbiddenDirectoryNames = {
 
 /// Bundle suffixes that carry their own signature. `.framework` and `.appex`
 /// are the nested bundle kinds xcross knows how to sign.
+///
+/// `.bundle` is absent on purpose: on iOS it is almost always a resource-only
+/// bundle (SwiftPM `<Package>_<Target>.bundle`, CocoaPods resource bundles,
+/// `GoogleCastCoreResources.bundle` inside `GoogleCast.framework`). Those have
+/// no executable and are sealed as plain resources of the enclosing bundle,
+/// exactly as `codesign` does. A `.bundle` that declares `CFBundleExecutable`
+/// is still rejected below, and any Mach-O hidden inside one is rejected as
+/// unknown nested code during inspection.
 const _unsupportedBundleSuffixes = {
   '.app',
   '.xctest',
   '.xpc',
-  '.bundle',
   '.plugin',
   '.xcframework',
 };

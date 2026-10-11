@@ -111,6 +111,67 @@ void main() {
     });
   });
 
+  group('transient resolve failure classification', () {
+    // Seen twice on windows-2022 CI on 2026-10-10: swift-package.exe died
+    // right after the last checkout, and the next run of the same build
+    // passed.
+    const crash =
+        'command failed (-1073741819: 0xC0000005 STATUS_ACCESS_VIOLATION, a '
+        r'bad pointer dereference): C:\Swift\usr\bin\swift-package.EXE '
+        r'--package-path C:\plugins resolve';
+
+    test('retries a SwiftPM access violation on resolve', () {
+      expect(SwiftPmNetworkRetry.isTransientResolveFailure(crash), isTrue);
+      expect(
+        SwiftPmNetworkRetry.isTransientNetworkFailure(crash),
+        isFalse,
+        reason: 'crashes are only retried where resolve opts in',
+      );
+    });
+
+    test('still retries network failures', () {
+      expect(
+        SwiftPmNetworkRetry.isTransientResolveFailure(
+          'Recv failure: Connection was reset',
+        ),
+        isTrue,
+      );
+    });
+
+    test('leaves real failures and timeouts alone', () {
+      const timeout =
+          'command failed (-1073741819: 0xC0000005 STATUS_ACCESS_VIOLATION) '
+          'timed out after 1800s and was killed';
+      const missingDll =
+          'command failed (-1073741515: 0xC0000135 STATUS_DLL_NOT_FOUND, a DLL '
+          'it needs is not on PATH): swift-package.EXE resolve';
+      for (final error in [
+        "error: no such module 'Flutter'",
+        timeout,
+        missingDll,
+      ]) {
+        expect(
+          SwiftPmNetworkRetry.isTransientResolveFailure(error),
+          isFalse,
+          reason: error,
+        );
+      }
+    });
+
+    test('a crash is retried when the caller opts in', () async {
+      var attempts = 0;
+      await _swiftPmRuntime.networkRetry.retryingTransientNetworkFailure(
+        () async {
+          if (++attempts == 1) throw Exception(crash);
+        },
+        label: 'resolve',
+        delay: (_) async {},
+        retryable: SwiftPmNetworkRetry.isTransientResolveFailure,
+      );
+      expect(attempts, 2);
+    });
+  });
+
   group('retryingTransientNetworkFailure', () {
     test('retries a transient failure and then succeeds', () async {
       var attempts = 0;

@@ -147,6 +147,27 @@ void main() {
   );
 
   test(
+    testOn: '!windows',
+
+    'Windows retries a resolve that crashed with an access violation',
+    () async {
+      await context.output.close();
+      var resolves = 0;
+      context = CheckoutTestContext(
+        root,
+        (_) => ++resolves == 1
+            ? CheckoutTestProcess(
+                code: 1,
+                error: utf8.encode('0xC0000005 STATUS_ACCESS_VIOLATION'),
+              )
+            : CheckoutTestProcess(),
+      );
+      await dependencyTestPreparation(context, root).prepare(command());
+      expect(resolves, 2);
+    },
+  );
+
+  test(
     'POSIX preparation resolves natively with the command environment',
     () async {
       final preparation = PosixSwiftPmDependencyPreparation<MacOSHost>(

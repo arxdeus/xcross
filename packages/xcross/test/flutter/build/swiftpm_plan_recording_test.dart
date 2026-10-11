@@ -94,4 +94,120 @@ void main() {
     );
     expect(_calls(root), ['--target Layer']);
   }, skip: Platform.isWindows);
+
+  group('Clang module cache race', _moduleCacheRaceTests);
+}
+
+/// Windows builds run without implicit module locks, so parallel frontends
+/// occasionally collide on one SDK `.pcm` and fail a build that passes when
+/// re-run.
+void _moduleCacheRaceTests() {
+  const lostOutput =
+      '<unknown>:0: error: unable to open output file '
+      r"'C:\scratch\debug\ModuleCache\34YQOH10T1LVD\ImageIO-Z37NX9KCVC6W.pcm': "
+      "'operation not permitted'";
+  const duplicated =
+      "<unknown>:0: error: module 'UIKit' is defined in both "
+      r"'C:\scratch\ModuleCache\34YQOH10T1LVD\UIKit-1D0IXTMURHS36.pcm' and "
+      r"'C:\scratch\ModuleCache\34YQOH10T1LVD\UIKit-1D0IXTMURHS36.pcm'";
+
+  test('recognizes the Clang module cache races seen on Windows', () {
+    for (final error in [lostOutput, duplicated]) {
+      expect(
+        WindowsSwiftPmBuildExecution.isModuleCacheRace(error),
+        isTrue,
+        reason: error,
+      );
+    }
+  });
+
+  test('leaves genuine compile errors and timeouts alone', () {
+    const observed = [
+      "error: could not build Objective-C module 'UIKit'",
+      "error: no such module '_SentryPrivate'",
+      r"error: unable to open output file 'C:\out\Foo.o': 'operation not permitted'",
+      'command timed out after 3600s and was killed\n$lostOutput',
+    ];
+    for (final error in observed) {
+      expect(
+        WindowsSwiftPmBuildExecution.isModuleCacheRace(error),
+        isFalse,
+        reason: error,
+      );
+    }
+  });
+
+  Future<
+    ({Directory root, Directory targetBuildDir, SwiftPmBuildCommand command})
+  >
+  fixtureFor(String body) async {
+    final root = await Directory.systemTemp.createTemp('xcross-race-');
+    addTearDown(() => root.delete(recursive: true));
+    final scratch = Directory(p.join(root.path, 'scratch'))..createSync();
+    final targetBuildDir = Directory(
+      p.join(scratch.path, 'arm64-apple-ios', 'debug'),
+    )..createSync(recursive: true);
+    return (
+      root: root,
+      targetBuildDir: targetBuildDir,
+      command: SwiftPmBuildCommand(
+        executable: _tool(root, body),
+        arguments: const ['--target', 'Layer'],
+        environment: const {},
+        scratchPath: scratch.path,
+        targetBuildDir: targetBuildDir.path,
+        consumerProducts: const {},
+      ),
+    );
+  }
+
+  WindowsSwiftPmBuildExecution execution() => WindowsSwiftPmBuildExecution(
+    runner: _runtime.runner,
+    repair: WindowsSwiftPlanRepair(_runtime.runner),
+    consumerRepair: _runtime.consumerRepair,
+  );
+
+  test(
+    'clears the module cache and retries a build that lost the race',
+    () async {
+      // Fails the first time only, the way the CI race does.
+      final fixture = await fixtureFor(
+        'if [ ! -f "\$(dirname "\$0")/raced" ]; then\n'
+        '  touch "\$(dirname "\$0")/raced"\n'
+        "  cat >&2 <<'MSG'\n$lostOutput\nMSG\n"
+        '  exit 1\n'
+        'fi\n'
+        'exit 0\n',
+      );
+      final stale = File(
+        p.join(fixture.targetBuildDir.path, 'ModuleCache', 'X', 'ImageIO.pcm'),
+      )..createSync(recursive: true);
+      await execution().executeCommand(fixture.command);
+      expect(_calls(fixture.root), ['--target Layer', '--target Layer']);
+      expect(stale.existsSync(), isFalse);
+    },
+    skip: Platform.isWindows,
+  );
+
+  test('gives up after the configured number of races', () async {
+    final fixture = await fixtureFor(
+      "cat >&2 <<'MSG'\n$duplicated\nMSG\nexit 1\n",
+    );
+    await expectLater(
+      execution().executeCommand(fixture.command),
+      throwsA(anything),
+    );
+    expect(_calls(fixture.root), List.filled(3, '--target Layer'));
+  }, skip: Platform.isWindows);
+
+  test('does not retry a genuine compile error', () async {
+    final fixture = await fixtureFor(
+      "echo \"error: no such module '_SentryPrivate'\" >&2\nexit 1\n",
+    );
+    await expectLater(
+      execution().executeCommand(fixture.command),
+      throwsA(anything),
+    );
+    expect(_calls(fixture.root), ['--target Layer']);
+  }, skip: Platform.isWindows);
 }
