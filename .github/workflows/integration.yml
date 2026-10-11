@@ -604,6 +604,30 @@ jobs:
           dart run ../../packages/xcross/tool/verify_flutter_shaders.dart build/xcross-ios
           if ($LASTEXITCODE -ne 0) { throw 'Packaged Flutter shaders are invalid' }
 
+      # `flutter build` never signs, and the device-only "Signing app" step needs
+      # an Apple account and a phone, so sign a copy of the built app with a
+      # throwaway identity to catch bundles the signer rejects (#118).
+      - name: Sign Flutter example artifact on Linux
+        if: runner.os == 'Linux' && steps.darwin.outputs.available == 'true'
+        shell: bash
+        working-directory: packages/apple_developer_kit
+        env:
+          XCROSS_SIGN_APP: ${{ github.workspace }}/examples/flutter_example/build/xcross-ios
+        run: |
+          set -euo pipefail
+          dart test test/signing/built_app_signing_test.dart --reporter expanded
+
+      - name: Sign Flutter example artifact on Windows
+        if: runner.os == 'Windows' && steps.darwin.outputs.available == 'true'
+        shell: pwsh
+        working-directory: packages/apple_developer_kit
+        env:
+          XCROSS_SIGN_APP: ${{ github.workspace }}\examples\flutter_example\build\xcross-ios
+        run: |
+          $ErrorActionPreference = 'Stop'
+          dart test test/signing/built_app_signing_test.dart --reporter expanded
+          if ($LASTEXITCODE -ne 0) { throw 'Signing the flutter_example artifact failed' }
+
       - name: Build Flutter example for ARM64 simulator on Linux
         if: runner.os == 'Linux' && steps.darwin.outputs.available == 'true'
         shell: bash
