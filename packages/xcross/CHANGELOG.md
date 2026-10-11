@@ -5,6 +5,13 @@
 - Add `xcross flutter precache` to fetch iOS engine artifacts and AOT compilers ahead of the first build, and report in `xcross flutter doctor` whether a release and profile compiler is shipped, cached, pinned, published, or missing.
 - Add `xcross cache prune` to remove cached Flutter engine artifacts and AOT compilers for engines no discoverable Flutter SDK uses (`--dry-run`, `--older-than <days>`).
 
+## 2.0.2
+
+- Sign apps that embed resource-only `.bundle` directories, such as `GoogleCastCoreResources.bundle` inside `GoogleCast.framework` or SwiftPM `<Package>_<Target>.bundle` resource bundles. Device runs no longer fail at "Signing app" with "unsupported nested code bundle". These bundles hold no code, so they are sealed as resources of the enclosing bundle like `codesign` does. A `.bundle` that declares an executable or contains Mach-O code is still rejected. ([#118](https://github.com/arxdeus/xcross/issues/118))
+- Exit as soon as a command finishes. A leftover stdin subscription, socket, HTTP client, timer or child process (for example after `q` in a run session or an auth failure) no longer keeps the CLI hanging. ([#112](https://github.com/arxdeus/xcross/pull/112))
+- Stop Windows plugin builds failing with "could not build Objective-C module 'UIKit'" or "module 'UIKit' is defined in both". The SDK Clang modules the plugins import are now built once before the parallel build, and a build that still loses a module cache race is retried. ([#117](https://github.com/arxdeus/xcross/pull/117))
+- Retry a Windows `swift package resolve` that crashes with an access violation (`0xC0000005`) on large plugin graphs. ([#114](https://github.com/arxdeus/xcross/pull/114))
+
 ## 2.0.1
 
 - Resolve `packages/<package>/...` shader and font paths in a package's `pubspec.yaml` inside that package's `lib/` directory, like `flutter build`. Apps depending on `material_ui` (for example through `cached_network_image`) no longer fail with "shader not found: packages/material_ui/packages/material_ui/shaders/ink_sparkle.frag". ([#110](https://github.com/arxdeus/xcross/issues/110))

@@ -278,9 +278,31 @@ $PythonPin = $env:XCROSS_PYTHON_VERSION       # e.g. 3.13.16
 $Only = @(($env:XCROSS_SETUP_ONLY -split ',') | ForEach-Object { $_.Trim().ToLowerInvariant() } | Where-Object { $_ })
 function Test-Wanted([string]$Component) { $Only.Count -eq 0 -or $Only -contains $Component }
 
+# Anonymous GitHub API calls share a 60/hour limit per IP, which CI runners
+# exhaust quickly; send a token when one is available.
 function Get-GitHubRelease([string]$Tag) {
   $api = 'https://api.github.com/repos/llvm/llvm-project/releases/' + $(if ($Tag) { "tags/$Tag" } else { 'latest' })
-  return Invoke-RestMethod -UseBasicParsing -Headers @{ 'User-Agent' = 'xcross-setup' } $api
+  $headers = @{ 'User-Agent' = 'xcross-setup'; 'Accept' = 'application/vnd.github+json' }
+  $token = if ($env:GITHUB_TOKEN) { $env:GITHUB_TOKEN } elseif ($env:GH_TOKEN) { $env:GH_TOKEN }
+  if ($token) { $headers['Authorization'] = "Bearer $token" }
+  return Invoke-RestMethod -UseBasicParsing -Headers $headers $api
+}
+
+# A pinned version with a pinned SHA-256 needs no API lookup: the asset URL is
+# predictable and the digest comes from the pin.
+function Get-PinnedLlvmRelease([string]$Version, [string]$Suffix) {
+  $major = [int]($Version -split '\.')[0]
+  # LLVM 22 ships NSIS .exe installers, LLVM 23+ ships .msi.
+  $ext = if ($major -ge 23) { 'msi' } else { 'exe' }
+  $name = "LLVM-$Version-$Suffix.$ext"
+  return [pscustomobject]@{
+    tag_name = "llvmorg-$Version"
+    assets = @([pscustomobject]@{
+        name = $name
+        browser_download_url = "https://github.com/llvm/llvm-project/releases/download/llvmorg-$Version/$name"
+        digest = $null
+      })
+  }
 }
 
 # Visual Studio Build Tools: Microsoft's bootstrapper, Microsoft-signed.
@@ -315,8 +337,12 @@ if ($llvmBin -and (Test-Path (Join-Path $llvmBin 'clang.exe'))) { Add-UserPath $
 $clangMajor = Get-ToolMajor 'clang' 'clang version (\d+)'
 $llvmDirMissing = $LlvmDir -and -not (Test-Path (Join-Path (Join-Path $LlvmDir 'bin') 'ld64.lld.exe'))
 if ((Test-Wanted 'llvm') -and ($llvmDirMissing -or -not $clangMajor -or $clangMajor -lt $MinClang -or -not (Get-Command ld64.lld -ErrorAction SilentlyContinue))) {
-  $release = Get-GitHubRelease $(if ($LlvmPin) { "llvmorg-$LlvmPin" })
   $suffix = if ($isArm64) { 'woa64' } else { 'win64' }
+  $release = if ($LlvmPin -and $LlvmPinSha) {
+    Get-PinnedLlvmRelease $LlvmPin $suffix
+  } else {
+    Get-GitHubRelease $(if ($LlvmPin) { "llvmorg-$LlvmPin" })
+  }
   # LLVM 22 ships NSIS .exe installers, LLVM 23+ ships .msi.
   $asset = @($release.assets) | Where-Object { $_.name -match "^LLVM-[\d.]+-$suffix\.(exe|msi)$" } | Select-Object -First 1
   if (-not $asset) {

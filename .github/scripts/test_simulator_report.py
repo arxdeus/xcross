@@ -7,7 +7,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from simulator_report import MARKER, artifact_links, artifact_name, entries, render
+from simulator_report import MARKER, artifact_links, artifact_name, entries, failed_jobs, render
 
 
 class SimulatorReportTests(unittest.TestCase):
@@ -92,6 +92,30 @@ class SimulatorReportTests(unittest.TestCase):
         report = render([], "Report")
         self.assertIn("No Flutter simulator screenshots were staged.", report)
         self.assertIn("No Compose simulator screenshots were staged.", report)
+
+    def test_lists_failed_jobs_with_their_failed_step_and_job_link(self):
+        jobs = [
+            {"name": "Native ARM64 host (windows-11-arm)", "conclusion": "failure",
+             "html_url": "https://github.com/o/xcross/actions/runs/77/job/2",
+             "steps": [{"name": "Checkout", "conclusion": "success"},
+                       {"name": "Install official Swift and LLVM on Windows", "conclusion": "failure"},
+                       {"name": "Later", "conclusion": "skipped"}]},
+            {"name": "Compose build (macos-15)", "conclusion": "success", "html_url": "x", "steps": []},
+            {"name": "Compose ARM64 iOS Simulator", "conclusion": "cancelled", "html_url": None},
+            {"name": "Simulator report", "conclusion": None, "status": "in_progress"},
+        ]
+        failed = failed_jobs(jobs)
+        self.assertEqual([job["name"] for job in failed],
+                         ["Compose ARM64 iOS Simulator", "Native ARM64 host (windows-11-arm)"])
+        report = render([], "Report", failed=failed)
+        failures = report.split("### Failed jobs\n", 1)[1].split("### Flutter", 1)[0]
+        self.assertIn("| **Native ARM64 host (windows-11-arm)** | ❌ Failed | "
+                      "`Install official Swift and LLVM on Windows` | "
+                      "🔗 [Open job](https://github.com/o/xcross/actions/runs/77/job/2) |", failures)
+        self.assertIn("| **Compose ARM64 iOS Simulator** | ⚪ Cancelled | _n/a_ | _unavailable_ |", failures)
+        self.assertNotIn("Compose build", failures)
+        self.assertIn("✅ No failed jobs.", render([], "Report", failed=[]))
+        self.assertNotIn("Failed jobs", render([], "Report"))
 
 if __name__ == "__main__":
     unittest.main()

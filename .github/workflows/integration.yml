@@ -329,6 +329,10 @@ jobs:
       - name: Install official Swift and LLVM on Windows
         if: runner.os == 'Windows'
         shell: pwsh
+        env:
+          # Authenticates direct.ps1's GitHub API lookups: anonymous calls
+          # share a 60/hour per-IP limit that hosted runners exhaust.
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           $ErrorActionPreference = 'Stop'
           # Pick the native toolchains for this runner; an emulated x64
@@ -1667,7 +1671,8 @@ jobs:
 
   simulator-report:
     name: Simulator report
-    needs: [gate, flutter-simulator, flutter-example-simulator-run, compose-simulator]
+    # Waits on every test job so the report can list all failed jobs.
+    needs: [gate, flutter-build, flutter-simulator, flutter-example-simulator-run, compose-simulator, compose-build, native-host]
     if: ${{ !cancelled() && needs.gate.outputs.trusted == 'true' }}
     runs-on: ubuntu-24.04
     permissions:
