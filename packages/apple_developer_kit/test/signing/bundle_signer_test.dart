@@ -511,6 +511,119 @@ void main() {
     );
   });
 
+  test(
+    'seals resource-only .bundle directories inside frameworks (#118)',
+    () async {
+      final app = _app(temporaryDirectory, 'cast', 'dev.xcross.Runner');
+      final framework = p.join(app.path, 'Frameworks', 'GoogleCast.framework');
+      _framework(
+        p.join(app.path, 'Frameworks'),
+        'GoogleCast',
+        'com.google.GoogleCast',
+      );
+      final resources = p.join(framework, 'GoogleCastCoreResources.bundle');
+      File(
+        p.join(resources, 'en.lproj', 'GoogleCastCore.strings'),
+      ).createSync(recursive: true);
+      File(
+        p.join(resources, 'CastFrameworkDB.momd', 'Info.plist'),
+      ).createSync(recursive: true);
+      // A SwiftPM resource bundle at the app root, which also has no code.
+      final swiftpmBundle = Directory(p.join(app.path, 'Package_Target.bundle'))
+        ..createSync();
+      File(p.join(swiftpmBundle.path, 'Info.plist')).writeAsStringSync(
+        PropertyListSerialization.stringWithPropertyList({
+          'CFBundleIdentifier': 'Package.Target.resources',
+        }),
+      );
+      File(p.join(swiftpmBundle.path, 'data.json')).writeAsStringSync('{}');
+
+      await BundleSigner(
+        exactAsset,
+        hostServices: testHostServices,
+      ).signApp(app.path, signingTime: signingTime);
+
+      final frameworkSeal = _plist(
+        File(
+          p.join(framework, '_CodeSignature', 'CodeResources'),
+        ).readAsBytesSync(),
+      );
+      final frameworkFiles = _map(frameworkSeal['files2']);
+      expect(
+        frameworkFiles.keys,
+        containsAll(<String>[
+          'GoogleCastCoreResources.bundle/en.lproj/GoogleCastCore.strings',
+          'GoogleCastCoreResources.bundle/CastFrameworkDB.momd/Info.plist',
+        ]),
+      );
+      final rootSeal = _plist(
+        File(
+          p.join(app.path, '_CodeSignature', 'CodeResources'),
+        ).readAsBytesSync(),
+      );
+      expect(
+        _map(rootSeal['files2']).keys,
+        containsAll(<String>[
+          'Package_Target.bundle/Info.plist',
+          'Package_Target.bundle/data.json',
+        ]),
+      );
+    },
+  );
+
+  test('still rejects .bundle directories that carry code', () async {
+    final executable = _app(
+      temporaryDirectory,
+      'bundle-executable',
+      'dev.xcross.Runner',
+    );
+    final loadable = Directory(p.join(executable.path, 'Loadable.bundle'))
+      ..createSync();
+    _writeInfo(loadable.path, 'Loadable', 'dev.xcross.Loadable');
+    File(p.join(loadable.path, 'Loadable')).writeAsBytesSync(_macho());
+    await expectLater(
+      BundleSigner(
+        exactAsset,
+        hostServices: testHostServices,
+      ).preflight(executable.path),
+      throwsA(
+        isA<AppleError>().having(
+          (error) => error.message,
+          'message',
+          allOf(
+            contains('Loadable.bundle'),
+            contains('unsupported nested code bundle'),
+          ),
+        ),
+      ),
+    );
+
+    final hidden = _app(
+      temporaryDirectory,
+      'bundle-hidden-macho',
+      'dev.xcross.Runner',
+    );
+    final resources = Directory(p.join(hidden.path, 'Resources.bundle'))
+      ..createSync();
+    File(p.join(resources.path, 'payload')).writeAsBytesSync(_macho());
+    await expectLater(
+      BundleSigner(
+        exactAsset,
+        hostServices: testHostServices,
+      ).preflight(hidden.path),
+      throwsA(
+        isA<AppleError>().having(
+          (error) => error.message,
+          'message',
+          allOf(
+            contains('Resources.bundle/payload'),
+            contains('unknown nested Mach-O code'),
+          ),
+        ),
+      ),
+    );
+  });
+
   test('preflights every loose Mach-O before any mutation', () async {
     final app = _app(temporaryDirectory, 'bad-macho', 'dev.xcross.Runner');
     final profile = File(p.join(app.path, 'embedded.mobileprovision'))

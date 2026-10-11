@@ -1,3 +1,7 @@
+## Unreleased
+
+- Sign apps that embed resource-only `.bundle` directories, such as `GoogleCastCoreResources.bundle` inside `GoogleCast.framework` or SwiftPM `<Package>_<Target>.bundle` resource bundles. Device runs no longer fail at "Signing app" with "unsupported nested code bundle". These bundles hold no code, so they are sealed as resources of the enclosing bundle like `codesign` does. A `.bundle` that declares an executable or contains Mach-O code is still rejected. ([#118](https://github.com/arxdeus/xcross/issues/118))
+
 ## 2.0.1
 
 - Resolve `packages/<package>/...` shader and font paths in a package's `pubspec.yaml` inside that package's `lib/` directory, like `flutter build`. Apps depending on `material_ui` (for example through `cached_network_image`) no longer fail with "shader not found: packages/material_ui/packages/material_ui/shaders/ink_sparkle.frag". ([#110](https://github.com/arxdeus/xcross/issues/110))
