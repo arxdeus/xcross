@@ -54,6 +54,36 @@ def commit_link(label, repository_url, sha):
     return f"{label}: [`{sha[:12]}`]({repository_url.removesuffix('.git')}/commit/{sha})"
 
 
+FAILED = {"failure": "❌ Failed", "cancelled": "⚪ Cancelled", "timed_out": "⏱️ Timed out"}
+
+
+def failed_jobs(jobs):
+    """Pick this run's failed jobs, each with its first failed step."""
+    failed = []
+    for job in jobs:
+        conclusion = job.get("conclusion")
+        if conclusion not in FAILED:
+            continue
+        step = next((step.get("name") for step in job.get("steps") or []
+                     if step.get("conclusion") in FAILED), None)
+        failed.append({"name": job.get("name", "?"), "conclusion": conclusion,
+                       "step": step, "url": job.get("html_url")})
+    return sorted(failed, key=lambda job: job["name"])
+
+
+def failures_section(failed):
+    lines = ["### Failed jobs", ""]
+    if not failed:
+        return lines + ["✅ No failed jobs.", ""]
+    lines += ["| Job | Status | Failed step | Report |", "| :--- | :--- | :--- | :--- |"]
+    for job in failed:
+        step = f"`{job['step']}`" if job["step"] else "_n/a_"
+        link = f"🔗 [Open job]({job['url']})" if job["url"] else "_unavailable_"
+        name = job["name"].replace("|", "\\|")
+        lines.append(f"| **{name}** | {FAILED[job['conclusion']]} | {step} | {link} |")
+    return lines + [""]
+
+
 def section(title, found, links):
     lines = [f"### {title}", ""]
     if not found:
@@ -67,11 +97,13 @@ def section(title, found, links):
     return lines + [""]
 
 
-def render(found, title, links=None, commits=()):
+def render(found, title, links=None, commits=(), failed=None):
     links = links or {}
     lines = [MARKER, f"## {title}", ""]
     if commits:
         lines += [" · ".join(commit_link(*commit) for commit in commits), ""]
+    if failed is not None:
+        lines += failures_section(failed)
     for kind, heading in SECTIONS:
         lines += section(heading, [entry for entry in found if entry["kind"] == kind], links)
     if found:
@@ -84,6 +116,7 @@ def main():
     parser.add_argument("staged", type=Path)
     parser.add_argument("--title", required=True)
     parser.add_argument("--artifacts", type=Path, help="JSON list of this run's artifacts from the Actions API.")
+    parser.add_argument("--jobs", type=Path, help="JSON list of this run's jobs from the Actions API.")
     parser.add_argument("--run-id", default="")
     parser.add_argument("--commit", default="")
     parser.add_argument("--repository-url", default="")
@@ -94,11 +127,14 @@ def main():
     links = {}
     if args.artifacts is not None and args.artifacts.is_file():
         links = artifact_links(json.loads(args.artifacts.read_text()), args.repository_url, args.run_id)
+    failed = None
+    if args.jobs is not None and args.jobs.is_file():
+        failed = failed_jobs(json.loads(args.jobs.read_text()))
     commits = (
         ("xcross", args.repository_url, args.commit),
         ("xcross_examples", args.examples_url, args.examples_commit),
     )
-    report = render(found, args.title, links, commits)
+    report = render(found, args.title, links, commits, failed)
     summary = os.environ.get("GITHUB_STEP_SUMMARY")
     if summary:
         with open(summary, "a", encoding="utf-8") as output:

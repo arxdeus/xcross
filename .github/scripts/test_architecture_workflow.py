@@ -123,7 +123,7 @@ class ArchitectureWorkflowTests(unittest.TestCase):
     def test_one_report_job_shows_every_flutter_and_compose_screenshot(self):
         self.check_simulator_report(
             (ROOT / '.github/workflows/integration.yml').read_text(),
-            ['flutter-simulator', 'flutter-example-simulator-run', 'compose-simulator'],
+            ['flutter-build', 'flutter-simulator', 'flutter-example-simulator-run', 'compose-simulator', 'compose-build', 'native-host'],
             'Integration simulator report',
         )
         self.assertFalse((ROOT / '.github/workflows/compose-integration.yml').exists())
