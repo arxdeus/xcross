@@ -132,35 +132,31 @@ final class Pymd {
   /// Prefers a python >= 3.13 that can import pymobiledevice3 — searched
   /// separately from [resolve], because the bare `pymobiledevice3` CLI (or
   /// launcher shims around it) may pin an older python that breaks only for
-  /// tunneld's TCP tunnels. When none on PATH qualifies, the interpreter
-  /// behind the bare CLI is tried too: pipx and other venv installs keep
-  /// pymobiledevice3 importable only from their private python. Falls back
-  /// to the regular invocation with `modernPython: false` when no such
-  /// python exists.
+  /// tunneld's TCP tunnels. The interpreter behind the bare CLI is tried
+  /// too: pipx and other venv installs keep pymobiledevice3 importable only
+  /// from their private python. All candidates are probed concurrently and
+  /// the first in priority order wins. Falls back to the regular invocation
+  /// with `modernPython: false` when no such python exists.
   Future<TunneldInvocation> tunneldInvocation() async {
     if (_tunneldCached != null) return _tunneldCached!;
-    final seen = <String>{};
-    for (final name in const [
-      'python3.14',
-      'python3.13',
-      'python3',
-      'python',
-      'py',
-    ]) {
-      final candidate = await runner.which(name);
-      if (candidate == null || !seen.add(candidate)) continue;
-      final found = await _probeModernPython(candidate);
-      if (found != null) return _tunneldCached = found;
-    }
-    for (final candidate in await _cliInterpreters()) {
-      if (!seen.add(candidate)) continue;
-      final found = await _probeModernPython(candidate);
-      if (found != null) return _tunneldCached = found;
-    }
-    return _tunneldCached = TunneldInvocation(
-      await resolve(),
-      modernPython: false,
-    );
+    final lookups = await Future.wait([
+      for (final name in const [
+        'python3.14',
+        'python3.13',
+        'python3',
+        'python',
+        'py',
+      ])
+        runner.which(name),
+    ]);
+    final candidates = {
+      for (final path in lookups) ?path,
+      ...await _cliInterpreters(),
+    };
+    final probes = await Future.wait(candidates.map(_probeModernPython));
+    return _tunneldCached =
+        probes.nonNulls.firstOrNull ??
+        TunneldInvocation(await resolve(), modernPython: false);
   }
 
   Future<TunneldInvocation?> _probeModernPython(String candidate) async {
@@ -215,7 +211,9 @@ final class Pymd {
         final line = head.substring(2).split('\n').first.trim();
         final interpreter = line.split(RegExp(r'\s+')).first;
         if (!runner.host.paths.context.isAbsolute(interpreter) ||
-            runner.host.paths.context.basename(interpreter) == 'env' ||
+            !runner.host.paths.context
+                .basename(interpreter)
+                .startsWith('python') ||
             !runner.host.fileSystem.file(interpreter).existsSync()) {
           return null;
         }

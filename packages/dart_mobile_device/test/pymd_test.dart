@@ -202,6 +202,33 @@ void main() {
       expect(tunneld.invocation.executable, python.path);
     });
 
+    test('never probes a non-python shebang interpreter', () async {
+      final processes = PymdProbeProcesses({});
+      touch('usr/bin/pymobiledevice3', "#!/bin/sh\n'''exec' python3 \"\$0\"\n");
+      final env = {'PATH': '${root.path}/usr/bin', 'HOME': root.path};
+      final runner = ProcessRunner(
+        MacOSHost(environment: env, processes: processes),
+        configuration: ProcessConfiguration(
+          normalizedTools: const {},
+          effectiveChildEnvironment: env,
+        ),
+        log: testLog(),
+        stdinStream: const Stream.empty(),
+        stdoutSink: testSink(),
+        stderrSink: testSink(),
+      );
+      final pymd = Pymd(
+        runner,
+        console: TestDeviceConsole(),
+        localHttp: testLocalHttp(),
+        privileges: PosixPrivileges(runner),
+        hostPolicy: MacOSDeviceHost(runner),
+      );
+
+      expect((await pymd.tunneldInvocation()).modernPython, isFalse);
+      expect(processes.started, isNot(contains('/bin/sh')));
+    });
+
     test('reports no modern python when the CLI interpreter is old', () async {
       touch('usr/bin/python3');
       final cli = touch('usr/bin/pymobiledevice3', '#!/usr/bin/env python3\n');
@@ -307,6 +334,7 @@ final class PymdInstallProcesses implements HostProcessInterface {
 final class PymdProbeProcesses implements HostProcessInterface {
   PymdProbeProcesses(this.modern);
   final Set<String> modern;
+  final started = <String>[];
 
   @override
   Future<Process> start(
@@ -318,6 +346,7 @@ final class PymdProbeProcesses implements HostProcessInterface {
     bool runInShell = false,
     ProcessStartMode mode = ProcessStartMode.normal,
   }) async {
+    started.add(executable);
     final ok = modern.contains(executable) && arguments.first == '-c';
     final process = WirelessChild(body: ok ? executable : '');
     process.exited.complete(ok ? 0 : 1);
