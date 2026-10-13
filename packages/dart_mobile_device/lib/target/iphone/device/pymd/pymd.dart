@@ -132,10 +132,14 @@ final class Pymd {
   /// Prefers a python >= 3.13 that can import pymobiledevice3 — searched
   /// separately from [resolve], because the bare `pymobiledevice3` CLI (or
   /// launcher shims around it) may pin an older python that breaks only for
-  /// tunneld's TCP tunnels. Falls back to the regular invocation with
-  /// `modernPython: false` when no such python exists.
+  /// tunneld's TCP tunnels. When none on PATH qualifies, the interpreter
+  /// behind the bare CLI is tried too: pipx and other venv installs keep
+  /// pymobiledevice3 importable only from their private python. Falls back
+  /// to the regular invocation with `modernPython: false` when no such
+  /// python exists.
   Future<TunneldInvocation> tunneldInvocation() async {
     if (_tunneldCached != null) return _tunneldCached!;
+    final seen = <String>{};
     for (final name in const [
       'python3.14',
       'python3.13',
@@ -144,26 +148,84 @@ final class Pymd {
       'py',
     ]) {
       final candidate = await runner.which(name);
-      if (candidate == null) continue;
-      try {
-        final probe = await runner.run(candidate, ['-c', _modernPythonProbe]);
-        if (probe.exitCode != 0) continue;
-        final real = probe.stdout.trim().split('\n').last.trim();
-        if (real.isEmpty || !runner.host.fileSystem.file(real).existsSync()) {
-          continue;
-        }
-        return _tunneldCached = TunneldInvocation(
-          PymdInvocation(real, const ['-m', 'pymobiledevice3']),
-          modernPython: true,
-        );
-      } on Object {
-        continue;
-      }
+      if (candidate == null || !seen.add(candidate)) continue;
+      final found = await _probeModernPython(candidate);
+      if (found != null) return _tunneldCached = found;
+    }
+    for (final candidate in await _cliInterpreters()) {
+      if (!seen.add(candidate)) continue;
+      final found = await _probeModernPython(candidate);
+      if (found != null) return _tunneldCached = found;
     }
     return _tunneldCached = TunneldInvocation(
       await resolve(),
       modernPython: false,
     );
+  }
+
+  Future<TunneldInvocation?> _probeModernPython(String candidate) async {
+    try {
+      final probe = await runner.run(candidate, ['-c', _modernPythonProbe]);
+      if (probe.exitCode != 0) return null;
+      final real = probe.stdout.trim().split('\n').last.trim();
+      if (real.isEmpty || !runner.host.fileSystem.file(real).existsSync()) {
+        return null;
+      }
+      return TunneldInvocation(
+        PymdInvocation(real, const ['-m', 'pymobiledevice3']),
+        modernPython: true,
+      );
+    } on Object {
+      return null;
+    }
+  }
+
+  /// Interpreters the bare `pymobiledevice3` CLI runs on: the python next to
+  /// its resolved entry point (a venv's `bin`/`Scripts`) and its shebang
+  /// interpreter.
+  Future<List<String>> _cliInterpreters() async {
+    final cli = await runner.which(
+      'pymobiledevice3',
+      extraDirectories: pipxBinDirectories,
+    );
+    if (cli == null) return const [];
+    final fs = runner.host.fileSystem;
+    final context = runner.host.paths.context;
+    var entry = cli;
+    try {
+      entry = fs.file(cli).resolveSymbolicLinksSync();
+    } on Object catch (_) {}
+    final dir = context.dirname(entry);
+    final result = <String>[
+      for (final name in const ['python3', 'python', 'python.exe'])
+        if (fs.file(context.join(dir, name)).existsSync())
+          context.join(dir, name),
+    ];
+    final shebang = _shebangInterpreter(entry);
+    if (shebang != null && !result.contains(shebang)) result.add(shebang);
+    return result;
+  }
+
+  String? _shebangInterpreter(String script) {
+    try {
+      final file = runner.host.fileSystem.file(script).openSync();
+      try {
+        final head = utf8.decode(file.readSync(256), allowMalformed: true);
+        if (!head.startsWith('#!')) return null;
+        final line = head.substring(2).split('\n').first.trim();
+        final interpreter = line.split(RegExp(r'\s+')).first;
+        if (!runner.host.paths.context.isAbsolute(interpreter) ||
+            runner.host.paths.context.basename(interpreter) == 'env' ||
+            !runner.host.fileSystem.file(interpreter).existsSync()) {
+          return null;
+        }
+        return interpreter;
+      } finally {
+        file.closeSync();
+      }
+    } on Object {
+      return null;
+    }
   }
 
   /// True if pymobiledevice3 is invocable (CLI on PATH, or importable by a

@@ -139,6 +139,81 @@ void main() {
     },
   );
 
+  group('Pymd.tunneldInvocation', testOn: '!windows', () {
+    late Directory root;
+    setUp(() => root = Directory.systemTemp.createTempSync('pymd_tunneld'));
+    tearDown(() => root.deleteSync(recursive: true));
+
+    File touch(String path, [String content = '']) => File('${root.path}/$path')
+      ..createSync(recursive: true)
+      ..writeAsStringSync(content);
+
+    Pymd pymdFor(Set<String> modern) {
+      final env = {'PATH': '${root.path}/usr/bin', 'HOME': '${root.path}/home'};
+      final runner = ProcessRunner(
+        MacOSHost(environment: env, processes: PymdProbeProcesses(modern)),
+        configuration: ProcessConfiguration(
+          normalizedTools: const {},
+          effectiveChildEnvironment: env,
+        ),
+        log: testLog(),
+        stdinStream: const Stream.empty(),
+        stdoutSink: testSink(),
+        stderrSink: testSink(),
+      );
+      return Pymd(
+        runner,
+        console: TestDeviceConsole(),
+        localHttp: testLocalHttp(),
+        privileges: PosixPrivileges(runner),
+        hostPolicy: MacOSDeviceHost(runner),
+      );
+    }
+
+    test('finds the python of a pipx venv behind the CLI symlink', () async {
+      final system = touch('usr/bin/python3');
+      final venvBin = '${root.path}/home/.local/share/pipx/venvs/pmd3/bin';
+      final venvPython = touch('home/.local/share/pipx/venvs/pmd3/bin/python');
+      final cli = touch(
+        'home/.local/share/pipx/venvs/pmd3/bin/pymobiledevice3',
+        '#!$venvBin/python\n',
+      );
+      Directory('${root.path}/home/.local/bin').createSync(recursive: true);
+      Link('${root.path}/home/.local/bin/pymobiledevice3').createSync(cli.path);
+      final pymd = pymdFor({venvPython.path});
+
+      final tunneld = await pymd.tunneldInvocation();
+
+      expect(tunneld.modernPython, isTrue);
+      expect(tunneld.invocation.executable, venvPython.path);
+      expect(tunneld.invocation.prefixArgs, ['-m', 'pymobiledevice3']);
+      expect(system.path, isNot(tunneld.invocation.executable));
+    });
+
+    test('finds the shebang interpreter of a non-venv CLI', () async {
+      touch('usr/bin/python3');
+      final python = touch('opt/py313/bin/python3.13');
+      touch('usr/bin/pymobiledevice3', '#!${python.path} -E\n');
+      final pymd = pymdFor({python.path});
+
+      final tunneld = await pymd.tunneldInvocation();
+
+      expect(tunneld.modernPython, isTrue);
+      expect(tunneld.invocation.executable, python.path);
+    });
+
+    test('reports no modern python when the CLI interpreter is old', () async {
+      touch('usr/bin/python3');
+      final cli = touch('usr/bin/pymobiledevice3', '#!/usr/bin/env python3\n');
+      final pymd = pymdFor({});
+
+      final tunneld = await pymd.tunneldInvocation();
+
+      expect(tunneld.modernPython, isFalse);
+      expect(tunneld.invocation.executable, cli.path);
+    });
+  });
+
   group('Pymd.asPort', () {
     test('passes through an int unchanged', () {
       expect(Pymd.asPort(12345), 12345);
@@ -220,6 +295,32 @@ final class PymdInstallProcesses implements HostProcessInterface {
     } else {
       process.exited.complete(installs.isEmpty ? 1 : 0);
     }
+    return process;
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) =>
+      throw StateError('unexpected native process operation');
+}
+
+@internal
+final class PymdProbeProcesses implements HostProcessInterface {
+  PymdProbeProcesses(this.modern);
+  final Set<String> modern;
+
+  @override
+  Future<Process> start(
+    String executable,
+    List<String> arguments, {
+    String? workingDirectory,
+    Map<String, String>? environment,
+    bool includeParentEnvironment = true,
+    bool runInShell = false,
+    ProcessStartMode mode = ProcessStartMode.normal,
+  }) async {
+    final ok = modern.contains(executable) && arguments.first == '-c';
+    final process = WirelessChild(body: ok ? executable : '');
+    process.exited.complete(ok ? 0 : 1);
     return process;
   }
 
