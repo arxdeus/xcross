@@ -11,8 +11,7 @@ import 'package:meta/meta.dart';
 /// https://github.com/Dadoum/anisette-v3-server/issues/59.
 @internal
 const String anisetteClientInfo =
-    '<MacBookPro13,2> <macOS;13.1;22C65> '
-    '<com.apple.AuthKit/1 (com.apple.akd/1.0)>';
+    '<Pixel 8><Android; 14; UQ1A.240205.004><com.apple.AuthKit/1 (com.apple.android.music/4.9.6)>';
 
 const String _defaultLocale = 'en_US';
 const String _defaultTimeZone = 'America/Los_Angeles';
