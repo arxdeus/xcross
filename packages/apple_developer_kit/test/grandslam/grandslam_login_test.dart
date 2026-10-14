@@ -18,6 +18,7 @@ import 'dart:convert';
 import 'dart:math';
 import 'dart:typed_data';
 
+import 'package:apple_developer_kit/shared/errors/errors.dart';
 import 'package:apple_developer_kit/shared/grandslam/anisette/grandslam_endpoints.dart';
 import 'package:apple_developer_kit/shared/grandslam/grandslam_login.dart';
 import 'package:apple_developer_kit/shared/grandslam/grandslam_two_factor.dart';
@@ -523,6 +524,88 @@ void main() {
 
         expect(promptedMode, GrandSlamTwoFactorMode.sms);
         expect(smsSent, isTrue);
+      },
+    );
+
+    test(
+      'SMS 2FA: HTTP 403 on phone/put points to trusted-device 2FA',
+      () async {
+        const username = 'test@example.com';
+        const password = 'hunter2';
+        final server = FakeGsaServer(username: username, password: password);
+        var prompted = false;
+
+        final client = MockClient((request) async {
+          if (request.url.toString() == _smsPutUrl) {
+            return http.Response('', 403);
+          }
+          final envelope =
+              PropertyListSerialization.propertyListWithString(request.body)
+                  as Map;
+          final req = (envelope['Request']! as Map).cast<String, Object?>();
+          if (req['o'] == 'init') {
+            server.receiveClientPublicKey(_bytesOf(req['A2k']));
+            return http.Response(
+              _operationResponse({
+                'sp': server.selectedProtocol,
+                'c': 'cookie',
+                's': _bd(server.salt),
+                'i': server.iterations,
+                'B': _bd(server.serverPublicKeyBytes),
+              }),
+              200,
+            );
+          }
+          final result = server.verifyAndRespond(_bytesOf(req['M1']))!;
+          final plist = PropertyListSerialization.stringWithPropertyList({
+            'adsid': 'a',
+            'GsIdmsToken': 'b',
+            'sk': _bd(result.sessionKey),
+            'c': _bd(Uint8List.fromList([1])),
+            'status-code': 409,
+            'url': 'secondaryAuth',
+          });
+          final spd = _encryptCbc(result.sessionKey, utf8.encode(plist));
+          return http.Response(
+            _operationResponse({
+              'M2': _bd(result.hamk),
+              'spd': _bd(spd),
+              'np': _bd(
+                _negProto(
+                  sessionKey: result.sessionKey,
+                  selectedProtocol: server.selectedProtocol,
+                  spd: spd,
+                ),
+              ),
+            }),
+            200,
+          );
+        });
+
+        final grandSlam = GrandSlamClient(
+          endpoints: _testEndpoints,
+          fetchAnisetteHeaders: _fakeAnisetteHeaders,
+          httpClient: client,
+        );
+
+        await expectLater(
+          () => grandSlam.login(
+            username: username,
+            password: password,
+            fetchTwoFactorCode: (_) async {
+              prompted = true;
+              return '000000';
+            },
+          ),
+          throwsA(
+            isA<AppleError>().having(
+              (e) => e.message,
+              'message',
+              allOf(contains('HTTP 403'), contains('trusted Apple device')),
+            ),
+          ),
+        );
+        expect(prompted, isFalse);
       },
     );
 

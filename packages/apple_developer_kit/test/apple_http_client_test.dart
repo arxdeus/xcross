@@ -1,6 +1,8 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:apple_developer_kit/shared/http/apple_http_client.dart';
+import 'package:crypto/crypto.dart' as crypto;
 import 'package:http/io_client.dart';
 import 'package:meta/meta.dart';
 import 'package:test/test.dart';
@@ -74,6 +76,21 @@ void main() {
       createHttpClient: (_) => throw StateError('Unexpected transport'),
     );
     expect(factory.createSecurityContext(), same(context));
+  });
+
+  test('pins Apple Root CA and Apple Root CA - G3', () {
+    String sha256Of(String pem) {
+      final body = pem
+          .split('\n')
+          .where((line) => line.isNotEmpty && !line.startsWith('-----'))
+          .join();
+      return crypto.sha256.convert(base64.decode(body)).toString();
+    }
+
+    expect(AppleHttpClientFactory.trustedRootPems.map(sha256Of), [
+      'b0b1730ecbc7ff4505142c49f1295e6eda6bcaed7e2c68c5be91b5a11001f024',
+      '63343abfb89a6a03ebb57e9b3f5fa7be7c4f5c756f3017b3a8c488c3653e9179',
+    ]);
   });
 
   test('propagates selected context failure without acquiring transport', () {

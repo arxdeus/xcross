@@ -74,6 +74,15 @@ final class GrandSlamTwoFactor {
         'serverInfo': {'phoneNumber.id': _smsPhoneNumberId},
       }),
     );
+    if (response.statusCode == 403) {
+      throw const AppleError(
+        'Apple refused to send an SMS verification code (HTTP 403). Since '
+        '2026-10-12 GrandSlam blocks SMS two-factor for sign-ins using '
+        'Android anisette, which xcross relies on. Add a trusted Apple '
+        'device (iPhone, iPad or Mac) to this Apple ID so the code is '
+        'pushed there, then run `xcross auth` again.',
+      );
+    }
     _ensureAccepted(response);
     await _validateCode(
       loginData: loginData,
