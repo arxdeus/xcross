@@ -11,13 +11,13 @@ import 'package:test/test.dart';
 
 void main() {
   for (final operation in ['init', 'complete', 'apptokens']) {
-    test('$operation sends akd on the actual GSA request', () async {
+    test('$operation sends Android client-info on the actual GSA request', () async {
       final client = MockClient((request) async {
         expect(request.persistentConnection, isFalse);
         expect(request.headers['X-MMe-Client-Info'], anisetteClientInfo);
         expect(
           request.headers['X-MMe-Client-Info'],
-          contains('com.apple.akd/1.0'),
+          contains('com.apple.android.music/4.9.6'),
         );
         expect(
           request.headers['X-MMe-Client-Info'],

@@ -22,7 +22,7 @@ void main() {
           requests++;
           expect(
             request.headers['X-MMe-Client-Info'],
-            contains('com.apple.akd/1.0'),
+            contains('com.apple.android.music/4.9.6'),
           );
           return http.Response(
             '<html>Too Many Requests</html>',

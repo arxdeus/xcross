@@ -4,10 +4,12 @@ import 'package:apple_developer_kit/shared/grandslam/anisette/anisette_state.dar
 import 'package:crypto/crypto.dart' as crypto;
 import 'package:meta/meta.dart';
 
-/// Client identity string Apple's servers expect. Cross-validated against
-/// Dadoum/Provision and xtool's `XADIProvider`: intentionally a stable
-/// fixed value, never real host hardware. GrandSlam's edge rejects client-info
-/// containing com.apple.dt.Xcode. Use the AuthKit daemon identity instead:
+/// Client identity string Apple's servers expect. Intentionally a stable
+/// fixed value, never real host hardware. Local ADI comes from Apple Music's
+/// Android libraries, so this claims Android: since 2026-10-12 GrandSlam
+/// refuses (-80045) a sign-in whose platform does not match its anisette.
+/// Only the platform part is checked, not the program named at the end.
+/// Also avoid com.apple.dt.Xcode (HTTP 503):
 /// https://github.com/Dadoum/anisette-v3-server/issues/59.
 @internal
 const String anisetteClientInfo =

@@ -106,11 +106,13 @@ cancel. Keep credentials and returned login data out of logs.
 
 ### Troubleshooting Apple ID login
 
-- **HTTP 503 and Xcode client-info:** Apple's GrandSlam edge rejects
-  `X-MMe-Client-Info` containing `com.apple.dt.Xcode`, as documented in
+- **HTTP 503 / -80045 and client-info:** Apple's GrandSlam edge rejects
+  `X-MMe-Client-Info` containing `com.apple.dt.Xcode` (HTTP 503), as documented in
   [anisette-v3-server #59](https://github.com/Dadoum/anisette-v3-server/issues/59).
-  The built-in provider and GSA requests use `com.apple.akd/1.0`. Custom providers
-  must supply compatible client-info too. The Developer Services app identifier
+  Since 2026-10-12 it also refuses (-80045) a sign-in whose claimed platform
+  does not match the anisette (local ADI is Android). The built-in provider and
+  GSA requests use `com.apple.android.music/4.9.6`. Custom providers must supply
+  compatible client-info too. The Developer Services app identifier
   `com.apple.gs.xcode.auth` is a separate value and must not be replaced.
 - **HTTP 429 at `o=complete` after switching to `akd`:** this can be a
   connection-reuse problem, not necessarily an account/IP cooldown.
