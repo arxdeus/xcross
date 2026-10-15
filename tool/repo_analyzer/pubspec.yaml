@@ -11,11 +11,11 @@ environment:
 resolution: workspace
 
 dependencies:
-  analysis_server_plugin: 0.3.18
-  analyzer: 13.3.0
+  analysis_server_plugin: 0.3.24
+  analyzer: 14.5.0
 
 dev_dependencies:
-  analyzer_testing: 0.3.2
+  analyzer_testing: 0.4.3
   arxdeus_lints: ^1.0.1
   test: ^1.33.0
   test_reflective_loader: ^0.6.0

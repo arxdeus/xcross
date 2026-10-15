@@ -53,7 +53,7 @@ dependencies:
   yaml_edit: ^2.2.4
 
 dev_dependencies:
-  analyzer: 13.3.0
+  analyzer: 14.5.0
   build_cli: ^2.2.13
   build_runner: ^2.16.1
   embed: ^1.7.1
