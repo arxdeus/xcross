@@ -549,10 +549,10 @@ packages:
     dependency: transitive
     description:
       name: pub_semver
-      sha256: "5bfcf68ca79ef689f8990d1160781b4bad40a3bd5e5218ad4076ddb7f4081585"
+      sha256: "261236774e8b1d69cfc6b9eabbc96c40f25e7a2d6b171f3385d4f65d5734fb24"
       url: "https://pub.dev"
     source: hosted
-    version: "2.2.0"
+    version: "2.2.1"
   pubspec_parse:
     dependency: transitive
     description:
@@ -749,10 +749,10 @@ packages:
     dependency: transitive
     description:
       name: test_reflective_loader
-      sha256: e2bb34c6d396eafd332f364ca71d17e70d37268f4ec8b04a00bb7f2d16df2510
+      sha256: "9c4327839510a742171b9d37b37464d0d215ebee4d7701a272db337dbde3e17b"
       url: "https://pub.dev"
     source: hosted
-    version: "0.2.3"
+    version: "0.6.0"
   toml:
     dependency: transitive
     description:
