@@ -57,4 +57,4 @@ dev_dependencies:
   build_cli: ^2.2.13
   build_runner: ^2.16.1
   embed: ^1.7.1
-  test: ^1.32.0
+  test: ^1.33.0
