@@ -227,6 +227,35 @@ final class LinuxXcrossHostContext
     );
   }
 
+  /// pymobiledevice3 keeps remote-pairing records in `~/.pymobiledevice3`,
+  /// but only while that folder already exists; fresh installs follow the
+  /// XDG Base Directory Specification (`$XDG_DATA_HOME/pymobiledevice3`,
+  /// default `~/.local/share/pymobiledevice3` — this branch is Linux-only
+  /// upstream). Mirror that resolution so the record checks agree with where
+  /// pymobiledevice3 actually writes, whichever it picked for this machine.
+  @override
+  String? pairingHome(ProcessRunner<LinuxHostInterface> runner) {
+    final home = host.environment.lookup(runner.effectiveEnvironment, 'HOME');
+    if (home == null) return null;
+    final legacy = host.paths.context.join(home, '.pymobiledevice3');
+    // Probe the filesystem only for paths this POSIX context understands:
+    // a foreign HOME (e.g. a C:\ path reaching this context in composition
+    // tests run on Windows) resolves to garbage rather than a missing folder.
+    final legacyUsable =
+        host.paths.context.isAbsolute(legacy) &&
+        host.fileSystem.directory(legacy).existsSync();
+    if (legacyUsable) return legacy;
+
+    final xdg = host.environment.lookup(
+      runner.effectiveEnvironment,
+      'XDG_DATA_HOME',
+    );
+    if (xdg != null && host.paths.context.isAbsolute(xdg)) {
+      return host.paths.context.join(xdg, 'pymobiledevice3');
+    }
+    return host.paths.context.join(home, '.local', 'share', 'pymobiledevice3');
+  }
+
   Pymd _createPymd(
     ProcessRunner<LinuxHostInterface> runner,
     LocalHttp<LinuxHostInterface> localHttp,

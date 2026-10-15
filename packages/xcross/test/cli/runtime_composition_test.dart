@@ -12,6 +12,7 @@ import 'package:dart_mobile_device/shared/device/models/device.dart';
 import 'package:dart_mobile_device/shared/diagnostics/device_probe.dart';
 import 'package:dart_mobile_device/shared/preparation/device_preparation.dart';
 import 'package:dart_mobile_device/shared/tunnel/tunnel_availability.dart';
+import 'package:dart_mobile_device/target/iphone/device/pymd/pymd.dart';
 import 'package:darwin_sdk_kit/shared/sdk/darwin_sdk_repository.dart';
 import 'package:http/http.dart' as http;
 import 'package:meta/meta.dart';
@@ -42,6 +43,84 @@ import '../log_fixture.dart';
 import 'runtime_fixture.dart';
 
 void main() {
+  group('pymobiledevice3 pairing home', () {
+    Pymd pymdWithEnvironment(Map<String, String> environment) =>
+        testApplication(environment: environment).pymd;
+
+    // The runtime fixture pins the POSIX path context of the Linux host
+    // composition, whose record rules make no sense on a Windows runner.
+    test(
+      testOn: '!windows',
+      'is the pymobiledevice3 folder inside HOME, not HOME itself',
+      () {
+        final home = Directory.systemTemp.createTempSync('xcross_pairing_home');
+        addTearDown(() => home.deleteSync(recursive: true));
+        final legacy = Directory('${home.path}/.pymobiledevice3')
+          ..createSync(recursive: true);
+        expect(
+          pymdWithEnvironment({'HOME': home.path, 'PATH': '/usr/bin:/bin'})
+              .pairingHome,
+          equals(legacy.path),
+        );
+      },
+    );
+
+    test(
+      testOn: '!windows',
+      'follows pymobiledevice3s XDG fallback without a legacy folder',
+      () {
+        final home = Directory.systemTemp.createTempSync('xcross_xdg_home');
+        addTearDown(() => home.deleteSync(recursive: true));
+        final xdgData = Directory.systemTemp.createTempSync('xcross_xdg_data');
+        addTearDown(() => xdgData.deleteSync(recursive: true));
+        expect(
+          pymdWithEnvironment({
+            'HOME': home.path,
+            'XDG_DATA_HOME': xdgData.path,
+            'PATH': '/usr/bin:/bin',
+          }).pairingHome,
+          equals('${xdgData.path}/pymobiledevice3'),
+        );
+      },
+    );
+
+    test(
+      testOn: '!windows',
+      'prefers the legacy folder when it and XDG_DATA_HOME both exist',
+      () {
+        final home = Directory.systemTemp.createTempSync('xcross_choice_home');
+        addTearDown(() => home.deleteSync(recursive: true));
+        final xdgData = Directory.systemTemp.createTempSync('xcross_choice_xdg');
+        addTearDown(() => xdgData.deleteSync(recursive: true));
+        Directory('${home.path}/.pymobiledevice3').createSync(recursive: true);
+        expect(
+          pymdWithEnvironment({
+            'HOME': home.path,
+            'XDG_DATA_HOME': xdgData.path,
+            'PATH': '/usr/bin:/bin',
+          }).pairingHome,
+          equals('${home.path}/.pymobiledevice3'),
+        );
+      },
+    );
+
+    test('a foreign (Windows-style) HOME never reaches the record probe', () {
+      // The pathlib probe only accepts paths the POSIX context understands;
+      // a C:\ home must fall through to the XDG rule without a crash ahead of
+      // the probe running anywhere else.
+      expect(
+        pymdWithEnvironment({
+          'HOME': r'C:\Users\someone\AppData\Local\Temp\home',
+          'PATH': '/usr/bin:/bin',
+        }).pairingHome,
+        equals(
+          '${r'C:\Users\someone\AppData\Local\Temp\home'}'
+              '/.local/share/pymobiledevice3',
+        ),
+      );
+    });
+  });
+
   test(
     'application rejects physical services from another configured runner',
     () {

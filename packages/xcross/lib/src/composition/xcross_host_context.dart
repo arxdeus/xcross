@@ -149,10 +149,19 @@ abstract class XcrossHostContext<T extends PlatformHostInterface>
     DarwinToolchainResolver<T> toolchain,
   );
 
+  /// The pymobiledevice3 pair-record home folder, not the user's home: the
+  /// override must be the directory that *contains* `remote_<id>.plist`
+  /// (`~/.pymobiledevice3`), which is how `RemotePairing` resolves it.
+  /// Passing the raw `HOME` made the wireless flow believe no pairing existed
+  /// and re-advertise for device-initiated pairing on every run.
   @protected
-  String? pairingHome(ProcessRunner<T> runner) =>
-      host.environment.lookup(runner.effectiveEnvironment, 'HOME') ??
-      host.environment.lookup(runner.effectiveEnvironment, 'USERPROFILE');
+  String? pairingHome(ProcessRunner<T> runner) {
+    final home =
+        host.environment.lookup(runner.effectiveEnvironment, 'HOME') ??
+        host.environment.lookup(runner.effectiveEnvironment, 'USERPROFILE');
+    if (home == null) return null;
+    return host.paths.context.join(home, '.pymobiledevice3');
+  }
 
   @protected
   FlutterResolutionConfiguration flutterResolution(
