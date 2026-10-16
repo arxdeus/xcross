@@ -91,15 +91,12 @@ final class RuleScope {
   static final Expando<ServiceInference> _services = Expando();
 
   /// Identity analysis shared by every rule for the current library.
-  IdentityAnalysis get identity {
-    final library = context.libraryElement;
-    if (library == null) {
-      return IdentityAnalysis(context.allUnits.map((u) => u.unit));
-    }
-    return _identities[library] ??= IdentityAnalysis(
-      context.allUnits.map((u) => u.unit),
-    );
-  }
+  ///
+  /// Keyed by the resolved defining unit rather than the [LibraryElement]:
+  /// the analyzer may keep the library element across re-resolutions while
+  /// creating fresh local variable elements, which would leave stale aliases.
+  IdentityAnalysis get identity => _identities[context.definingUnit.unit] ??=
+      IdentityAnalysis(context.allUnits.map((u) => u.unit));
 
   /// Service inference shared by every rule for the current library.
   ServiceInference get services {
