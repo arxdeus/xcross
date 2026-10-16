@@ -503,6 +503,8 @@ Flutter publishes its iOS AOT compiler (`gen_snapshot`) for macOS only. On macOS
 A downloaded compiler is cached per engine revision. Once a day a build checks the release again (a few seconds at most, and never failing offline), so a compiler xcross_gen_snapshot republishes for the same Flutter version replaces the cached one. `xcross flutter doctor` reports for profile and release whether a compiler is shipped, cached, pinned, published, or missing. `xcross flutter precache` fetches it ahead of time. `xcross cache prune` removes engine artifacts and compilers left behind by Flutter versions you no longer use; Kotlin/Native in `~/.konan` is shared with Gradle and never pruned. A release manifest written for a newer xcross asks you to run `xcross update`.
 
 On Windows, output byte-identical to a macOS build needs an LF checkout of the Flutter SDK (`git config --global core.autocrlf false` before cloning). A CRLF checkout still produces working snapshots, but not byte-identical ones, because the source offsets they record shift.
+
+For a physical-device check that the installed release app survives a cold start without a debugger or host connection, see [Verifying standalone iOS AOT startup](docs/ios-aot-device-validation.md). Successful compilation and installation alone do not establish this.
 </details>
 
 <details>

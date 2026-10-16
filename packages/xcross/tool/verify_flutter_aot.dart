@@ -137,6 +137,7 @@ Map<String, String> _verifyApp(String path, {String? dsym}) {
   if (appFile.file.fileType != MachOConstants.mhDylib) {
     appFile.invalid('expected a dylib');
   }
+  appFile.requireDylibDependency();
   final names = appFile.symbolNames();
   for (final symbol in ['_kDartSnapshotText', '_kDartSnapshotData']) {
     if (!names.contains(symbol)) appFile.invalid('missing $symbol');
@@ -216,6 +217,27 @@ final class ArmMachO {
   final MachOFile file;
 
   Never invalid(String message) => throw StateError('$path: $message');
+
+  /// dyld rejects application dylibs with no dependencies, even when they
+  /// have no undefined symbols. LC_ID_DYLIB only names this image and does
+  /// not count as a dependency.
+  void requireDylibDependency() {
+    const dependencyCommands = {
+      0xc, // LC_LOAD_DYLIB
+      0x80000018, // LC_LOAD_WEAK_DYLIB
+      0x8000001f, // LC_REEXPORT_DYLIB
+      0x20, // LC_LAZY_LOAD_DYLIB
+      0x80000023, // LC_LOAD_UPWARD_DYLIB
+    };
+    if (!file.commands.any(
+      (command) => dependencyCommands.contains(command.type),
+    )) {
+      invalid(
+        'missing dylib dependency: dyld requires a linked library '
+        '(normally libSystem); when linking AOT assembly, use -lSystem',
+      );
+    }
+  }
 
   MachOLoadCommand command(int type, String name) {
     for (final command in file.commands) {
