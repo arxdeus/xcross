@@ -14,6 +14,10 @@ abstract class ArchitectureRuleTest extends AnalysisRuleTest {
   @override
   String get testPackageRootPath => '$workspaceRootPath/subject';
 
+  /// Offsets from [at] index the raw fixture, so keep `\n` on Windows.
+  @override
+  String normalizeSource(String code) => code;
+
   /// Package-relative path used when a test does not pass one.
   String get defaultPath => 'lib/src/shared/subject.dart';
 
