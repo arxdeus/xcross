@@ -48,6 +48,9 @@ final class PosixAppleToolShimRenderer<T extends PlatformHostInterface>
     await _writeUnixShim(directory, 'clang', compilerScript);
     await _writeUnixShim(directory, 'cc', compilerScript);
     await _writeUnixShim(directory, 'ar', renderUnixToolShim(config.archiver));
+    // native_toolchain_c resolves the Apple linker as `ld` beside clang; keep
+    // it on the selected Mach-O linker instead of a host GNU or wrapped ld.
+    await _writeUnixShim(directory, 'ld', renderUnixToolShim(config.linker));
     final placeholderSdks = host.paths.context.join(
       directory,
       'placeholder-sdks',

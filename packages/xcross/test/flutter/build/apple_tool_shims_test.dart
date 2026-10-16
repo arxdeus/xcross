@@ -534,6 +534,11 @@ void main() {
         File(p.join(tmp.path, 'ar')).readAsStringSync(),
         contains('/toolchain/llvm-ar'),
       );
+      expect(
+        File(p.join(tmp.path, 'ld')).readAsStringSync(),
+        contains('/toolchain/ld64.lld'),
+        reason: 'native_toolchain_c resolves the Apple linker beside clang',
+      );
 
       final hostCc = await Process.run(
         'cc',

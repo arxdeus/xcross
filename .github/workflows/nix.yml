@@ -1,0 +1,136 @@
+name: Nix
+
+on:
+  pull_request:
+    paths:
+      - flake.nix
+      - flake.lock
+      - setup/nix/**
+      - .github/workflows/nix.yml
+      - packages/xcross/lib/src/shared/config/**
+      - packages/xcross/lib/src/composition/cli/runner.dart
+      - packages/xcross/lib/src/host/shared/flutter/**
+  push:
+    branches: [main]
+    paths:
+      - flake.nix
+      - flake.lock
+      - setup/nix/**
+      - .github/workflows/nix.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nix-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Check (${{ matrix.system }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            system: x86_64-linux
+          - runner: ubuntu-24.04-arm
+            system: aarch64-linux
+    runs-on: ${{ matrix.runner }}
+
+    steps:
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          df -h /
+
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      # Before the consumer flake locks this checkout as a path input.
+      - name: Checkout examples
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        run: git -c protocol.version=2 submodule update --init --depth 1 examples
+
+      - name: Install Nix
+        uses: DeterminateSystems/determinate-nix-action@2a0be2498974c2b6327e19780488744384637d88 # v3.21.7
+
+      # Runs inside the Nix build sandbox, which has no /lib loader, /usr/lib
+      # or FHS paths: the same conditions as NixOS.
+      - name: Check flake
+        run: nix flake check --print-build-logs --keep-going
+
+      - name: Check consumer flake
+        env:
+          SYSTEM: ${{ matrix.system }}
+        run: |
+          consumer="$RUNNER_TEMP/consumer"
+          mkdir -p "$consumer"
+          cd "$consumer"
+          cat > flake.nix <<EOF
+          {
+            inputs = {
+              xcross.url = "path:$GITHUB_WORKSPACE";
+              nixpkgs.follows = "xcross/nixpkgs";
+            };
+            outputs = { nixpkgs, xcross, ... }:
+              let pkgs = nixpkgs.legacyPackages.$SYSTEM; in {
+                devShells.$SYSTEM.default = xcross.lib.mkXcrossShell {
+                  inherit pkgs;
+                  flutter = pkgs.flutter;
+                  jdk = pkgs.jdk21;
+                  settings.roots.konanData = "\$HOME/.konan";
+                  packages = [ pkgs.jq ];
+                };
+              };
+          }
+          EOF
+          nix flake lock
+          nix develop --command bash -euo pipefail <<'SH'
+            test -f "$XCROSS_CONFIG"
+            jq -e '.roots.konanData == "$HOME/.konan"' "$XCROSS_CONFIG"
+            jq -e '.tools.xcrun | endswith("/bin/xcrun")' "$XCROSS_CONFIG"
+            jq -e '.excluded_commands | index("setup")' "$XCROSS_CONFIG"
+            test -x "$(jq -r .environment.SWIFT_EXEC "$XCROSS_CONFIG")"
+            test -x "$FLUTTER_ROOT/bin/flutter"
+            test -d "$JAVA_HOME"
+            xcross --version
+            xcrun --version
+            for command in config setup update; do
+              status=0
+              xcross "$command" --help >/dev/null 2>&1 || status=$?
+              test "$status" -eq 64
+            done
+            swift --version
+            python3 -c 'import pymobiledevice3'
+            package="$(mktemp -d)"
+            swift package init --package-path "$package" --type executable --name probe
+            # xcross drives SwiftPM with the native build system (see
+            # build_plan.dart), so probe the same engine.
+            swift build --build-system native --package-path "$package"
+            "$package/.build/debug/probe" | grep -q 'Hello'
+          SH
+
+      # The Apple SDK is private and only restored for branches in this
+      # repository, so fork pull requests stop at the checks above.
+      - name: Export Nix shell PATH
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        working-directory: ${{ runner.temp }}/consumer
+        run: nix develop --command bash -c 'printf "PATH=%s\n" "$PATH"' >> "$GITHUB_ENV"
+
+      - name: Restore Darwin SDK
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        uses: ./.github/actions/setup-darwin-sdk
+
+      - name: Build Flutter example
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        working-directory: ${{ runner.temp }}/consumer
+        run: |
+          nix develop --command bash -euo pipefail <<'SH'
+            cd "$GITHUB_WORKSPACE/examples/flutter_example"
+            xcross --verbose flutter build
+            test "$(find build/xcross-ios -maxdepth 1 -type d -name '*.app' | wc -l)" -eq 1
+          SH
