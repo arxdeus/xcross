@@ -103,8 +103,13 @@ final class ComposePackOperation<T extends PlatformHostInterface> {
     bool requireRunnableApp = false,
   }) async {
     target.validateOutput(ipa: options.ipa);
+    if (options.frameworkOnly && options.ipa) {
+      throw XcrossError(
+        '--framework builds only the framework; drop --ipa to build one.',
+      );
+    }
     final detectProject = _detectProject;
-    final project = detectProject == null
+    final detected = detectProject == null
         ? KmpProjectDetector(
             files: target.host.fileSystem,
             log: log,
@@ -119,6 +124,9 @@ final class ComposePackOperation<T extends PlatformHostInterface> {
             appName: options.appName,
             gradleTarget: target.gradleTarget,
           );
+    final project = options.frameworkOnly
+        ? detected.asFrameworkOnly()
+        : detected;
     if (project.entryKind == KmpEntryKind.frameworkOnly &&
         (requireRunnableApp || options.ipa)) {
       throw XcrossError('This KMP project produces a framework only.');

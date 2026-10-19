@@ -428,6 +428,100 @@ kotlin {
       );
       expect(events, ['detect']);
     });
+
+    test(
+      'builds only the framework when asked, whatever the entry point',
+      () async {
+        final events = <String>[];
+        late KmpEntryKind packed;
+        final operation = ComposePackOperation.withSeams(
+          session.fixtureIPhoneTarget,
+          log: session.fixtureLog,
+          runner: ProcessRunner(
+            log: session.fixtureLog,
+            session.fixtureIPhoneTarget.host,
+            stdinStream: const Stream<List<int>>.empty(),
+            stdoutSink: session.stdoutSink,
+            stderrSink: session.stderrSink,
+          ),
+          tools: session.fixtureTools,
+          sdkRepository: session.fixtureSdkRepositoryFor(
+            session.fixtureIPhoneTarget.host,
+          ),
+          downloader: session.fixtureDownloader,
+          currentDirectory: () => root.path,
+          detectProject:
+              (path, {bundleId, appName, gradleTarget = 'iosArm64'}) {
+                events.add('detect');
+                return _project(root.path, KmpEntryKind.swiftApp);
+              },
+          packProject: ({required project, required options}) async {
+            events.add('pack');
+            packed = project.entryKind;
+            return PackResult(
+              outputPath: 'Shared.framework',
+              bundleId: project.bundleId,
+              kind: PackOutputKind.framework,
+            );
+          },
+        );
+
+        final result = await operation.pack(
+          options: const ComposeBuildOptions(frameworkOnly: true),
+        );
+
+        expect(events, ['detect', 'pack']);
+        expect(packed, KmpEntryKind.frameworkOnly);
+        expect(result.kind, PackOutputKind.framework);
+      },
+    );
+
+    test('rejects a framework-only ipa before detecting the project', () async {
+      final events = <String>[];
+      final operation = ComposePackOperation.withSeams(
+        session.fixtureIPhoneTarget,
+        log: session.fixtureLog,
+        runner: ProcessRunner(
+          log: session.fixtureLog,
+          session.fixtureIPhoneTarget.host,
+          stdinStream: const Stream<List<int>>.empty(),
+          stdoutSink: session.stdoutSink,
+          stderrSink: session.stderrSink,
+        ),
+        tools: session.fixtureTools,
+        sdkRepository: session.fixtureSdkRepositoryFor(
+          session.fixtureIPhoneTarget.host,
+        ),
+        downloader: session.fixtureDownloader,
+        currentDirectory: () => root.path,
+        detectProject: (path, {bundleId, appName, gradleTarget = 'iosArm64'}) {
+          events.add('detect');
+          return _project(root.path, KmpEntryKind.swiftApp);
+        },
+        packProject: ({required project, required options}) async {
+          events.add('pack');
+          return PackResult(
+            outputPath: 'Shared.framework',
+            bundleId: project.bundleId,
+            kind: PackOutputKind.framework,
+          );
+        },
+      );
+
+      await expectLater(
+        operation.pack(
+          options: const ComposeBuildOptions(frameworkOnly: true, ipa: true),
+        ),
+        throwsA(
+          isA<XcrossError>().having(
+            (error) => error.message,
+            'message',
+            contains('drop --ipa'),
+          ),
+        ),
+      );
+      expect(events, isEmpty);
+    });
   });
 
   group('ComposePacker', () {

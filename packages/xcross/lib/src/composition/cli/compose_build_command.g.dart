@@ -26,6 +26,7 @@ ComposeBuildArgs _$parseComposeBuildArgsResult(ArgResults result) =>
       ..bundleId = result['bundle-id'] as String?
       ..appName = result['app-name'] as String?
       ..ipa = result['ipa'] as bool
+      ..framework = result['framework'] as bool
       ..targetPlatform = result['target-platform'] as String
       ..verbose = result['verbose'] as bool;
 
@@ -47,6 +48,12 @@ ArgParser _$populateComposeBuildArgsParser(ArgParser parser) => parser
     'ipa',
     help:
         'Output a .ipa file instead of a .app when the project produces an app.',
+    negatable: false,
+  )
+  ..addFlag(
+    'framework',
+    help:
+        'Build only the Kotlin/Native framework, even when the project has a Swift app or a Kotlin entry point.',
     negatable: false,
   )
   ..addOption(

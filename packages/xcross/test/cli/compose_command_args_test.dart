@@ -60,7 +60,36 @@ void main() {
       final results = command.argParser.parse([]);
       expect(results.option('configuration'), 'debug');
       expect(results.flag('ipa'), isFalse);
+      expect(results.flag('framework'), isFalse);
       expect(results.option('target-platform'), 'iphone');
+    });
+
+    test('passes --framework through as a framework-only build', () async {
+      final seen = <ComposeBuildOptions>[];
+      final command = ComposeBuildCommand.withSeams(
+        log: testLog(),
+        packOperation:
+            ({
+              required options,
+              required requireRunnableApp,
+              required targetPlatform,
+            }) async {
+              seen.add(options);
+              return const PackResult(
+                outputPath: 'build/xcross-ios/Shared.framework',
+                bundleId: 'dev.example.demo',
+                kind: PackOutputKind.framework,
+              );
+            },
+        packageIpa: (_) async => throw StateError('unexpected IPA'),
+        logDone: (_) {},
+      );
+      final runner = CommandRunner<void>('xcross', 'test')..addCommand(command);
+
+      await runner.run(['build', '--framework']);
+
+      expect(seen.single.frameworkOnly, isTrue);
+      expect(seen.single.ipa, isFalse);
     });
 
     test('accepts configuration, bundle id, app name, and ipa', () {

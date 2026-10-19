@@ -98,6 +98,14 @@ final class ComposeSetupOptions<T extends PlatformHostInterface> {
         'da0684965d6f33c55b5e6e85b6de8a5327dbd3ccfedcb1ab6c1131900e8b3e83',
     'kotlin-native-prebuilt-2.4.0-macos-aarch64.tar.gz':
         '9ef8c0f9fd90f4082d6e62f14655d23d81651d89d49205e5c49177ff34f552b8',
+    'kotlin-native-prebuilt-2.4.20-linux-x86_64.tar.gz':
+        '32d33c15c4da668a8d47a0ce2aea95be2c2cf8f5d1d65f6f4ed3697e4686dc7f',
+    'kotlin-native-prebuilt-2.4.20-windows-x86_64.zip':
+        '00e1b0ae0ce135f20db90007208cec3dc7b8c33cd6f489bae84d790349f04d93',
+    'kotlin-native-prebuilt-2.4.20-macos-x86_64.tar.gz':
+        'eecb7ecd392c092fca216602d468a49d4a820aaab480109d2c9ee104a9d97de3',
+    'kotlin-native-prebuilt-2.4.20-macos-aarch64.tar.gz':
+        'b70d4fd2855fdb054fc9604beaa7de83c18d786454ae948de72a226e81f07dc8',
   };
 
   static String? _nonEmpty(String? value) =>

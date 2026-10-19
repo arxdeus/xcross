@@ -44,4 +44,18 @@ final class KmpProject {
   final IosAppConfig? iosConfig;
 
   String get moduleLeaf => moduleName.split(':').last;
+
+  /// This project with only its framework built: no runner is compiled and
+  /// no app is assembled, whatever entry point the sources declare.
+  KmpProject asFrameworkOnly() => KmpProject(
+    root: root,
+    modulePath: modulePath,
+    moduleName: moduleName,
+    baseName: baseName,
+    entryKind: KmpEntryKind.frameworkOnly,
+    bundleId: bundleId,
+    appName: appName,
+    isStaticFramework: isStaticFramework,
+    iosConfig: iosConfig,
+  );
 }

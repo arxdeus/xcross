@@ -49,6 +49,13 @@ final class ComposeBuildArgs {
   late bool ipa;
 
   @CliOption(
+    negatable: false,
+    help:
+        'Build only the Kotlin/Native framework, even when the project has a Swift app or a Kotlin entry point.',
+  )
+  late bool framework;
+
+  @CliOption(
     defaultsTo: 'iphone',
     help: 'Target platform: iphone or simulator.',
   )
@@ -121,6 +128,7 @@ final class ComposeBuildCommand<T extends PlatformHostInterface>
       bundleId: options.bundleId,
       appName: options.appName,
       ipa: options.ipa,
+      frameworkOnly: options.framework,
     );
     final result = await _packOperation(
       options: buildOptions,
