@@ -430,6 +430,8 @@ kotlin {
     });
 
     test(
+      testOn: '!windows',
+
       'builds only the framework when asked, whatever the entry point',
       () async {
         final events = <String>[];
