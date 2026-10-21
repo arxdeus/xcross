@@ -430,10 +430,12 @@ kotlin {
     });
 
     test(
-      testOn: '!windows',
-
       'builds only the framework when asked, whatever the entry point',
       () async {
+        // A POSIX root like the fixture host's own paths: the Linux fixture host
+        // cannot address the real temporary directory on a Windows runner, and
+        // this case needs no files, only the stale-output check finding none.
+        const projectRoot = '/virtual-compose';
         final events = <String>[];
         late KmpEntryKind packed;
         final operation = ComposePackOperation.withSeams(
@@ -451,11 +453,11 @@ kotlin {
             session.fixtureIPhoneTarget.host,
           ),
           downloader: session.fixtureDownloader,
-          currentDirectory: () => root.path,
+          currentDirectory: () => projectRoot,
           detectProject:
               (path, {bundleId, appName, gradleTarget = 'iosArm64'}) {
                 events.add('detect');
-                return _project(root.path, KmpEntryKind.swiftApp);
+                return _project(projectRoot, KmpEntryKind.swiftApp);
               },
           packProject: ({required project, required options}) async {
             events.add('pack');
