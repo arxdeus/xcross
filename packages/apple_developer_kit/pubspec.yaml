@@ -17,7 +17,7 @@ environment:
 resolution: workspace
 
 dependencies:
-  archive: ^4.3.0
+  archive: ^4.5.2
   basic_utils: ^5.8.2
   cli_kit: ^1.0.0
   code_assets: ^2.1.0

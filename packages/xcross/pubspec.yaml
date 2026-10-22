@@ -22,7 +22,7 @@ executables:
 
 dependencies:
   apple_developer_kit: ^1.0.0
-  archive: ^4.3.0
+  archive: ^4.5.2
   args: ^2.7.0
   async: ^2.13.1
   basic_utils: ^5.8.2
