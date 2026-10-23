@@ -183,13 +183,7 @@ final class LinuxSetupRequirements implements SetupRequirements {
   }
 
   Future<void> ensureFixedLd64Lld(LinuxPackageManager manager) async {
-    final onPath = await runner.which(
-      'ld64.lld',
-      accept: toolchain.usableLd64Lld,
-    );
-    final defect = onPath == null
-        ? null
-        : await toolchain.selectorStubDefect(onPath);
+    final (onPath, defect) = await _iosLd64Lld();
     if (onPath != null && defect == null) return;
 
     final versioned = await _ensureFixedVersionedLd64Lld(manager);
@@ -221,6 +215,29 @@ final class LinuxSetupRequirements implements SetupRequirements {
       stable,
     ], label: 'link ld64.lld');
     runner.log.logInfo('ld64.lld', '$stable -> ${versioned[newest]}');
+  }
+
+  /// The ld64.lld a build would link iOS with, and its selector-stub defect.
+  ///
+  /// Mirrors [DarwinToolchainResolver.resolveLd64Lld]: linkers that cannot
+  /// link for iOS do not count. A swift.org toolchain's own `ld64.lld` is
+  /// recent enough to pass the selector-stub check yet refuses iOS, so taking
+  /// the first one on PATH at face value skipped the lld upgrade and left the
+  /// build on a defective distribution lld.
+  Future<(String?, String?)> _iosLd64Lld() async {
+    final candidates = await runner.whichAll(
+      'ld64.lld',
+      accept: toolchain.usableLd64Lld,
+      extraDirectories: toolchain.llvmToolDirs(),
+    );
+    (String, String)? defective;
+    for (final candidate in candidates) {
+      if (await toolchain.probeIosSupport(candidate) != null) continue;
+      final defect = await toolchain.selectorStubDefect(candidate);
+      if (defect == null) return (candidate, null);
+      defective ??= (candidate, defect);
+    }
+    return defective ?? (null, null);
   }
 
   Future<Map<int, String>> _ensureFixedVersionedLd64Lld(

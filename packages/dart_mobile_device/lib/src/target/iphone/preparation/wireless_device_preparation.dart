@@ -249,7 +249,6 @@ final class WirelessDevicePreparation {
   static List<String> lockdownWifiArgs(String udid) => [
     'lockdown',
     'wifi-connections',
-    '--state',
     'on',
     '--udid',
     udid,

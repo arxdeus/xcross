@@ -86,7 +86,6 @@ void main() {
       expect(WirelessDevicePreparation.lockdownWifiArgs(udid), [
         'lockdown',
         'wifi-connections',
-        '--state',
         'on',
         '--udid',
         udid,

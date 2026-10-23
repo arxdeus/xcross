@@ -122,6 +122,10 @@ Both installers download the latest release, install it, **add xcross to your `P
 
    Prefer a script you can read first? [`setup/apt.sh`](setup/apt.sh), [`setup/dnf.sh`](setup/dnf.sh), and [`setup/pacman.sh`](setup/pacman.sh) install the same packages, plus Swift through swiftly if it is missing. Run one directly (`sh setup/apt.sh`) or point `setup:` in your config at it (see [Configuration](#configuration)). Before any third-party installer (apt.llvm.org's `llvm.sh`, swiftly) runs, they print its name and URL and wait for `y`.
 
+### NixOS / Nix
+
+The repository is a flake that provides xcross, Swift, LLVM, and `pymobiledevice3`, plus `lib.mkXcrossShell` for project shells with a default configuration. Skip the installer and `xcross setup`. See [docs/NixOS.md](docs/NixOS.md).
+
 ### Verifying a release
 
 Every release archive is built by [`release.yml`](.github/workflows/release.yml) and signed with a [SLSA build provenance attestation](https://docs.github.com/actions/security-for-github-actions/using-artifact-attestations) that binds the archive's digest to the commit it was built from. The release job refuses to publish an artifact whose provenance does not match, so a bundle produced outside this repository can never reach the release page.

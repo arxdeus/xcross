@@ -133,5 +133,43 @@ String renderUnixToolShim(
     '#!/bin/sh\nexec ${[tool, ...leadingArguments].map(shellQuote).join(' ')} '
     '"\$@"\n';
 
+/// `ld` shim. native_toolchain_c resolves the Apple linker as `ld` beside
+/// clang, so it must reach the Mach-O [linker]. The shim directory is on
+/// PATH though, and host GCC (collect2, e.g. for Rust build scripts) also
+/// looks `ld` up on PATH, so GNU-style invocations go to the next `ld` on
+/// PATH outside the shim directory instead.
+@internal
+String renderUnixLinkerShim(String linker) =>
+    '''
+#!/bin/sh
+is_gnu=false
+for arg in "\$@"; do
+  case "\$arg" in
+    -m|-melf*|-m*linux*|-plugin|-plugin-opt=*|-dynamic-linker|--dynamic-linker=*|--eh-frame-hdr|--build-id|--build-id=*|--hash-style=*|-soname|-soname=*|--sysroot=*)
+      is_gnu=true; break;;
+  esac
+done
+if \$is_gnu; then
+  case "\$0" in
+    */*) shim_dir=\${0%/*};;
+    *) shim_dir=.;;
+  esac
+  shim_dir=\$(cd "\$shim_dir" 2>/dev/null && pwd -P)
+  old_ifs=\$IFS
+  IFS=:
+  for dir in \$PATH; do
+    [ -n "\$dir" ] || dir=.
+    resolved=\$(cd "\$dir" 2>/dev/null && pwd -P) || continue
+    [ "\$resolved" = "\$shim_dir" ] && continue
+    if [ -f "\$dir/ld" ] && [ -x "\$dir/ld" ]; then
+      IFS=\$old_ifs
+      exec "\$dir/ld" "\$@"
+    fi
+  done
+  IFS=\$old_ifs
+fi
+exec ${shellQuote(linker)} "\$@"
+''';
+
 @internal
 const unixCodesignShim = '#!/bin/sh\nexit 0\n';
