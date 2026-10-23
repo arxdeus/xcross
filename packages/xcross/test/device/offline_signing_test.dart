@@ -326,8 +326,6 @@ void main() {
           abi: Abi.macosArm64,
         ),
         httpClients: const ThrowingHttpClients(),
-        createNativeLibraryLoader: () =>
-            throw StateError('unexpected native loading'),
       );
     }
 

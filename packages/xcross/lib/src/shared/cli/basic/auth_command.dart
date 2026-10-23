@@ -1,16 +1,13 @@
 @internal
 library;
 
-import 'dart:ffi';
 import 'dart:io';
 
-import 'package:apple_developer_kit/host/shared/adi/loader/loader.dart';
 import 'package:apple_developer_kit/host/shared/apple_host_services.dart';
-import 'package:apple_developer_kit/shared/adi/apk_fetch.dart';
 import 'package:apple_developer_kit/shared/appstoreconnect/asc_config.dart';
 import 'package:apple_developer_kit/shared/appstoreconnect/developer_services_team_discovery_client.dart';
-import 'package:apple_developer_kit/shared/grandslam/anisette/anisette_data_provider.dart';
 import 'package:apple_developer_kit/shared/grandslam/anisette/anisette_provider.dart';
+import 'package:apple_developer_kit/shared/grandslam/anisette/omnisette_provider.dart';
 import 'package:apple_developer_kit/shared/grandslam/app_token_exchange.dart';
 import 'package:apple_developer_kit/shared/grandslam/grandslam_login.dart';
 import 'package:apple_developer_kit/shared/grandslam/grandslam_session_store.dart';
@@ -56,18 +53,6 @@ final class AuthArgs {
 
   @CliOption(help: 'Apple ID password (optional; prompted if omitted).')
   late String? password;
-
-  @CliOption(
-    valueHelp: 'path',
-    help:
-        'Directory containing libCoreADI.so and '
-        'libstoreservicescore.so for Apple ID login. Defaults to '
-        'the xcross config adi-libs directory. Matching x64 or ARM64 '
-        'libraries are fetched from the Apple Music APK when missing.',
-  )
-  late String? adiLibraryDir;
-
-  late bool adiLibraryDirWasParsed;
 }
 
 const _authOptionNames = [
@@ -76,7 +61,6 @@ const _authOptionNames = [
   'private-key',
   'apple-id',
   'password',
-  'adi-library-dir',
 ];
 
 /// `xcross auth` — save credentials for the native (no-Swift) signing
@@ -87,9 +71,7 @@ final class AuthCommand extends ParsedCommand<AuthArgs, void> {
   AuthCommand({
     required this.log,
     required this.commandPrompt,
-    required this.createAdiHttpClient,
     required this.hostServices,
-    required this.createNativeLibraryLoader,
     required this.createHttpClient,
   });
   @override
@@ -101,9 +83,7 @@ final class AuthCommand extends ParsedCommand<AuthArgs, void> {
   final http.Client Function() createHttpClient;
   final Log log;
   final CommandPrompt commandPrompt;
-  final http.Client Function() createAdiHttpClient;
   final AppleHostServices hostServices;
-  final NativeLibraryLoader Function() createNativeLibraryLoader;
   @override
   String get name => 'auth';
 
@@ -232,10 +212,6 @@ final class AuthCommand extends ParsedCommand<AuthArgs, void> {
         '--private-key, or none to use Apple ID login.',
       );
     }
-    if (options.adiLibraryDirWasParsed) {
-      throw XcrossError('--adi-library-dir only applies to Apple ID login.');
-    }
-
     final logicalKeyPath = hostServices.host.paths.context.absolute(
       privateKeyPath!,
     );
@@ -267,17 +243,22 @@ final class AuthCommand extends ParsedCommand<AuthArgs, void> {
     if (options.appleIdWasParsed && !_present(appleId)) {
       throw XcrossError('--apple-id requires a non-empty email address.');
     }
-    requireAppleIdHost(hostServices.abi);
+
+    commandPrompt.write(
+      'Heads up:\n'
+      '  This works by emulating a virtual Mac to interact with Apple\n'
+      '  services. We use a third-party service to create a randomized\n'
+      '  device ID token (Anisette Data) but your credentials are only\n'
+      '  ever sent to Apple. Still, consider using a secondary Apple ID\n'
+      '  since this is a private API.\n',
+    );
 
     // Credentials before any await: keeps interactive stdin simple on Windows.
     final (:username, :password) = _readAppleIdCredentials(appleId);
 
-    final adiLibraryDirectory = await _resolveAdiLibraryDirectory();
-    final anisette = AnisetteDataProvider(
-      adiLibraryDirectory,
+    final anisette = OmnisetteAnisetteProvider(
       httpClient: createHttpClient(),
       hostServices: hostServices,
-      loader: createNativeLibraryLoader(),
     );
     GrandSlamClient? loginClient;
     GrandSlamAppTokenExchange? tokenExchange;
@@ -309,12 +290,7 @@ final class AuthCommand extends ParsedCommand<AuthArgs, void> {
         () => tokenExchange!.exchange(loginData),
       );
       final team = await _selectActiveTeam(token, anisette);
-      await _saveAppleIdSession(
-        username: username,
-        token: token,
-        team: team,
-        adiLibraryDirectory: adiLibraryDirectory,
-      );
+      await _saveAppleIdSession(username: username, token: token, team: team);
     } on XcrossError {
       rethrow;
     } on Object catch (e, st) {
@@ -332,16 +308,10 @@ final class AuthCommand extends ParsedCommand<AuthArgs, void> {
     required String username,
     required DeveloperServicesLoginToken token,
     required DeveloperServicesTeam team,
-    required String adiLibraryDirectory,
   }) async {
     final store = GrandSlamSessionStore(hostServices: hostServices);
     await store.save(
-      GrandSlamSession(
-        username: username,
-        token: token,
-        teamId: team.id,
-        adiLibraryDirectory: adiLibraryDirectory,
-      ),
+      GrandSlamSession(username: username, token: token, teamId: team.id),
     );
     log.logDone('Signed in as $username. Session saved to ${store.path}');
   }
@@ -423,80 +393,6 @@ final class AuthCommand extends ParsedCommand<AuthArgs, void> {
         'Enter the verification code sent to your trusted device: ',
       GrandSlamTwoFactorMode.unspecified => 'Enter the verification code: ',
     });
-  }
-
-  // ------------------------------------------------------------- ADI libs
-
-  @visibleForTesting
-  static void requireAppleIdHost(Abi abi) {
-    if (!AdiLibraryFetcher.supportsAbi(abi)) {
-      throw XcrossError(
-        'Built-in Apple ID/password login supports Linux and macOS x64/ARM64 '
-        'and Windows x64/ARM64 (got $abi). '
-        'On this platform use App Store Connect API key flags.',
-      );
-    }
-  }
-
-  Future<String> _resolveAdiLibraryDirectory() {
-    final host = hostServices.host;
-    final environment = host.environment.values;
-    final home = environment['HOME'] ?? environment['USERPROFILE'];
-    if (home == null) {
-      throw StateError('Cannot determine a home directory (HOME is not set).');
-    }
-    return resolveAdiLibraryDirectory(
-      configuredDirectory: options.adiLibraryDir,
-      cacheDirectory: host.paths.context.join(home, '.cache', 'provision_dart'),
-    );
-  }
-
-  @visibleForTesting
-  Future<String> resolveAdiLibraryDirectory({
-    required String cacheDirectory,
-    String? configuredDirectory,
-  }) async {
-    final hostAbi = hostServices.abi;
-    requireAppleIdHost(hostAbi);
-    final logicalDirectory = hostServices.host.paths.context.absolute(
-      configuredDirectory ?? cacheDirectory,
-    );
-    try {
-      final existing = AdiLibraryResolver(
-        hostServices: hostServices,
-      ).resolve(logicalDirectory, abi: hostAbi);
-      if (existing != null) return logicalDirectory;
-    } on FormatException catch (error) {
-      if (configuredDirectory != null) {
-        throw XcrossError(
-          'Invalid ADI libraries at "$logicalDirectory": ${error.message}',
-        );
-      }
-    }
-    if (configuredDirectory != null) {
-      _throwMissingAdiLibs(logicalDirectory);
-    }
-
-    final fetcher = AdiLibraryFetcher(
-      cacheDir: logicalDirectory,
-      hostServices: hostServices,
-      abi: hostAbi,
-      createClient: createAdiHttpClient,
-    );
-    await log.logStep('Fetching Apple ADI libraries', fetcher.ensureLibraries);
-    final resolved = AdiLibraryResolver(
-      hostServices: hostServices,
-    ).resolve(logicalDirectory, abi: hostAbi);
-    if (resolved == null) _throwMissingAdiLibs(fetcher.libraryDirectory.path);
-    return logicalDirectory;
-  }
-
-  static Never _throwMissingAdiLibs(String dir) {
-    throw XcrossError(
-      'Apple ID login needs ADI libraries at "$dir" '
-      '(libCoreADI.so and/or libstoreservicescore.so missing). Place both '
-      'there, or pass --adi-library-dir.',
-    );
   }
 
   String _readRequiredLine(String label) {

@@ -1,14 +1,10 @@
 import 'dart:async';
-import 'dart:ffi';
 
-import 'package:apple_developer_kit/host/shared/adi/loader/loader.dart';
 import 'package:apple_developer_kit/host/shared/apple_host_services.dart';
-import 'package:apple_developer_kit/shared/adi/apk_fetch.dart';
 import 'package:apple_developer_kit/shared/appstoreconnect/asc_client.dart';
 import 'package:apple_developer_kit/shared/appstoreconnect/asc_config.dart';
 import 'package:apple_developer_kit/shared/appstoreconnect/developer_services_client.dart';
-import 'package:apple_developer_kit/shared/grandslam/anisette/anisette_data_provider.dart';
-import 'package:apple_developer_kit/shared/grandslam/anisette/anisette_provider.dart';
+import 'package:apple_developer_kit/shared/grandslam/anisette/omnisette_provider.dart';
 import 'package:apple_developer_kit/shared/grandslam/grandslam_session_store.dart';
 import 'package:apple_developer_kit/shared/secure/local_cipher.dart';
 import 'package:meta/meta.dart';
@@ -33,11 +29,9 @@ final class SigningSessionResolver implements SigningSessionProvider {
   const SigningSessionResolver({
     required this.hostServices,
     required this.httpClients,
-    required this.createNativeLibraryLoader,
   });
   final AppleHostServices hostServices;
   final SigningHttpClientFactory httpClients;
-  final NativeLibraryLoader Function() createNativeLibraryLoader;
 
   /// Set to any value to skip Apple entirely and sign with the certificate
   /// and profiles an earlier online run cached.
@@ -192,15 +186,9 @@ final class SigningSessionResolver implements SigningSessionProvider {
     GrandSlamSession session,
     String configDirectory,
   ) async {
-    final anisette = anisetteForSession(
-      session,
-      hostAbi: hostServices.abi,
-      createProvider: (directory) => AnisetteDataProvider(
-        directory,
-        hostServices: hostServices,
-        loader: createNativeLibraryLoader(),
-        httpClient: httpClients.create(),
-      ),
+    final anisette = OmnisetteAnisetteProvider(
+      hostServices: hostServices,
+      httpClient: httpClients.create(),
     );
     final client = DeveloperServicesClient.fromSession(
       session,
@@ -222,28 +210,5 @@ final class SigningSessionResolver implements SigningSessionProvider {
       identityId: identity.identityId,
       identityDir: identity.identityDir,
     );
-  }
-
-  @visibleForTesting
-  static AnisetteProvider anisetteForSession(
-    GrandSlamSession session, {
-    required Abi hostAbi,
-    required AnisetteProvider Function(String directory) createProvider,
-  }) {
-    final abi = hostAbi;
-    if (!AdiLibraryFetcher.supportsAbi(abi)) {
-      throw XcrossError(
-        'Saved native Apple ID sessions support Linux and macOS x64/ARM64 '
-        'and Windows x64/ARM64 (got $abi).',
-      );
-    }
-    final adiDir = session.adiLibraryDirectory;
-    if (adiDir == null || adiDir.isEmpty) {
-      throw XcrossError(
-        'Saved Apple ID session is missing adiLibraryDirectory. '
-        'Run xcross auth --apple-id <email> again.',
-      );
-    }
-    return createProvider(adiDir);
   }
 }

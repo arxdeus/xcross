@@ -12,6 +12,7 @@ import 'package:apple_developer_kit/shared/grandslam/anisette/grandslam_endpoint
 import 'package:apple_developer_kit/shared/grandslam/grandslam_login_data.dart';
 import 'package:apple_developer_kit/shared/grandslam/grandslam_response.dart';
 import 'package:apple_developer_kit/shared/grandslam/grandslam_two_factor.dart';
+import 'package:apple_developer_kit/src/shared/grandslam/anisette/anisette_headers.dart';
 import 'package:http/http.dart' as http;
 import 'package:meta/meta.dart';
 import 'package:propertylistserialization/propertylistserialization.dart';
@@ -76,11 +77,9 @@ final class GrandSlamTwoFactor {
     );
     if (response.statusCode == 403) {
       throw const AppleError(
-        'Apple refused to send an SMS verification code (HTTP 403). Since '
-        '2026-10-12 GrandSlam blocks SMS two-factor for sign-ins using '
-        'Android anisette, which xcross relies on. Add a trusted Apple '
-        'device (iPhone, iPad or Mac) to this Apple ID so the code is '
-        'pushed there, then run `xcross auth` again.',
+        'Apple refused to send an SMS verification code (HTTP 403). Add a '
+        'trusted Apple device (iPhone, iPad or Mac) to this Apple ID so '
+        'the code is pushed there, then run `xcross auth` again.',
       );
     }
     _ensureAccepted(response);
@@ -164,6 +163,7 @@ final class GrandSlamTwoFactor {
         ...anisette,
         'Content-Type': 'application/x-plist',
         'Accept': 'application/x-buddyml',
+        'User-Agent': anisetteAkdUserAgent,
         'X-Apple-App-Info': 'com.apple.gs.xcode.auth',
         'X-Xcode-Version': _xcodeVersion,
         'X-Apple-Identity-Token': loginData.identityToken,
