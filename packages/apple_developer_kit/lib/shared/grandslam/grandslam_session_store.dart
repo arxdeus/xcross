@@ -71,8 +71,9 @@ final class GrandSlamSession {
   final DeveloperServicesLoginToken token;
   final String teamId;
 
-  /// Absolute directory holding the Android ADI libraries
-  /// (`libCoreADI.so`, `libstoreservicescore.so`) used for Anisette.
+  /// Legacy absolute directory that held the Android ADI libraries. Kept
+  /// only so sessions saved by older xcross versions still load; Anisette
+  /// now comes from an Omnisette server and no directory is needed.
   final String? adiLibraryDirectory;
 
   bool get isExpired => token.isExpired;
@@ -83,7 +84,6 @@ final class GrandSlamSession {
     'token': token.token,
     'expiryMs': token.expiry.toUtc().millisecondsSinceEpoch,
     'teamId': teamId,
-    if (adiLibraryDirectory != null) 'adiLibraryDirectory': adiLibraryDirectory,
   };
 }
 

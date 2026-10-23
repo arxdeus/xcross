@@ -94,7 +94,6 @@ void main() {
     final session = GrandSlamSession(
       username: 'User@Example.com',
       teamId: 'TEAM123',
-      adiLibraryDirectory: tempDir.absolute.path,
       token: DeveloperServicesLoginToken(
         adsid: '123456789',
         token: 'developer-token',
@@ -108,7 +107,6 @@ void main() {
     expect(loaded, isNotNull);
     expect(loaded!.username, session.username);
     expect(loaded.teamId, session.teamId);
-    expect(loaded.adiLibraryDirectory, session.adiLibraryDirectory);
     expect(loaded.token.adsid, session.token.adsid);
     expect(loaded.token.token, session.token.token);
     expect(loaded.token.expiry, session.token.expiry);
@@ -121,11 +119,31 @@ void main() {
     }
   });
 
-  test('round-trips a session without adiLibraryDirectory', () async {
+  test('loads a legacy session that still names an ADI directory', () async {
+    await File(sessionPath).writeAsString(
+      jsonEncode({
+        'username': 'legacy@example.com',
+        'adsid': '1',
+        'token': 'token',
+        'expiryMs': DateTime.now()
+            .toUtc()
+            .add(const Duration(days: 1))
+            .millisecondsSinceEpoch,
+        'teamId': 'TEAM123',
+        'adiLibraryDirectory': tempDir.absolute.path,
+      }),
+    );
+
+    final loaded = await store().load();
+    expect(loaded?.adiLibraryDirectory, tempDir.absolute.path);
+  });
+
+  test('saving drops the legacy ADI directory', () async {
     await store().save(
       GrandSlamSession(
         username: 'windows@example.com',
         teamId: 'TEAM123',
+        adiLibraryDirectory: tempDir.absolute.path,
         token: DeveloperServicesLoginToken(
           adsid: '1',
           token: 'token',

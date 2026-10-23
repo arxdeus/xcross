@@ -19,6 +19,12 @@ const String _defaultLocale = 'en_US';
 const String _defaultTimeZone = 'America/Los_Angeles';
 const String _defaultCountry = 'US';
 
+/// `User-Agent` for every GrandSlam request. Apple's GSA rejects the
+/// default empty/Dart agent on the two-factor endpoints.
+@internal
+const String anisetteAkdUserAgent =
+    'akd/1.0 CFNetwork/978.0.7 Darwin/18.7.0';
+
 /// Builders for the `X-Apple-*`/`X-Mme-*` header sets GrandSlam requires.
 /// Every header name, spelling, and casing below is a protocol constant.
 @internal
@@ -68,12 +74,13 @@ abstract final class AnisetteHeaders {
   static Map<String, String> buildAnisetteProvisioningHeaders(
     AnisetteState state, {
     required String localeName,
+    String? clientInfo,
   }) => {
     'Content-Type': 'text/x-xml-plist',
     'X-Apple-I-Client-Time': anisetteIsoClientTime(),
     'X-Apple-I-MD-LU': anisetteLocalUserIdHash(state.localUserUid),
     'X-Mme-Device-Id': state.localUserUid,
-    'X-MMe-Client-Info': anisetteClientInfo,
+    'X-MMe-Client-Info': clientInfo ?? anisetteClientInfo,
     'X-MMe-Country': _defaultCountry,
     'X-Apple-I-Locale': anisetteSystemLocale(localeName: localeName),
     'X-Apple-I-TimeZone': _defaultTimeZone,

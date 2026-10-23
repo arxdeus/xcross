@@ -15,9 +15,7 @@ AuthArgs _$parseAuthArgsResult(ArgResults result) => AuthArgs()
   ..privateKeyWasParsed = result.wasParsed('private-key')
   ..appleId = result['apple-id'] as String?
   ..appleIdWasParsed = result.wasParsed('apple-id')
-  ..password = result['password'] as String?
-  ..adiLibraryDir = result['adi-library-dir'] as String?
-  ..adiLibraryDirWasParsed = result.wasParsed('adi-library-dir');
+  ..password = result['password'] as String?;
 
 ArgParser _$populateAuthArgsParser(ArgParser parser) => parser
   ..addOption(
@@ -40,12 +38,6 @@ ArgParser _$populateAuthArgsParser(ArgParser parser) => parser
   ..addOption(
     'password',
     help: 'Apple ID password (optional; prompted if omitted).',
-  )
-  ..addOption(
-    'adi-library-dir',
-    help:
-        'Directory containing libCoreADI.so and libstoreservicescore.so for Apple ID login. Defaults to the xcross config adi-libs directory. Matching x64 or ARM64 libraries are fetched from the Apple Music APK when missing.',
-    valueHelp: 'path',
   );
 
 final _$parserForAuthArgs = _$populateAuthArgsParser(ArgParser());
