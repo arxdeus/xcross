@@ -78,7 +78,6 @@ final class NativeBackend implements DeviceBackend {
            signingSessions ??
            SigningSessionResolver(
              hostServices: hostServices,
-             createNativeLibraryLoader: createNativeLibraryLoader,
              httpClients: httpClients,
            ),
        _resolver = resolver ?? PymdDeviceResolver(pymd) {

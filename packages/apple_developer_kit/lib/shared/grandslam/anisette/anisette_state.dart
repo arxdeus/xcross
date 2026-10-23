@@ -20,6 +20,8 @@ final class AnisetteState {
     required this.localUserUid,
     this.provisioned = false,
     this.routingInfo,
+    this.adiPb,
+    this.providerId,
   });
 
   factory AnisetteState.fromJson(Map<String, Object?> json) {
@@ -28,10 +30,14 @@ final class AnisetteState {
       throw const AppleError('anisette state: missing/invalid "localUserUid"');
     }
     final routingInfo = json['routingInfo'];
+    final adiPb = json['adiPb'];
+    final providerId = json['providerId'];
     return AnisetteState(
       localUserUid: localUserUid,
       provisioned: json['provisioned'] == true,
       routingInfo: routingInfo is String ? int.parse(routingInfo) : null,
+      adiPb: adiPb is String ? adiPb : null,
+      providerId: providerId is String ? providerId : null,
     );
   }
 
@@ -46,13 +52,28 @@ final class AnisetteState {
   /// `X-Apple-I-MD-RINFO`, parsed as a u64. Meaningful once [provisioned].
   final int? routingInfo;
 
+  /// Opaque ADI provisioning blob (`adi.pb`), base64. Only set by providers
+  /// that obtain provisioning material remotely; the local-ADI provider
+  /// keeps it in ADI's own on-disk state instead.
+  final String? adiPb;
+
+  /// Identifies the anisette backend that provisioned this state. A stored
+  /// value different from the active provider's ID invalidates the state.
+  final String? providerId;
+
   @useResult
-  AnisetteState copyWith({bool? provisioned, int? routingInfo}) =>
-      AnisetteState(
-        localUserUid: localUserUid,
-        provisioned: provisioned ?? this.provisioned,
-        routingInfo: routingInfo ?? this.routingInfo,
-      );
+  AnisetteState copyWith({
+    bool? provisioned,
+    int? routingInfo,
+    String? adiPb,
+    String? providerId,
+  }) => AnisetteState(
+    localUserUid: localUserUid,
+    provisioned: provisioned ?? this.provisioned,
+    routingInfo: routingInfo ?? this.routingInfo,
+    adiPb: adiPb ?? this.adiPb,
+    providerId: providerId ?? this.providerId,
+  );
 
   Map<String, Object?> toJson() => {
     'localUserUid': localUserUid,
@@ -60,6 +81,8 @@ final class AnisetteState {
     // Decimal string: routingInfo is unsigned 64-bit and JSON numbers are
     // not guaranteed to round-trip that range exactly.
     if (routingInfo != null) 'routingInfo': routingInfo.toString(),
+    if (adiPb != null) 'adiPb': adiPb,
+    if (providerId != null) 'providerId': providerId,
   };
 
   /// A random v4 UUID from `Random.secure` - no UUID package needed for a
