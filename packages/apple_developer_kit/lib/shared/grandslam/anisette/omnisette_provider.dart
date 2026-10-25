@@ -29,8 +29,16 @@ import 'package:http/http.dart' as http;
 import 'package:propertylistserialization/propertylistserialization.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
-/// Default Omnisette server, matching xtool's `OmnisetteADIProvider`.
+/// Default public Omnisette server, matching xtool's `OmnisetteADIProvider`.
+/// Only used when nothing better is known: `xcross auth` selects the server
+/// explicitly via `--anisette-url` (or this environment variable), and the
+/// chosen URL is recorded in the saved session and anisette state.
 const String kDefaultOmnisetteUrl = 'https://mac-ani.jkcoxson.com';
+
+/// Environment variable selecting the Omnisette server for `xcross auth`
+/// (`--anisette-url` wins when both are given), and overriding the recorded
+/// URL of a saved Omnisette-based session at signing time.
+const String kAnisetteUrlEnvVar = 'XCROSS_ANISETTE_URL';
 
 /// Stored in [AnisetteState.providerId]; a different stored value resets
 /// provisioning, since provisioning material never transfers between
@@ -141,10 +149,20 @@ final class OmnisetteAnisetteProvider implements AnisetteProvider {
 
   Future<AnisetteState> _loadState() async {
     final loaded = _state ??= await _stateStore.load();
-    if (loaded.providerId == kOmnisetteProviderId) return loaded;
+    // A state provisioned against a different server is reset too: its
+    // adi.pb is meaningless to this server. A null anisetteServer can only
+    // be a state this provider saved against the default URL before the
+    // URL started being recorded.
+    final sameServer =
+        loaded.anisetteServer == _baseUrl ||
+        (loaded.anisetteServer == null && _baseUrl == kDefaultOmnisetteUrl);
+    if (loaded.providerId == kOmnisetteProviderId && sameServer) {
+      return loaded;
+    }
     final reset = AnisetteState(
       localUserUid: loaded.localUserUid,
       providerId: kOmnisetteProviderId,
+      anisetteServer: _baseUrl,
     );
     await _stateStore.save(reset);
     _state = reset;
@@ -202,6 +220,7 @@ final class OmnisetteAnisetteProvider implements AnisetteProvider {
       provisioned: true,
       routingInfo: routingInfo,
       adiPb: adiPb,
+      anisetteServer: _baseUrl,
     );
     await _stateStore.save(provisioned);
     _state = provisioned;

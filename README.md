@@ -191,10 +191,33 @@ The command prompts for your password and 2FA code, then stores **only** the res
 > [!WARNING]
 > Do not use your primary Apple ID. xcross signs in through a non-standard path for non-macOS systems, and Apple may treat that as unusual activity: an account used with xcross can end up locked, and an appeal may not reinstate it. Creating a throwaway Apple ID takes a minute and a free account is all you need, which keeps that a minor inconvenience rather than losing your purchases, iCloud data, and devices.
 
-Machine attestation uses Android ADI libraries (`libCoreADI.so`, `libstoreservicescore.so`):
+Machine attestation runs locally by default, using Android ADI libraries (`libCoreADI.so`, `libstoreservicescore.so`):
 
 - **Windows / Linux, x64 or ARM64** - the matching `x86_64` or `arm64-v8a` slice is downloaded automatically from the Apple Music APK into `%APPDATA%\xcross\adi-libs` (Windows) or `~/.config/xcross/adi-libs` (Linux) on first use.
 - **Other architectures** - extract the matching APK slice yourself and pass `--adi-library-dir`.
+
+#### Remote Omnisette server (optional)
+
+```sh
+xcross auth --apple-id you@example.com --anisette-url https://mac-ani.jkcoxson.com
+# or, equivalently:
+XCROSS_ANISETTE_URL=https://mac-ani.jkcoxson.com xcross auth --apple-id you@example.com
+```
+
+`--anisette-url` (or the `XCROSS_ANISETTE_URL` environment variable) switches
+machine attestation from the local Android ADI libraries to a remote
+[omnisette-server](https://github.com/SideStore/omnisette-server), which
+synthesizes Mac anisette data. Any v3 deployment works - a public one such as
+`https://mac-ani.jkcoxson.com`, or one you self-host, which keeps every byte
+on your own network. The URL is recorded in the saved session, so later
+signing runs keep using it; set `XCROSS_ANISETTE_URL` again to redirect them
+to a new address.
+
+> [!WARNING]
+> The operator of a remote Omnisette server sees your IP, your login and
+> signing activity, and holds the device identity your account is attested
+> against. Prefer a self-hosted server, and treat public servers like
+> `mac-ani.jkcoxson.com` as a convenience run by a stranger.
 
 ### App Store Connect API key
 

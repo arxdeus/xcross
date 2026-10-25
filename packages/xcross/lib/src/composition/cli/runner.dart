@@ -121,9 +121,11 @@ abstract final class XcrossCli {
       ),
       AuthCommand(
         commandPrompt: runtime.commandPrompt,
+        createAdiHttpClient: runtime.createHttpClient,
         createHttpClient: runtime.createAppleHttpClient,
         log: runtime.log,
         hostServices: runtime.appleHostServices,
+        createNativeLibraryLoader: runtime.createNativeLibraryLoader,
       ),
       SdkCommand(runtime.sdkInstall),
       composeCacheCommand(runtime),

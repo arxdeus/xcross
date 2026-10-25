@@ -148,6 +148,7 @@ void main() {
       routingInfo: 1717976940,
       adiPb: _b64('adi.pb-bytes'),
       providerId: kOmnisetteProviderId,
+      anisetteServer: _baseUrl,
     );
     await stateStore().save(state);
     return state;
@@ -201,6 +202,7 @@ void main() {
       const AnisetteState(
         localUserUid: _uuid,
         providerId: kOmnisetteProviderId,
+        anisetteServer: _baseUrl,
       ),
     );
     final client = MockClient((request) async {
@@ -281,6 +283,7 @@ void main() {
     expect(saved.routingInfo, 1717976940);
     expect(saved.adiPb, _b64('adi.pb-bytes'));
     expect(saved.providerId, kOmnisetteProviderId);
+    expect(saved.anisetteServer, _baseUrl);
   });
 
   test('stored state from another provider is reset and reprovisioned',
@@ -320,6 +323,48 @@ void main() {
     final saved = await stateStore().load();
     expect(saved.providerId, kOmnisetteProviderId);
     expect(saved.routingInfo, 1717976940);
+  });
+
+  test('stored state from another omnisette server is reset and reprovisioned',
+      () async {
+    await stateStore().save(
+      AnisetteState(
+        localUserUid: _uuid,
+        provisioned: true,
+        routingInfo: 1,
+        adiPb: _b64('adi.pb-from-elsewhere'),
+        providerId: kOmnisetteProviderId,
+        anisetteServer: 'https://other-omnisette.test',
+      ),
+    );
+    var sockets = 0;
+    final p = provider(
+      otpClient(),
+      connector: (uri) async {
+        sockets++;
+        return FakeOmnisetteSocket([
+          jsonEncode({'result': 'GiveIdentifier'}),
+          jsonEncode({'result': 'GiveStartProvisioningData'}),
+          jsonEncode({
+            'result': 'GiveEndProvisioningData',
+            'cpim': _b64('cpim-bytes'),
+          }),
+          jsonEncode({
+            'result': 'ProvisioningSuccess',
+            'adi_pb': _b64('adi.pb-bytes'),
+          }),
+        ]);
+      },
+    );
+
+    final headers = await p.fetchAnisetteHeaders();
+
+    expect(sockets, 1);
+    expect(headers['X-Apple-I-MD'], isNotNull);
+    final saved = await stateStore().load();
+    expect(saved.providerId, kOmnisetteProviderId);
+    expect(saved.anisetteServer, _baseUrl);
+    expect(saved.adiPb, _b64('adi.pb-bytes'));
   });
 
   test('client_info is fetched once and reused for the lookup', () async {

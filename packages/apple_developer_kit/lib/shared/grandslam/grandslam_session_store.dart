@@ -19,6 +19,8 @@ final class GrandSlamSession {
     required this.username,
     required this.token,
     required this.teamId,
+    this.anisetteProvider,
+    this.anisetteUrl,
     this.adiLibraryDirectory,
   }) {
     final directory = adiLibraryDirectory;
@@ -26,6 +28,15 @@ final class GrandSlamSession {
       throw const AppleError(
         'GrandSlam session: "adiLibraryDirectory" must be absolute',
       );
+    }
+    final url = anisetteUrl;
+    if (url != null) {
+      final parsed = Uri.tryParse(url);
+      if (parsed == null ||
+          (parsed.scheme != 'http' && parsed.scheme != 'https') ||
+          parsed.host.isEmpty) {
+        throw const AppleError('GrandSlam session: invalid "anisetteUrl"');
+      }
     }
   }
 
@@ -54,10 +65,17 @@ final class GrandSlamSession {
         'GrandSlam session: invalid "adiLibraryDirectory"',
       );
     }
+    String? optionalString(String key) {
+      final value = json[key];
+      if (value is! String || value.isEmpty) return null;
+      return value;
+    }
 
     return GrandSlamSession(
       username: username,
       teamId: teamId,
+      anisetteProvider: optionalString('anisetteProvider'),
+      anisetteUrl: optionalString('anisetteUrl'),
       adiLibraryDirectory: adiLibraryDirectory as String?,
       token: DeveloperServicesLoginToken(
         adsid: adsid,
@@ -71,9 +89,22 @@ final class GrandSlamSession {
   final DeveloperServicesLoginToken token;
   final String teamId;
 
-  /// Legacy absolute directory that held the Android ADI libraries. Kept
-  /// only so sessions saved by older xcross versions still load; Anisette
-  /// now comes from an Omnisette server and no directory is needed.
+  /// Anisette backend that provisioned the machine identity this session
+  /// was signed in with: [kAdiProviderId] (local Android ADI libraries) or
+  /// [kOmnisetteProviderId] (remote Omnisette server). Null on sessions
+  /// saved before backends were recorded: one with an
+  /// [adiLibraryDirectory] is a local-ADI session, anything else was
+  /// provisioned by an Omnisette server.
+  final String? anisetteProvider;
+
+  /// Base URL of the Omnisette server used at sign-in. Only meaningful
+  /// with [anisetteProvider] == [kOmnisetteProviderId].
+  final String? anisetteUrl;
+
+  /// Absolute directory holding the Android ADI libraries
+  /// (`libCoreADI.so`, `libstoreservicescore.so`) used for Anisette. Set
+  /// by the local-ADI sign-in path; also loaded from sessions saved by
+  /// older xcross versions.
   final String? adiLibraryDirectory;
 
   bool get isExpired => token.isExpired;
@@ -84,6 +115,9 @@ final class GrandSlamSession {
     'token': token.token,
     'expiryMs': token.expiry.toUtc().millisecondsSinceEpoch,
     'teamId': teamId,
+    if (anisetteProvider != null) 'anisetteProvider': anisetteProvider,
+    if (anisetteUrl != null) 'anisetteUrl': anisetteUrl,
+    if (adiLibraryDirectory != null) 'adiLibraryDirectory': adiLibraryDirectory,
   };
 }
 

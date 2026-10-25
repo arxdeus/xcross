@@ -230,17 +230,17 @@ void main() {
         commandPrompt: prompt,
         hostServices: runtime.appleHostServices,
         createHttpClient: () => throw StateError('No Apple HTTP call expected'),
+        createAdiHttpClient: () =>
+            throw StateError('No ADI HTTP call expected'),
+        createNativeLibraryLoader: () =>
+            throw StateError('No native load expected'),
       );
       final runner = CommandRunner<void>('xcross', 'test')..addCommand(command);
       await expectLater(
         runner.run(['auth', '--apple-id', 'fixture@example.test']),
         throwsA(same(failure)),
       );
-      expect(prompt.messages.last, 'secret:Password: :password');
-      expect(
-        prompt.messages.first,
-        startsWith('Heads up:'),
-      );
+      expect(prompt.messages, ['secret:Password: :password']);
     },
   );
 

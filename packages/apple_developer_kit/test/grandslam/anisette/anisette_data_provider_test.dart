@@ -362,6 +362,7 @@ void main() {
       expect(persisted.provisioned, isTrue);
       expect(persisted.routingInfo, 1234567890123);
       expect(persisted.localUserUid, localUserUid);
+      expect(persisted.providerId, kAdiProviderId);
 
       // --- assembled headers ---
       expect(fake.otpCallCount, 1);
@@ -434,6 +435,80 @@ void main() {
       expect(headers['X-Apple-I-MD-RINFO'], '999');
       expect(headers['X-Apple-I-MD'], base64Encode(_bytes('cached-otp')));
       expect(headers['X-Mme-Device-Id'], localUserUid);
+    },
+  );
+
+  test(
+    'state provisioned remotely by Omnisette is reset and reprovisioned',
+    () async {
+      const localUserUid = '77777777-6666-4555-8444-333333333333';
+      await AnisetteStateStore(
+        path: statePath,
+        hostServices: testHostServices,
+      ).save(
+        const AnisetteState(
+          localUserUid: localUserUid,
+          provisioned: true,
+          routingInfo: 777,
+          adiPb: 'ZnJvbS1vbW5pc2V0dGU=',
+          providerId: 'mac-omnisette',
+          anisetteServer: 'https://omnisette.example.test',
+        ),
+      );
+
+      final fake = FakeAdiProvisioning();
+      final client = MockClient((request) async {
+        switch (request.url.toString()) {
+          case _lookupUrl:
+            return http.Response(_lookupResponsePlist(), 200);
+          case _midStartUrl:
+            return http.Response(
+              _gsaResponsePlist({'spim': base64Encode(_bytes('server-spim'))}),
+              200,
+            );
+          case _midFinishUrl:
+            return http.Response(
+              _gsaResponsePlist({
+                'ptm': base64Encode(_bytes('server-ptm')),
+                'tk': base64Encode(_bytes('server-tk')),
+                'X-Apple-I-MD-RINFO': '42',
+              }),
+              200,
+            );
+          default:
+            throw StateError('unexpected request to ${request.url}');
+        }
+      });
+
+      final provider = AnisetteDataProvider(
+        '/fake/adi/lib/dir',
+        hostServices: testHostServices,
+        httpClient: client,
+        stateStore: AnisetteStateStore(
+          path: statePath,
+          hostServices: testHostServices,
+        ),
+        adiFactory:
+            ({
+              required adiLibraryDirectory,
+              required provisioningPath,
+              required identifier,
+            }) => fake,
+        loader: UnusedNativeLoader(),
+      );
+
+      final headers = await provider.fetchAnisetteHeaders();
+
+      // The remote provisioning never ran locally: full handshake again.
+      expect(fake.startProvisioningCalled, isTrue);
+      expect(fake.endProvisioningCalled, isTrue);
+      expect(headers['X-Apple-I-MD-RINFO'], '42');
+      final persisted = await AnisetteStateStore(
+        path: statePath,
+        hostServices: testHostServices,
+      ).load();
+      expect(persisted.providerId, kAdiProviderId);
+      expect(persisted.anisetteServer, isNull);
     },
   );
 

@@ -361,10 +361,12 @@ void main() {
         log: testLog(),
         hostServices: testRuntime().appleHostServices,
         createHttpClient: testRuntime().createAppleHttpClient,
+        createAdiHttpClient: testRuntime().createHttpClient,
+        createNativeLibraryLoader: testRuntime().createNativeLibraryLoader,
       ),
     );
 
-    test('exposes all five option names', () {
+    test('exposes all seven option names', () {
       final options = command.argParser.options;
       expect(
         options.keys,
@@ -374,6 +376,8 @@ void main() {
           'private-key',
           'apple-id',
           'password',
+          'adi-library-dir',
+          'anisette-url',
         ]),
       );
     });

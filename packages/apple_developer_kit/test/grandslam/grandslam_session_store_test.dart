@@ -138,7 +138,7 @@ void main() {
     expect(loaded?.adiLibraryDirectory, tempDir.absolute.path);
   });
 
-  test('saving drops the legacy ADI directory', () async {
+  test('saving keeps the recorded ADI directory for local sessions', () async {
     await store().save(
       GrandSlamSession(
         username: 'windows@example.com',
@@ -153,8 +153,47 @@ void main() {
     );
 
     final loaded = await store().load();
-    expect(loaded?.adiLibraryDirectory, isNull);
+    expect(loaded?.adiLibraryDirectory, tempDir.absolute.path);
     expect(loaded?.teamId, 'TEAM123');
+  });
+
+  test('round-trips the anisette backend for both providers', () async {
+    await store().save(
+      GrandSlamSession(
+        username: 'local@example.com',
+        teamId: 'TEAM123',
+        anisetteProvider: 'android-adi',
+        adiLibraryDirectory: tempDir.absolute.path,
+        token: DeveloperServicesLoginToken(
+          adsid: '1',
+          token: 'token',
+          expiry: DateTime.now().toUtc().add(const Duration(days: 1)),
+        ),
+      ),
+    );
+
+    final local = await store().load();
+    expect(local?.anisetteProvider, 'android-adi');
+    expect(local?.anisetteUrl, isNull);
+
+    await store().save(
+      GrandSlamSession(
+        username: 'remote@example.com',
+        teamId: 'TEAM123',
+        anisetteProvider: 'mac-omnisette',
+        anisetteUrl: 'https://omnisette.example.test',
+        token: DeveloperServicesLoginToken(
+          adsid: '1',
+          token: 'token',
+          expiry: DateTime.now().toUtc().add(const Duration(days: 1)),
+        ),
+      ),
+    );
+
+    final remote = await store().load();
+    expect(remote?.anisetteProvider, 'mac-omnisette');
+    expect(remote?.anisetteUrl, 'https://omnisette.example.test');
+    expect(remote?.adiLibraryDirectory, isNull);
   });
 
   test('invalid JSON errors do not echo persisted token material', () async {

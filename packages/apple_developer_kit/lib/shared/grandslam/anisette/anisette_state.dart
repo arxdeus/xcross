@@ -22,6 +22,7 @@ final class AnisetteState {
     this.routingInfo,
     this.adiPb,
     this.providerId,
+    this.anisetteServer,
   });
 
   factory AnisetteState.fromJson(Map<String, Object?> json) {
@@ -32,12 +33,14 @@ final class AnisetteState {
     final routingInfo = json['routingInfo'];
     final adiPb = json['adiPb'];
     final providerId = json['providerId'];
+    final anisetteServer = json['anisetteServer'];
     return AnisetteState(
       localUserUid: localUserUid,
       provisioned: json['provisioned'] == true,
       routingInfo: routingInfo is String ? int.parse(routingInfo) : null,
       adiPb: adiPb is String ? adiPb : null,
       providerId: providerId is String ? providerId : null,
+      anisetteServer: anisetteServer is String ? anisetteServer : null,
     );
   }
 
@@ -61,18 +64,25 @@ final class AnisetteState {
   /// value different from the active provider's ID invalidates the state.
   final String? providerId;
 
+  /// Base URL of the Omnisette server that provisioned this state; only
+  /// set by the remote provider. `adi.pb` material never transfers between
+  /// servers, so a different stored value invalidates the state.
+  final String? anisetteServer;
+
   @useResult
   AnisetteState copyWith({
     bool? provisioned,
     int? routingInfo,
     String? adiPb,
     String? providerId,
+    String? anisetteServer,
   }) => AnisetteState(
     localUserUid: localUserUid,
     provisioned: provisioned ?? this.provisioned,
     routingInfo: routingInfo ?? this.routingInfo,
     adiPb: adiPb ?? this.adiPb,
     providerId: providerId ?? this.providerId,
+    anisetteServer: anisetteServer ?? this.anisetteServer,
   );
 
   Map<String, Object?> toJson() => {
@@ -83,6 +93,7 @@ final class AnisetteState {
     if (routingInfo != null) 'routingInfo': routingInfo.toString(),
     if (adiPb != null) 'adiPb': adiPb,
     if (providerId != null) 'providerId': providerId,
+    if (anisetteServer != null) 'anisetteServer': anisetteServer,
   };
 
   /// A random v4 UUID from `Random.secure` - no UUID package needed for a
