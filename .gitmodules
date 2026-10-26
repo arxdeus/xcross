@@ -3,5 +3,5 @@
 	url = https://github.com/arxdeus/xcross_examples
 [submodule "third_party/OpenAppleMacros"]
 	path = third_party/OpenAppleMacros
-	url = https://github.com/arxdeus/OpenAppleMacros
+	url = https://github.com/xtool-org/OpenAppleMacros
 	branch = xcross
