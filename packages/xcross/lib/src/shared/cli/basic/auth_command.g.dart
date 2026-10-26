@@ -46,20 +46,20 @@ ArgParser _$populateAuthArgsParser(ArgParser parser) => parser
   ..addOption(
     'adi-library-dir',
     help:
-        'Directory containing libCoreADI.so and '
-        'libstoreservicescore.so for Apple ID login. Defaults to '
-        'the xcross config adi-libs directory. Matching x64 or ARM64 '
-        'libraries are fetched from the Apple Music APK when missing.',
+        'Legacy: sign in with local Android ADI libraries from this '
+        'directory (libCoreADI.so / libstoreservicescore.so). Apple '
+        'currently rejects that identity (-80046); prefer the default '
+        'Omnisette path. Matching x64 or ARM64 libraries are fetched '
+        'from the Apple Music APK when missing.',
     valueHelp: 'path',
   )
   ..addOption(
     'anisette-url',
     help:
-        'Sign in via a remote Omnisette Mac-anisette server instead of the '
-        'local Android ADI libraries. Works with any omnisette-server v3 '
-        'deployment, self-hosted or public (e.g. '
-        'https://mac-ani.jkcoxson.com). Can also be set with the '
-        'XCROSS_ANISETTE_URL environment variable.',
+        'Omnisette Mac-anisette server for Apple ID login. Defaults to '
+        'https://mac-ani.jkcoxson.com. Any omnisette-server v3 '
+        'deployment works (self-hosted or public). Can also be set with '
+        'XCROSS_ANISETTE_URL. Mutually exclusive with --adi-library-dir.',
     valueHelp: 'url',
   );
 

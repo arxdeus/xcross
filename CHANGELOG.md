@@ -1,5 +1,6 @@
 ## Unreleased
 
+- Default Apple ID login to Omnisette Mac anisette (`https://mac-ani.jkcoxson.com`, overridable with `--anisette-url` / `XCROSS_ANISETTE_URL`) because Apple’s GSA now rejects Android-identifying clients (`-80046`). `--adi-library-dir` remains a legacy opt-in to local Android ADI.
 - Add `xcross compose build --framework` to build only the Kotlin/Native framework of a Compose Multiplatform project, whatever entry point its sources declare. A host app that xcross does not assemble, such as a SwiftPM package built with xtool, links the framework itself; before, a project with a Kotlin `ComposeUIViewController` entry always compiled an Objective-C runner against it, which fails when that entry is not a top-level `MainViewController()` function.
 - Pin the Kotlin/Native 2.4.20 archive digests, so `xcross compose setup` installs the compiler for projects on Kotlin 2.4.20 instead of refusing with "No pinned SHA-256 digest".
 

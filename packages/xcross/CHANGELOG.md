@@ -1,3 +1,7 @@
+## Unreleased
+
+- Default Apple ID login to Omnisette Mac anisette (`https://mac-ani.jkcoxson.com`, overridable with `--anisette-url` / `XCROSS_ANISETTE_URL`) because Apple’s GSA now rejects Android-identifying clients (`-80046`). `--adi-library-dir` remains a legacy opt-in to local Android ADI.
+
 ## 2.0.6
 
 - Reuse an existing pymobiledevice3 pairing for wireless runs. xcross now looks for `remote_<UDID>.plist` in `~/.pymobiledevice3` (and `$XDG_DATA_HOME/pymobiledevice3` on Linux) instead of `$HOME`, so wireless runs on iOS 27+ no longer re-advertise for device-initiated pairing after `lockdown remotepairing --pair` over USB, and saved-pairing reconnects in `xcross tunnel --wifi` work again. ([#132](https://github.com/arxdeus/xcross/pull/132))

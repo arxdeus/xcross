@@ -5,6 +5,7 @@ import 'dart:async';
 import 'dart:ffi';
 import 'dart:io';
 
+import 'package:apple_developer_kit/shared/grandslam/anisette/omnisette_provider.dart';
 import 'package:test/test.dart';
 import 'package:xcross/src/shared/cli/basic/auth_command.dart';
 import 'package:xcross/src/shared/errors/errors.dart';
@@ -13,14 +14,14 @@ import 'auth_fixture.dart';
 
 void main() {
   group('omnisetteUrlChoice', () {
-    test('defaults to the local Android ADI path', () {
+    test('defaults to the public Omnisette Mac server', () {
       expect(
         AuthCommand.omnisetteUrlChoice(
           flagValue: null,
           flagParsed: false,
           adiLibraryDirParsed: false,
         ),
-        isNull,
+        kDefaultOmnisetteUrl,
       );
     });
 
@@ -32,12 +33,11 @@ void main() {
           adiLibraryDirParsed: false,
         ),
         throwsA(
-          isA<XcrossError>()
-              .having(
-                (error) => error.message,
-                'message',
-                contains('--anisette-url requires a non-empty URL'),
-              ),
+          isA<XcrossError>().having(
+            (error) => error.message,
+            'message',
+            contains('--anisette-url requires a non-empty URL'),
+          ),
         ),
       );
     });
@@ -138,9 +138,9 @@ void main() {
     });
   });
 
-  group('host support stays local by default', () {
-    // The remote path needs no native libraries, but the default local one
-    // still refuses unsupported hosts before prompting for credentials.
+  group('legacy local ADI host gate', () {
+    // Only --adi-library-dir still needs native libraries; Omnisette default
+    // does not. The ABI gate still rejects unsupported hosts on that path.
     for (final abi in [Abi.windowsIA32, Abi.linuxArm, Abi.androidArm64]) {
       test('rejects $abi', () {
         expect(() => AuthCommand.requireAppleIdHost(abi), throwsA(anything));
@@ -155,15 +155,27 @@ void main() {
   group('appleIdLoginFailureMessage', () {
     const docs = 'https://xcross.sh/docs/authentication/#remote-anisette';
 
-    test('local ADI failure suggests any remote server', () {
+    test('local ADI failure suggests the Omnisette default', () {
       final message = AuthCommand.appleIdLoginFailureMessage(
         Exception('gsa refused'),
         anisetteUrl: null,
       );
-      expect(message, contains('Apple ID login failed: Exception: gsa refused'));
+      expect(
+        message,
+        contains('Apple ID login failed: Exception: gsa refused'),
+      );
       expect(message, contains(docs));
       expect(message, contains('--anisette-url'));
+      expect(message, contains('Omit --adi-library-dir'));
       expect(message, isNot(contains('unreachable')));
+    });
+
+    test('local -80046 names the Android rejection', () {
+      final message = AuthCommand.appleIdLoginFailureMessage(
+        Exception('status -80046'),
+        anisetteUrl: null,
+      );
+      expect(message, contains('Apple rejects Android anisette (-80046)'));
     });
 
     test('unreachable remote suggests trying another server', () {

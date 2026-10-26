@@ -192,24 +192,26 @@ The command prompts for your password and 2FA code, then stores **only** the res
 > Do not use your primary Apple ID. xcross signs in through a non-standard path for non-macOS systems, and Apple may treat that as unusual activity: an account used with xcross can end up locked, and an appeal may not reinstate it. Creating a throwaway Apple ID takes a minute and a free account is all you need, which keeps that a minor inconvenience rather than losing your purchases, iCloud data, and devices.
 
 Apple's GrandSlam login expects **Mac**-matching machine attestation (anisette).
-Pass a remote [Omnisette](https://github.com/SideStore/omnisette-server) **v3**
-server that synthesizes those headers:
+By default `xcross auth` uses a remote [Omnisette](https://github.com/SideStore/omnisette-server)
+**v3** server (`https://mac-ani.jkcoxson.com`) that synthesizes those headers:
 
 ```sh
-xcross auth --apple-id you@example.com --anisette-url https://mac-ani.jkcoxson.com
+xcross auth --apple-id you@example.com
+# override the default server:
+xcross auth --apple-id you@example.com --anisette-url https://example.test
 # or:
-XCROSS_ANISETTE_URL=https://mac-ani.jkcoxson.com xcross auth --apple-id you@example.com
+XCROSS_ANISETTE_URL=https://example.test xcross auth --apple-id you@example.com
 ```
 
 Pick any Mac Omnisette server from the
-[public list](https://xcross.sh/docs/authentication/#remote-anisette). The URL is stored
+[public list](https://xcross.sh/docs/authentication/#remote-anisette), or
+[self-host](https://github.com/SideStore/omnisette-server). The URL is stored
 with the session so later signing keeps using it; set `XCROSS_ANISETTE_URL`
 again to point at a different server.
 
-Without `--anisette-url`, xcross still tries the local Android ADI libraries
-(`libCoreADI.so`, `libstoreservicescore.so`). On Windows / Linux (x64 or ARM64)
-they download automatically into `%APPDATA%\xcross\adi-libs` or
-`~/.config/xcross/adi-libs`; elsewhere pass `--adi-library-dir`.
+`--adi-library-dir` is a legacy opt-in to local Android ADI libraries
+(`libCoreADI.so`, `libstoreservicescore.so`). Apple currently rejects that
+identity (`-80046`); prefer the Omnisette default.
 
 > [!WARNING]
 > A public Omnisette server is a third party: the operator sees your IP and

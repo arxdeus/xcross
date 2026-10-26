@@ -62,10 +62,11 @@ final class AuthArgs {
   @CliOption(
     valueHelp: 'path',
     help:
-        'Directory containing libCoreADI.so and '
-        'libstoreservicescore.so for Apple ID login. Defaults to '
-        'the xcross config adi-libs directory. Matching x64 or ARM64 '
-        'libraries are fetched from the Apple Music APK when missing.',
+        'Legacy: sign in with local Android ADI libraries from this '
+        'directory (libCoreADI.so / libstoreservicescore.so). Apple '
+        'currently rejects that identity (-80046); prefer the default '
+        'Omnisette path. Matching x64 or ARM64 libraries are fetched '
+        'from the Apple Music APK when missing.',
   )
   late String? adiLibraryDir;
 
@@ -74,11 +75,10 @@ final class AuthArgs {
   @CliOption(
     valueHelp: 'url',
     help:
-        'Sign in via a remote Omnisette Mac-anisette server instead of the '
-        'local Android ADI libraries. Works with any omnisette-server v3 '
-        'deployment, self-hosted or public (e.g. '
-        'https://mac-ani.jkcoxson.com). Can also be set with the '
-        'XCROSS_ANISETTE_URL environment variable.',
+        'Omnisette Mac-anisette server for Apple ID login. Defaults to '
+        'https://mac-ani.jkcoxson.com. Any omnisette-server v3 '
+        'deployment works (self-hosted or public). Can also be set with '
+        'XCROSS_ANISETTE_URL. Mutually exclusive with --adi-library-dir.',
   )
   late String? anisetteUrl;
 
@@ -290,8 +290,15 @@ final class AuthCommand extends ParsedCommand<AuthArgs, void> {
 
     final anisetteUrl = resolveOmnisetteUrl();
     if (anisetteUrl == null) {
-      // Local Android ADI path: refuse unsupported hosts before prompting.
+      // Legacy local Android ADI: refuse unsupported hosts before prompting.
       requireAppleIdHost(hostServices.abi);
+      commandPrompt.write(
+        'Heads up:\n'
+        "  --adi-library-dir uses local Android ADI libraries. Apple's GSA\n"
+        '  currently rejects that identity (-80046). Prefer Omnisette Mac\n'
+        '  anisette (the default), or pick a server from\n'
+        '  https://xcross.sh/docs/authentication/#remote-anisette\n',
+      );
     } else {
       commandPrompt.write(
         'Heads up:\n'
@@ -377,8 +384,8 @@ final class AuthCommand extends ParsedCommand<AuthArgs, void> {
   }
 
   /// User-facing wrap of a failed Apple ID login, with anisette advice when
-  /// useful: local ADI → try any remote server; unreachable remote → try
-  /// another from the same list.
+  /// useful: local ADI → use Omnisette; unreachable remote → try another
+  /// from the public list.
   @visibleForTesting
   static String appleIdLoginFailureMessage(
     Object error, {
@@ -387,9 +394,11 @@ final class AuthCommand extends ParsedCommand<AuthArgs, void> {
     const docs = 'https://xcross.sh/docs/authentication/#remote-anisette';
     final base = 'Apple ID login failed: $error';
     if (anisetteUrl == null) {
+      final androidBlocked = '$error'.contains('-80046');
       return '$base\n'
-          'If this keeps failing, try a remote Omnisette server — pick any '
-          'from $docs and pass it with --anisette-url '
+          '${androidBlocked ? 'Apple rejects Android anisette (-80046). ' : ''}'
+          'Omit --adi-library-dir to use the default Omnisette Mac server, '
+          'or pick any from $docs with --anisette-url '
           '(or $kAnisetteUrlEnvVar).';
     }
     final hasConnectivityFailure =
@@ -403,8 +412,9 @@ final class AuthCommand extends ParsedCommand<AuthArgs, void> {
   }
 
   /// The Omnisette server URL to sign in through, or null to use the
-  /// local Android ADI libraries. `--anisette-url` wins over the
-  /// `XCROSS_ANISETTE_URL` environment variable.
+  /// legacy local Android ADI libraries. Defaults to
+  /// [kDefaultOmnisetteUrl]. `--anisette-url` wins over
+  /// `XCROSS_ANISETTE_URL`; `--adi-library-dir` alone keeps local ADI.
   @visibleForTesting
   String? resolveOmnisetteUrl({String? environmentValue}) => omnisetteUrlChoice(
     flagValue: options.anisetteUrl,
@@ -436,8 +446,9 @@ final class AuthCommand extends ParsedCommand<AuthArgs, void> {
       }
       return null;
     }
-    final url = _present(fromFlag) ? fromFlag : fromEnvironment;
-    if (!_present(url)) return null;
+    final url = _present(fromFlag)
+        ? fromFlag
+        : (_present(fromEnvironment) ? fromEnvironment : kDefaultOmnisetteUrl);
     final parsed = Uri.tryParse(url!);
     if (parsed == null ||
         (parsed.scheme != 'http' && parsed.scheme != 'https') ||
