@@ -1,0 +1,431 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="color-scheme" content="dark"><style>
+      /* Only the root: an opaque body would cover the decorative layers. */
+      :root {
+        color-scheme: dark;
+        background-color: #08080c;
+      }
+    </style><script>
+      // Gate every entrance animation on scripting, so content is never
+      // left invisible if the bundle fails to load.
+      document.documentElement.classList.add('js');
+    </script><title>CLI reference - xcross</title><meta name="description" content="Every xcross command and flag for Flutter and Compose Multiplatform, taken from the CLI source."><link rel="canonical" href="https://xcross.sh/docs/cli/"><link rel="icon" href="/favicon.svg" type="image/svg+xml"><meta name="theme-color" content="#08080c"><meta name="generator" content="Astro v7.2.0"><meta property="og:type" content="website"><meta property="og:site_name" content="xcross"><meta property="og:title" content="CLI reference - xcross"><meta property="og:description" content="Every xcross command and flag for Flutter and Compose Multiplatform, taken from the CLI source."><meta property="og:url" content="https://xcross.sh/docs/cli/"><meta property="og:image" content="https://xcross.sh/og.png"><meta name="twitter:card" content="summary_large_image"><meta name="twitter:title" content="CLI reference - xcross"><meta name="twitter:description" content="Every xcross command and flag for Flutter and Compose Multiplatform, taken from the CLI source."><meta name="twitter:image" content="https://xcross.sh/og.png"><link rel="stylesheet" href="/_astro/BaseLayout.DHkmyHF0.css"></head><body class="relative min-h-screen antialiased" data-solid-background><div class="site-weave" aria-hidden="true"></div><div class="site-accent" aria-hidden="true"></div><a href="#main" class="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-[60] focus:rounded-md focus:border focus:border-line focus:bg-surface focus:px-3 focus:py-2 focus:text-sm">Skip to content</a><header data-site-header class="sticky top-0 z-50 border-b border-line bg-bg/80 backdrop-blur-xl backdrop-saturate-150"><div class="container-page flex h-14 items-center gap-3"><a href="/" class="group flex items-center gap-2.5 text-fg transition-opacity hover:opacity-80" aria-label="xcross home"><svg width="22" height="22" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" class="transition-transform duration-500 group-hover:rotate-90" aria-hidden="true"><rect x="0.75" y="0.75" width="30.5" height="30.5" rx="8.25" stroke="url(#xc-b)" stroke-width="1.5"></rect><path d="M10 10.5 21.5 22M21.5 10.5 10 22" stroke="url(#xc-a)" stroke-width="2.4" stroke-linecap="round"></path><defs><linearGradient id="xc-a" x1="10" y1="10" x2="22" y2="22" gradientUnits="userSpaceOnUse"><stop stop-color="#8dc0ff"></stop><stop offset="1" stop-color="#4d9fff"></stop></linearGradient><linearGradient id="xc-b" x1="0" y1="0" x2="32" y2="32" gradientUnits="userSpaceOnUse"><stop stop-color="#4a4a57"></stop><stop offset="1" stop-color="#28282f"></stop></linearGradient></defs></svg><span class="font-mono text-[15px] font-medium tracking-tight">xcross</span></a><a href="https://github.com/arxdeus/xcross/releases/tag/v2.0.6" target="_blank" rel="noreferrer" class="hidden rounded-full border border-line bg-elevated px-2 py-0.5 font-mono text-[10px] text-fg-faint transition-colors hover:border-line-strong hover:text-fg-muted sm:inline-block">v2.0.6</a><nav class="relative ml-auto hidden items-center gap-1 md:flex" aria-label="Main" data-seg data-seg-style="line"><a href="/docs/introduction" data-active class="relative z-10 rounded-md px-3 py-1.5 text-[13px] transition-colors duration-500 text-fg">Docs</a><a href="/docs/installation" class="relative z-10 rounded-md px-3 py-1.5 text-[13px] transition-colors duration-500 text-fg-muted hover:text-fg">Installation</a><a href="/docs/quick-start" class="relative z-10 rounded-md px-3 py-1.5 text-[13px] transition-colors duration-500 text-fg-muted hover:text-fg">Quick start</a><a href="/docs/faq" class="relative z-10 rounded-md px-3 py-1.5 text-[13px] transition-colors duration-500 text-fg-muted hover:text-fg">FAQ</a></nav><div class="ml-auto flex items-center gap-2 md:ml-2"><button type="button" data-search-open class="lift group flex h-8 items-center gap-2 rounded-md border border-line bg-surface px-2.5 text-fg-faint hover:border-line-strong hover:text-fg-muted" aria-label="Search documentation"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg><span class="hidden text-[13px] lg:inline">Search</span><kbd class="hidden rounded border border-line bg-elevated px-1.5 font-mono text-[10px] leading-[16px] lg:inline-block">⌘K</kbd></button><a href="https://github.com/arxdeus/xcross" target="_blank" rel="noreferrer" class="lift flex h-8 w-8 items-center justify-center rounded-md border border-line bg-surface text-fg-muted hover:border-line-strong hover:text-fg" aria-label="GitHub repository"><svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class><path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"/></svg></a><button type="button" data-menu-toggle aria-expanded="false" aria-controls="mobile-menu" class="flex h-8 w-8 items-center justify-center rounded-md border border-line bg-surface text-fg-muted md:hidden" aria-label="Toggle menu"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="[[aria-expanded=true]_&amp;]:hidden"><path d="M3 6h18M3 12h18M3 18h18"/></svg><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="hidden [[aria-expanded=true]_&amp;]:block"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div></div><div id="mobile-menu" hidden class="overflow-hidden border-t border-line bg-bg md:hidden"><nav class="container-page flex flex-col py-3" aria-label="Mobile"><a href="/docs/introduction" class="rounded-md px-2 py-2 text-sm text-fg-muted hover:bg-surface hover:text-fg">Docs</a><a href="/docs/installation" class="rounded-md px-2 py-2 text-sm text-fg-muted hover:bg-surface hover:text-fg">Installation</a><a href="/docs/quick-start" class="rounded-md px-2 py-2 text-sm text-fg-muted hover:bg-surface hover:text-fg">Quick start</a><a href="/docs/faq" class="rounded-md px-2 py-2 text-sm text-fg-muted hover:bg-surface hover:text-fg">FAQ</a><a href="https://github.com/arxdeus/xcross/releases" target="_blank" rel="noreferrer" class="rounded-md px-2 py-2 text-sm text-fg-muted hover:bg-surface hover:text-fg">Releases</a></nav></div></header><main id="main"><div class="docs-glow" aria-hidden="true"></div><div class="scroll-progress fixed left-0 top-14 z-40 h-px w-full bg-gradient-to-r from-accent to-accent-soft" aria-hidden="true"></div><div class="container-page"><div class="lg:grid lg:grid-cols-[15rem_minmax(0,1fr)] lg:gap-10 xl:grid-cols-[15rem_minmax(0,1fr)_13rem] xl:gap-12"><!-- Sidebar (desktop) --><aside data-docs-sidebar class="hidden lg:block"><div class="scrollbar-none sticky top-14 max-h-[calc(100vh-3.5rem)] overflow-y-auto py-9 pr-2"><nav aria-label="Documentation" class="relative text-[13px]" data-seg data-seg-style="side"><div class="mb-7"><p class="mb-2.5 px-2.5 text-[10.5px] font-medium uppercase tracking-[0.14em] text-fg-faint">Overview</p><ul class="space-y-px"><li><a href="/docs/introduction" data-seg-item class="relative z-10 block rounded-md px-2.5 py-1.5 transition-[color,padding] duration-500 text-fg-muted hover:pl-3.5 hover:text-fg">Introduction</a></li><li><a href="/docs/how-it-works" data-seg-item class="relative z-10 block rounded-md px-2.5 py-1.5 transition-[color,padding] duration-500 text-fg-muted hover:pl-3.5 hover:text-fg">How it works</a></li></ul></div><div class="mb-7"><p class="mb-2.5 px-2.5 text-[10.5px] font-medium uppercase tracking-[0.14em] text-fg-faint">Getting started</p><ul class="space-y-px"><li><a href="/docs/requirements" data-seg-item class="relative z-10 block rounded-md px-2.5 py-1.5 transition-[color,padding] duration-500 text-fg-muted hover:pl-3.5 hover:text-fg">Requirements</a></li><li><a href="/docs/installation" data-seg-item class="relative z-10 block rounded-md px-2.5 py-1.5 transition-[color,padding] duration-500 text-fg-muted hover:pl-3.5 hover:text-fg">Installation</a></li><li><a href="/docs/quick-start" data-seg-item class="relative z-10 block rounded-md px-2.5 py-1.5 transition-[color,padding] duration-500 text-fg-muted hover:pl-3.5 hover:text-fg">Quick start</a></li><li><a href="/docs/compose" data-seg-item class="relative z-10 block rounded-md px-2.5 py-1.5 transition-[color,padding] duration-500 text-fg-muted hover:pl-3.5 hover:text-fg">Compose Multiplatform</a></li><li><a href="/docs/wireless" data-seg-item class="relative z-10 block rounded-md px-2.5 py-1.5 transition-[color,padding] duration-500 text-fg-muted hover:pl-3.5 hover:text-fg">Run over Wi-Fi</a></li><li><a href="/docs/ide-integration" data-seg-item class="relative z-10 block rounded-md px-2.5 py-1.5 transition-[color,padding] duration-500 text-fg-muted hover:pl-3.5 hover:text-fg">IDE integration</a></li><li><a href="/docs/darwin-sdk" data-seg-item class="relative z-10 block rounded-md px-2.5 py-1.5 transition-[color,padding] duration-500 text-fg-muted hover:pl-3.5 hover:text-fg">Darwin SDK</a></li><li><a href="/docs/authentication" data-seg-item class="relative z-10 block rounded-md px-2.5 py-1.5 transition-[color,padding] duration-500 text-fg-muted hover:pl-3.5 hover:text-fg">Authentication</a></li></ul></div><div class="mb-7"><p class="mb-2.5 px-2.5 text-[10.5px] font-medium uppercase tracking-[0.14em] text-fg-faint">Reference</p><ul class="space-y-px"><li><a href="/docs/cli" data-seg-item aria-current="page" class="relative z-10 block rounded-md px-2.5 py-1.5 transition-[color,padding] duration-500 font-medium text-fg">CLI reference</a><ul class="mt-px space-y-px border-l border-line pl-2.5 ms-3.5"><li><a href="/docs/cli#flutter" data-seg-item class="relative z-10 block rounded-md px-2.5 py-1 text-[12.5px] text-fg-muted transition-colors hover:text-fg">flutter</a></li><li><a href="/docs/cli#compose" data-seg-item class="relative z-10 block rounded-md px-2.5 py-1 text-[12.5px] text-fg-muted transition-colors hover:text-fg">compose</a></li><li><a href="/docs/cli#tunnel" data-seg-item class="relative z-10 block rounded-md px-2.5 py-1 text-[12.5px] text-fg-muted transition-colors hover:text-fg">tunnel</a></li></ul></li><li><a href="/docs/configuration" data-seg-item class="relative z-10 block rounded-md px-2.5 py-1.5 transition-[color,padding] duration-500 text-fg-muted hover:pl-3.5 hover:text-fg">Configuration</a></li><li><a href="/docs/architecture" data-seg-item class="relative z-10 block rounded-md px-2.5 py-1.5 transition-[color,padding] duration-500 text-fg-muted hover:pl-3.5 hover:text-fg">Architecture</a></li><li><a href="/docs/troubleshooting" data-seg-item class="relative z-10 block rounded-md px-2.5 py-1.5 transition-[color,padding] duration-500 text-fg-muted hover:pl-3.5 hover:text-fg">Troubleshooting</a></li><li><a href="/docs/faq" data-seg-item class="relative z-10 block rounded-md px-2.5 py-1.5 transition-[color,padding] duration-500 text-fg-muted hover:pl-3.5 hover:text-fg">FAQ</a></li></ul></div></nav></div></aside><!-- Sidebar (mobile) --><details class="group border-b border-line py-3 lg:hidden"><summary class="flex cursor-pointer list-none items-center justify-between text-[13px] text-fg-muted"><span class="flex items-center gap-2"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2Z"/></svg>Documentation menu</span><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="transition-transform group-open:rotate-180"><path d="m6 9 6 6 6-6"/></svg></summary><div class="pt-5"><nav aria-label="Documentation" class="relative text-[13px]" data-seg data-seg-style="side"><div class="mb-7"><p class="mb-2.5 px-2.5 text-[10.5px] font-medium uppercase tracking-[0.14em] text-fg-faint">Overview</p><ul class="space-y-px"><li><a href="/docs/introduction" data-seg-item class="relative z-10 block rounded-md px-2.5 py-1.5 transition-[color,padding] duration-500 text-fg-muted hover:pl-3.5 hover:text-fg">Introduction</a></li><li><a href="/docs/how-it-works" data-seg-item class="relative z-10 block rounded-md px-2.5 py-1.5 transition-[color,padding] duration-500 text-fg-muted hover:pl-3.5 hover:text-fg">How it works</a></li></ul></div><div class="mb-7"><p class="mb-2.5 px-2.5 text-[10.5px] font-medium uppercase tracking-[0.14em] text-fg-faint">Getting started</p><ul class="space-y-px"><li><a href="/docs/requirements" data-seg-item class="relative z-10 block rounded-md px-2.5 py-1.5 transition-[color,padding] duration-500 text-fg-muted hover:pl-3.5 hover:text-fg">Requirements</a></li><li><a href="/docs/installation" data-seg-item class="relative z-10 block rounded-md px-2.5 py-1.5 transition-[color,padding] duration-500 text-fg-muted hover:pl-3.5 hover:text-fg">Installation</a></li><li><a href="/docs/quick-start" data-seg-item class="relative z-10 block rounded-md px-2.5 py-1.5 transition-[color,padding] duration-500 text-fg-muted hover:pl-3.5 hover:text-fg">Quick start</a></li><li><a href="/docs/compose" data-seg-item class="relative z-10 block rounded-md px-2.5 py-1.5 transition-[color,padding] duration-500 text-fg-muted hover:pl-3.5 hover:text-fg">Compose Multiplatform</a></li><li><a href="/docs/wireless" data-seg-item class="relative z-10 block rounded-md px-2.5 py-1.5 transition-[color,padding] duration-500 text-fg-muted hover:pl-3.5 hover:text-fg">Run over Wi-Fi</a></li><li><a href="/docs/ide-integration" data-seg-item class="relative z-10 block rounded-md px-2.5 py-1.5 transition-[color,padding] duration-500 text-fg-muted hover:pl-3.5 hover:text-fg">IDE integration</a></li><li><a href="/docs/darwin-sdk" data-seg-item class="relative z-10 block rounded-md px-2.5 py-1.5 transition-[color,padding] duration-500 text-fg-muted hover:pl-3.5 hover:text-fg">Darwin SDK</a></li><li><a href="/docs/authentication" data-seg-item class="relative z-10 block rounded-md px-2.5 py-1.5 transition-[color,padding] duration-500 text-fg-muted hover:pl-3.5 hover:text-fg">Authentication</a></li></ul></div><div class="mb-7"><p class="mb-2.5 px-2.5 text-[10.5px] font-medium uppercase tracking-[0.14em] text-fg-faint">Reference</p><ul class="space-y-px"><li><a href="/docs/cli" data-seg-item aria-current="page" class="relative z-10 block rounded-md px-2.5 py-1.5 transition-[color,padding] duration-500 font-medium text-fg">CLI reference</a><ul class="mt-px space-y-px border-l border-line pl-2.5 ms-3.5"><li><a href="/docs/cli#flutter" data-seg-item class="relative z-10 block rounded-md px-2.5 py-1 text-[12.5px] text-fg-muted transition-colors hover:text-fg">flutter</a></li><li><a href="/docs/cli#compose" data-seg-item class="relative z-10 block rounded-md px-2.5 py-1 text-[12.5px] text-fg-muted transition-colors hover:text-fg">compose</a></li><li><a href="/docs/cli#tunnel" data-seg-item class="relative z-10 block rounded-md px-2.5 py-1 text-[12.5px] text-fg-muted transition-colors hover:text-fg">tunnel</a></li></ul></li><li><a href="/docs/configuration" data-seg-item class="relative z-10 block rounded-md px-2.5 py-1.5 transition-[color,padding] duration-500 text-fg-muted hover:pl-3.5 hover:text-fg">Configuration</a></li><li><a href="/docs/architecture" data-seg-item class="relative z-10 block rounded-md px-2.5 py-1.5 transition-[color,padding] duration-500 text-fg-muted hover:pl-3.5 hover:text-fg">Architecture</a></li><li><a href="/docs/troubleshooting" data-seg-item class="relative z-10 block rounded-md px-2.5 py-1.5 transition-[color,padding] duration-500 text-fg-muted hover:pl-3.5 hover:text-fg">Troubleshooting</a></li><li><a href="/docs/faq" data-seg-item class="relative z-10 block rounded-md px-2.5 py-1.5 transition-[color,padding] duration-500 text-fg-muted hover:pl-3.5 hover:text-fg">FAQ</a></li></ul></div></nav></div></details><!-- Content --><article class="min-w-0 py-10 lg:py-14"><nav aria-label="Breadcrumb" class="flex items-center gap-1.5 text-[12px] text-fg-faint"><a href="/" class="transition-colors hover:text-fg-muted">xcross</a><svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class><path d="m9 18 6-6-6-6"/></svg><a href="/docs/introduction" class="transition-colors hover:text-fg-muted">Docs</a><svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class><path d="m9 18 6-6-6-6"/></svg><span class="text-fg-muted">CLI reference</span></nav><h1 class="docs-title text-sheen mt-4 text-balance pb-1 text-3xl font-semibold tracking-[-0.025em]">CLI reference</h1><p class="mt-3 text-pretty text-[15px] leading-relaxed text-fg-muted">Every xcross command and flag for Flutter and Compose Multiplatform, taken from the CLI source.</p><div class="mt-10 prose"><p><code>xcross &#x3C;command> [subcommand] [options]</code>. Add <code>--help</code> at any level. <code>-v</code> / <code>--verbose</code> works everywhere.</p>
+<div class="callout callout-important">
+<p><span class="callout-title">Important</span><strong>Coming from 1.x?</strong> In 2.0 <code>xcross doctor</code> became <code>flutter doctor</code> / <code>compose doctor</code>, <code>xcross clean</code> became <code>flutter clean</code> / <code>compose clean</code> / <code>sdk clean</code>, and <code>auth clear</code> became <code>auth clean</code>.</p>
+</div>
+<h2 id="at-a-glance">At a glance<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#at-a-glance">#</a></h2>
+<div class="vz vz-cards" data-reveal=""><div class="vz-card spotlight" style="--i:0"><span class="vz-card-icon"><svg class="vz-icon" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"></path><circle cx="12" cy="12" r="3"></circle></svg></span><strong>Machine</strong><span class="vz-card-body"><code>setup</code> · <code>sdk install</code> · <code>sdk clean</code> · <code>auth</code> · <code>config</code> · <code>update</code></span></div><div class="vz-card spotlight" style="--i:1"><span class="vz-card-icon"><svg class="vz-icon" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.55a11 11 0 0 1 14.08 0"></path><path d="M1.42 9a16 16 0 0 1 21.16 0"></path><path d="M8.53 16.11a6 6 0 0 1 6.95 0"></path><path d="M12 20h.01"></path></svg></span><strong>Device</strong><span class="vz-card-body"><code>tunnel</code> · <code>tunnel --wifi</code></span></div><div class="vz-card spotlight" style="--i:2"><span class="vz-card-icon"><svg class="vz-icon" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.3 1.5 3.4 12.4l3.3 3.3L20.9 1.5z" stroke="none" fill="currentColor"></path><path d="M14.3 11.6 8.5 17.4l5.8 5.1h6.6l-5.8-5.5 5.8-5.4z" stroke="none" fill="currentColor"></path></svg></span><strong>Flutter</strong><span class="vz-card-body"><code>flutter run</code> · <code>flutter build</code> · <code>flutter doctor</code> · <code>flutter clean</code> · <code>ide</code></span></div><div class="vz-card spotlight" style="--i:3"><span class="vz-card-icon"><svg class="vz-icon" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 2.5h19L12 12l9.5 9.5h-19z" stroke="none" fill="currentColor"></path></svg></span><strong>Compose</strong><span class="vz-card-body"><code>compose setup</code> · <code>compose build</code> · <code>compose run</code> · <code>compose doctor</code> · <code>compose clean</code></span></div></div>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Command</th><th>Does</th></tr></thead><tbody><tr><td><code>setup</code></td><td>Install or verify host tools</td></tr><tr><td><code>sdk install &#x3C;Xcode.xip></code></td><td>Extract the Darwin SDK</td></tr><tr><td><code>sdk clean</code></td><td>Remove the installed Darwin SDK</td></tr><tr><td><code>auth</code> / <code>auth clean</code></td><td>Save or remove Apple credentials</td></tr><tr><td><code>config</code> / <code>show</code> / <code>validate</code></td><td>Edit, print, check <a href="/docs/configuration">configuration</a></td></tr><tr><td><code>tunnel [--wifi]</code></td><td>Mount DDI + start the iOS 17+ RSD tunnel</td></tr><tr><td><code>flutter run</code> / <code>build</code></td><td>Run or build a Flutter app</td></tr><tr><td><code>flutter doctor</code> / <code>compose doctor</code></td><td>Read-only readiness check for that framework</td></tr><tr><td><code>flutter clean</code> / <code>compose clean</code></td><td>Clear this project’s xcross caches</td></tr><tr><td><code>compose setup</code> / <code>build</code> / <code>run</code></td><td>Set up, build or run a Compose app</td></tr><tr><td><code>ide vscode</code> / <code>idea</code></td><td>Wire up IDE debugging (Flutter)</td></tr><tr><td><code>update</code></td><td>Verified self-update</td></tr><tr><td><code>completion</code></td><td>Print a bash/zsh completion script</td></tr></tbody></table>
+<h2 id="setup">setup<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#setup">#</a></h2>
+<pre class="astro-code github-dark-default" style="background-color:#0d1117;color:#e6edf3; overflow-x: auto;" tabindex="0" data-language="sh"><code><span class="line"><span style="color:#FFA657">xcross</span><span style="color:#A5D6FF"> setup</span></span></code></pre>
+<p>Idempotent. On Linux it installs LLVM, device utilities and <code>pymobiledevice3</code> through apt, dnf or pacman (Homebrew on macOS), and needs Swift on <code>PATH</code> first. On Windows it runs a setup script for winget, Scoop or Chocolatey (or <code>direct.ps1</code>, which downloads signed vendor installers), asking before each package: VS Build Tools, Swift, LLVM, Python.</p>
+<p>Before any script runs, xcross prints its name, source URL and SHA-256 and waits for <code>y</code>.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Flag</th><th></th></tr></thead><tbody><tr><td><code>--manager &#x3C;name></code></td><td>Windows: pick <code>winget</code>, <code>scoop</code>, <code>choco</code> or <code>direct</code> (asks when several are installed)</td></tr><tr><td><code>-y</code>, <code>--yes</code></td><td>Accept the script and every installer prompt</td></tr><tr><td><code>--refresh-script</code></td><td>Re-download a configured <a href="/docs/configuration#setup">setup script</a> without running it</td></tr></tbody></table>
+<details>
+<summary>What setup does on Linux</summary>
+<ul>
+<li>Detects <code>apt-get</code>, <code>dnf</code> or <code>pacman</code>, prompting if several exist.</li>
+<li>Installs <code>clang</code>, <code>lld</code>, <code>llvm</code>, Python, <code>usbmuxd</code>, <code>usbip</code> and Swift’s build dependencies.</li>
+<li>Probes <code>ld64.lld</code> for the broken selector-stub bug and symlinks a newer <code>ld64.lld-&#x3C;N></code> into <code>/usr/local/bin</code> if needed.</li>
+<li>Installs <code>pymobiledevice3</code> through <code>pipx</code>.</li>
+</ul>
+</details>
+<details>
+<summary>What setup does on Windows</summary>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th></th><th><code>winget</code></th><th><code>scoop</code></th><th><code>choco</code></th><th><code>direct</code></th></tr></thead><tbody><tr><td>VS Build Tools</td><td><code>Microsoft.VisualStudio.2022.BuildTools</code></td><td>vendor installer</td><td><code>visualstudio2022buildtools</code></td><td>vendor installer</td></tr><tr><td>Swift</td><td><code>Swift.Toolchain</code></td><td><code>main/swift</code></td><td>vendor installer</td><td>vendor installer</td></tr><tr><td>LLVM</td><td><code>LLVM.LLVM</code></td><td><code>main/llvm</code></td><td><code>llvm</code></td><td>GitHub release</td></tr><tr><td>Python</td><td><code>Python.Python.3.13</code></td><td><code>main/python</code></td><td><code>python313</code></td><td>python.org</td></tr></tbody></table>
+<p>Vendor installers only run with a valid Microsoft or Apple Authenticode signature. Downloads are checked against the published SHA-256. Pin versions for <code>direct</code> with <code>XCROSS_SWIFT_VERSION</code>, <code>XCROSS_LLVM_VERSION</code>, <code>XCROSS_PYTHON_VERSION</code>. When another LLVM is already on <code>PATH</code>, the pinned LLVM goes into <code>XCROSS_LLVM_DIR</code>. Chocolatey needs an Administrator PowerShell, Scoop a normal one.</p>
+</details>
+<h2 id="sdk-install">sdk install<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#sdk-install">#</a></h2>
+<pre class="astro-code github-dark-default" style="background-color:#0d1117;color:#e6edf3; overflow-x: auto;" tabindex="0" data-language="sh"><code><span class="line"><span style="color:#FFA657">xcross</span><span style="color:#A5D6FF"> sdk</span><span style="color:#A5D6FF"> install</span><span style="color:#FF7B72"> &#x3C;</span><span style="color:#A5D6FF">path-to-Xcode.xi</span><span style="color:#E6EDF3">p</span><span style="color:#FF7B72">></span><span style="color:#8B949E">   # or an Xcode.app on macOS</span></span>
+<span class="line"><span style="color:#FFA657">xcross</span><span style="color:#A5D6FF"> sdk</span><span style="color:#A5D6FF"> clean</span><span style="color:#8B949E">                         # remove it, plus leftover backup/staging copies</span></span></code></pre>
+<p>No flags. Replaces any previous SDK. See <a href="/docs/darwin-sdk">Darwin SDK</a>.</p>
+<h2 id="auth">auth<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#auth">#</a></h2>
+<pre class="astro-code github-dark-default" style="background-color:#0d1117;color:#e6edf3; overflow-x: auto;" tabindex="0" data-language="sh"><code><span class="line"><span style="color:#FFA657">xcross</span><span style="color:#A5D6FF"> auth</span><span style="color:#79C0FF"> --apple-id</span><span style="color:#A5D6FF"> you@example.com</span></span>
+<span class="line"><span style="color:#FFA657">xcross</span><span style="color:#A5D6FF"> auth</span><span style="color:#79C0FF"> --issuer-id</span><span style="color:#FF7B72"> &#x3C;</span><span style="color:#A5D6FF">uui</span><span style="color:#E6EDF3">d</span><span style="color:#FF7B72">></span><span style="color:#79C0FF"> --key-id</span><span style="color:#FF7B72"> &#x3C;</span><span style="color:#A5D6FF">i</span><span style="color:#E6EDF3">d</span><span style="color:#FF7B72">></span><span style="color:#79C0FF"> --private-key</span><span style="color:#A5D6FF"> AuthKey.p8</span></span>
+<span class="line"><span style="color:#FFA657">xcross</span><span style="color:#A5D6FF"> auth</span><span style="color:#A5D6FF"> clean</span></span></code></pre>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Flag</th><th></th></tr></thead><tbody><tr><td><code>--apple-id</code>, <code>--password</code></td><td>Apple ID login (prompted if omitted)</td></tr><tr><td><code>--issuer-id</code>, <code>--key-id</code>, <code>--private-key</code></td><td>App Store Connect API key</td></tr><tr><td><code>--adi-library-dir</code></td><td>ADI libraries for hosts other than x64 / ARM64</td></tr></tbody></table>
+<p><code>auth clean</code> deletes the saved key, the Apple ID session and every certificate, key and profile xcross minted. The old <code>auth clear</code> spelling fails with a pointer to the new one.</p>
+<h2 id="doctor">doctor<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#doctor">#</a></h2>
+<pre class="astro-code github-dark-default" style="background-color:#0d1117;color:#e6edf3; overflow-x: auto;" tabindex="0" data-language="sh"><code><span class="line"><span style="color:#FFA657">xcross</span><span style="color:#A5D6FF"> flutter</span><span style="color:#A5D6FF"> doctor</span><span style="color:#8B949E">   # in a Flutter project</span></span>
+<span class="line"><span style="color:#FFA657">xcross</span><span style="color:#A5D6FF"> compose</span><span style="color:#A5D6FF"> doctor</span><span style="color:#8B949E">   # in a Gradle project</span></span></code></pre>
+<p>Read-only. Each checks only what its own framework needs: the project, its toolchain, the Darwin SDK, then the shared deployment checks (device tools, auth, connected iOS versions). Output is grouped into project, toolchain and deployment sections, each headed by its worst status. Missing project or device context is a warning. A failed requirement exits non-zero.</p>
+<p><code>compose doctor</code> lists every Compose requirement on its own row (Kotlin/Native, JDK 21+, Gradle, <code>swiftc</code>, <code>clang</code>, <code>ld64.lld</code>). A missing Kotlin/Native download is only a warning, since the first build fetches it.</p>
+<h2 id="tunnel">tunnel<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#tunnel">#</a></h2>
+<pre class="astro-code github-dark-default" style="background-color:#0d1117;color:#e6edf3; overflow-x: auto;" tabindex="0" data-language="sh"><code><span class="line"><span style="color:#FFA657">xcross</span><span style="color:#A5D6FF"> tunnel</span><span style="color:#8B949E">          # USB</span></span>
+<span class="line"><span style="color:#FFA657">xcross</span><span style="color:#A5D6FF"> tunnel</span><span style="color:#79C0FF"> --wifi</span><span style="color:#8B949E">   # pair / reconnect wirelessly</span></span></code></pre>
+<p>Needs <code>sudo</code> or Administrator. Run once per device reconnect. See <a href="/docs/wireless">Run over Wi-Fi</a>.</p>
+<h2 id="device-selection">Device selection<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#device-selection">#</a></h2>
+<p>Shared by <code>flutter run</code> and <code>compose run</code>.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Flag</th><th></th></tr></thead><tbody><tr><td><code>-d</code>, <code>--device-id</code></td><td>Device id or name</td></tr><tr><td><code>-u</code>, <code>--udid</code></td><td>Exact UDID, wins over <code>-d</code></td></tr><tr><td><code>--usb</code> / <code>--wifi</code></td><td>Search one transport only</td></tr><tr><td><code>--device-connection</code></td><td><code>attached</code> · <code>wireless</code> · <code>both</code> (default)</td></tr></tbody></table>
+<h2 id="flutter">flutter<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#flutter">#</a></h2>
+<pre class="astro-code github-dark-default" style="background-color:#0d1117;color:#e6edf3; overflow-x: auto;" tabindex="0" data-language="sh"><code><span class="line"><span style="color:#FFA657">xcross</span><span style="color:#A5D6FF"> flutter</span><span style="color:#A5D6FF"> run</span></span>
+<span class="line"><span style="color:#FFA657">xcross</span><span style="color:#A5D6FF"> flutter</span><span style="color:#A5D6FF"> run</span><span style="color:#79C0FF"> -u</span><span style="color:#FF7B72"> &#x3C;</span><span style="color:#A5D6FF">UDI</span><span style="color:#E6EDF3">D</span><span style="color:#FF7B72">></span><span style="color:#79C0FF"> -D</span><span style="color:#A5D6FF"> API_URL=https://staging.example.com</span></span>
+<span class="line"><span style="color:#FFA657">xcross</span><span style="color:#A5D6FF"> flutter</span><span style="color:#A5D6FF"> build</span><span style="color:#79C0FF"> -i</span><span style="color:#79C0FF"> --flavor</span><span style="color:#A5D6FF"> staging</span><span style="color:#79C0FF"> -t</span><span style="color:#A5D6FF"> lib/main_staging.dart</span></span></code></pre>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Flag</th><th><code>run</code></th><th><code>build</code></th><th></th></tr></thead><tbody><tr><td><code>-t</code>, <code>--target</code></td><td>✓</td><td>✓</td><td>Entry point (default <code>lib/main.dart</code>)</td></tr><tr><td><code>--flavor</code></td><td>✓</td><td>✓</td><td>App flavor</td></tr><tr><td><code>-D</code>, <code>--dart-define</code></td><td>✓</td><td>✓</td><td><code>KEY=VALUE</code>, repeatable</td></tr><tr><td><code>--dart-define-from-file</code></td><td>✓</td><td>✓</td><td><code>.json</code> / <code>.env</code>, repeatable</td></tr><tr><td><code>--[no-]pub</code></td><td>✓</td><td>✓</td><td><code>flutter pub get</code> first (on)</td></tr><tr><td><code>--route</code></td><td>✓</td><td></td><td>Initial route</td></tr><tr><td><code>-a</code>, <code>--dart-entrypoint-args</code></td><td>✓</td><td></td><td>Args for <code>main()</code></td></tr><tr><td><code>--build-name</code>, <code>--build-number</code></td><td></td><td>✓</td><td>Version strings</td></tr><tr><td><code>-i</code>, <code>--ipa</code></td><td></td><td>✓</td><td>Output <code>.ipa</code> instead of <code>.app</code></td></tr><tr><td><code>--target-platform</code></td><td></td><td>✓</td><td><code>iphone</code> (default) or <code>simulator</code> (arm64 Simulator app, verified on macOS ARM64, no <code>--ipa</code>)</td></tr><tr><td><code>--[no-]tree-shake-icons</code></td><td></td><td>✓</td><td>Tree shake icon fonts (on)</td></tr></tbody></table>
+<p>Always debug (JIT). Shaders are compiled with the host <code>impellerc</code>, like <code>flutter build</code>. <code>flutter dap</code> is internal, spawned by your IDE.</p>
+<h3 id="app-id-on-first-device-run">App ID on first device run<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#app-id-on-first-device-run">#</a></h3>
+<p>The first device build of an app asks which App ID to register, and saves the answer so it can be committed:</p>
+<div class="vz vz-matrix" data-reveal="" style="--cols:3"><div class="vz-mx-row vz-mx-head"><div class="vz-mx-h vz-mx-first">Choice</div><div class="vz-mx-h">App ID</div><div class="vz-mx-h">Good for</div></div><div class="vz-mx-row" style="--i:0"><div class="vz-mx-c vz-mx-first">Prefixed (default)</div><div class="vz-mx-c"><code>XCR-&#x3C;TEAM>.com.example.app</code></div><div class="vz-mx-c">never collides with another team</div></div><div class="vz-mx-row" style="--i:1"><div class="vz-mx-c vz-mx-first">Original</div><div class="vz-mx-c"><code>com.example.app</code></div><div class="vz-mx-c">Sign in with Apple, push, passkeys, associated domains</div></div></div>
+<pre class="astro-code github-dark-default" style="background-color:#0d1117;color:#e6edf3; overflow-x: auto;" tabindex="0" data-language="yaml"><code><span class="line"><span style="color:#8B949E"># pubspec.yaml (Compose: xcross_project.yaml)</span></span>
+<span class="line"><span style="color:#7EE787">xcross</span><span style="color:#E6EDF3">:</span></span>
+<span class="line"><span style="color:#7EE787">  bundle_id</span><span style="color:#E6EDF3">: </span><span style="color:#A5D6FF">original</span><span style="color:#8B949E"> # or prefixed</span></span></code></pre>
+<p>Precedence: <code>XCROSS_BUNDLE_ID=original|prefixed</code> for one run, then the saved <code>bundle_id</code>, then an App ID the team already has, then the question. CI and IDE sessions can’t be asked: they use the saved value, else fall back to prefixed.</p>
+<h2 id="compose">compose<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#compose">#</a></h2>
+<pre class="astro-code github-dark-default" style="background-color:#0d1117;color:#e6edf3; overflow-x: auto;" tabindex="0" data-language="sh"><code><span class="line"><span style="color:#FFA657">xcross</span><span style="color:#A5D6FF"> compose</span><span style="color:#A5D6FF"> setup</span></span>
+<span class="line"><span style="color:#FFA657">xcross</span><span style="color:#A5D6FF"> compose</span><span style="color:#A5D6FF"> build</span><span style="color:#79C0FF"> --ipa</span></span>
+<span class="line"><span style="color:#FFA657">xcross</span><span style="color:#A5D6FF"> compose</span><span style="color:#A5D6FF"> run</span><span style="color:#79C0FF"> --watch</span></span></code></pre>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Command</th><th>Flags</th></tr></thead><tbody><tr><td><code>compose setup</code></td><td><code>--check</code> (verify only), <code>--force</code> (refresh Kotlin/Native cache)</td></tr><tr><td><code>compose build</code></td><td><code>--configuration debug|release</code>, <code>--bundle-id</code>, <code>--app-name</code>, <code>--ipa</code>, <code>--target-platform iphone|simulator</code> (simulator needs a macOS host)</td></tr><tr><td><code>compose run</code></td><td>device flags, <code>--bundle-id</code>, <code>-a</code> app args, <code>--watch</code></td></tr><tr><td><code>compose doctor</code></td><td>read-only readiness check</td></tr><tr><td><code>compose clean</code></td><td>clear this project’s xcross build output and Kotlin/Native caches</td></tr></tbody></table>
+<p>See <a href="/docs/compose">Compose Multiplatform</a>.</p>
+<h2 id="ide">ide<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#ide">#</a></h2>
+<pre class="astro-code github-dark-default" style="background-color:#0d1117;color:#e6edf3; overflow-x: auto;" tabindex="0" data-language="sh"><code><span class="line"><span style="color:#FFA657">xcross</span><span style="color:#A5D6FF"> ide</span><span style="color:#A5D6FF"> vscode</span></span>
+<span class="line"><span style="color:#FFA657">xcross</span><span style="color:#A5D6FF"> ide</span><span style="color:#A5D6FF"> idea</span></span></code></pre>
+<p>No flags. See <a href="/docs/ide-integration">IDE integration</a>.</p>
+<h2 id="config">config<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#config">#</a></h2>
+<pre class="astro-code github-dark-default" style="background-color:#0d1117;color:#e6edf3; overflow-x: auto;" tabindex="0" data-language="sh"><code><span class="line"><span style="color:#FFA657">xcross</span><span style="color:#A5D6FF"> config</span><span style="color:#8B949E">            # TUI editor</span></span>
+<span class="line"><span style="color:#FFA657">xcross</span><span style="color:#A5D6FF"> config</span><span style="color:#A5D6FF"> show</span></span>
+<span class="line"><span style="color:#FFA657">xcross</span><span style="color:#A5D6FF"> config</span><span style="color:#A5D6FF"> validate</span></span></code></pre>
+<h2 id="update">update<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#update">#</a></h2>
+<pre class="astro-code github-dark-default" style="background-color:#0d1117;color:#e6edf3; overflow-x: auto;" tabindex="0" data-language="sh"><code><span class="line"><span style="color:#FFA657">xcross</span><span style="color:#A5D6FF"> update</span></span></code></pre>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Flag</th><th></th></tr></thead><tbody><tr><td><code>--check</code></td><td>Report the target version only</td></tr><tr><td><code>--ref &#x3C;ref></code></td><td>Install a tag, branch or commit</td></tr><tr><td><code>--force</code></td><td>Reinstall even if current</td></tr><tr><td><code>-y</code>, <code>--yes</code></td><td>Skip the confirmation</td></tr></tbody></table>
+<h2 id="clean">clean<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#clean">#</a></h2>
+<pre class="astro-code github-dark-default" style="background-color:#0d1117;color:#e6edf3; overflow-x: auto;" tabindex="0" data-language="sh"><code><span class="line"><span style="color:#FFA657">xcross</span><span style="color:#A5D6FF"> flutter</span><span style="color:#A5D6FF"> clean</span><span style="color:#8B949E">   # this project's native asset + SwiftPM caches (device and simulator)</span></span>
+<span class="line"><span style="color:#FFA657">xcross</span><span style="color:#A5D6FF"> compose</span><span style="color:#A5D6FF"> clean</span><span style="color:#8B949E">   # this project's xcross build output + Kotlin/Native caches</span></span>
+<span class="line"><span style="color:#FFA657">xcross</span><span style="color:#A5D6FF"> sdk</span><span style="color:#A5D6FF"> clean</span><span style="color:#8B949E">       # the installed Darwin SDK</span></span></code></pre>
+<p>Shared caches and unrelated build output are left alone.</p>
+<h2 id="completion">completion<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#completion">#</a></h2>
+<pre class="astro-code github-dark-default" style="background-color:#0d1117;color:#e6edf3; overflow-x: auto;" tabindex="0" data-language="sh"><code><span class="line"><span style="color:#FFA657">xcross</span><span style="color:#A5D6FF"> completion</span><span style="color:#FF7B72"> >></span><span style="color:#A5D6FF"> ~/.zshrc</span></span></code></pre>
+<h2 id="environment">Environment<a class="heading-anchor" aria-hidden="true" tabindex="-1" href="#environment">#</a></h2>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>Variable</th><th></th></tr></thead><tbody><tr><td><code>XCROSS_OFFLINE=1</code></td><td>Skip Apple and sign from the cache. See <a href="/docs/authentication#working-offline">offline</a></td></tr><tr><td><code>XCROSS_BUNDLE_ID</code></td><td><code>original</code> or <code>prefixed</code> for this run</td></tr><tr><td><code>XCROSS_APP_GROUP</code></td><td>App Group to use with an API key</td></tr><tr><td><code>XCROSS_CONFIG</code></td><td>Path to a <a href="/docs/configuration">config file</a></td></tr><tr><td><code>XCROSS_NO_UPDATE_CHECK=1</code></td><td>Silence the new-release hint</td></tr></tbody></table></div><nav class="mt-16 grid gap-3 border-t border-line pt-8 sm:grid-cols-2" aria-label="Pagination"><a href="/docs/authentication" class="lift group rounded-lg border border-line bg-bg-soft px-4 py-3.5 hover:border-line-strong"><span class="flex items-center gap-1.5 text-[11px] uppercase tracking-[0.12em] text-fg-faint"><svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="rotate-180 transition-transform duration-500 group-hover:-translate-x-0.5"><path d="m9 18 6-6-6-6"/></svg>Previous</span><span class="mt-1 block text-[13.5px] text-fg-muted group-hover:text-fg">Authentication</span></a><a href="/docs/configuration" class="lift group rounded-lg border border-line bg-bg-soft px-4 py-3.5 text-right hover:border-line-strong sm:col-start-2"><span class="flex items-center justify-end gap-1.5 text-[11px] uppercase tracking-[0.12em] text-fg-faint">Next<svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="transition-transform duration-500 group-hover:translate-x-0.5"><path d="m9 18 6-6-6-6"/></svg></span><span class="mt-1 block text-[13.5px] text-fg-muted group-hover:text-fg">Configuration</span></a></nav><div class="mt-8 flex flex-wrap items-center gap-x-5 gap-y-2 text-[12.5px] text-fg-faint"><a href="https://github.com/arxdeus/xcross/edit/main/README.md" target="_blank" rel="noreferrer" class="inline-flex items-center gap-1.5 transition-colors hover:text-fg-muted"><svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class><path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"/></svg>Edit on GitHub</a><a href="https://github.com/arxdeus/xcross/issues" target="_blank" rel="noreferrer" class="inline-flex items-center gap-1.5 transition-colors hover:text-fg-muted"><svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class><path d="M7 17 17 7"/><path d="M8 7h9v9"/></svg>Report an issue</a></div></article><!-- TOC --><aside data-docs-toc class="hidden xl:block"><div class="scrollbar-none sticky top-14 max-h-[calc(100vh-3.5rem)] overflow-y-auto py-14"><nav aria-label="On this page" class="text-[12.5px]" data-toc><p class="mb-3 text-[10.5px] font-medium uppercase tracking-[0.14em] text-fg-faint">On this page</p><ul class="relative space-y-1.5 border-l border-line" data-seg data-seg-style="toc"><li><a href="#at-a-glance" data-toc-link="at-a-glance" data-seg-item class="relative z-10 -ml-px block border-l border-transparent py-0.5 text-fg-faint transition-colors duration-500 hover:text-fg pl-3.5">At a glance</a></li><li><a href="#setup" data-toc-link="setup" data-seg-item class="relative z-10 -ml-px block border-l border-transparent py-0.5 text-fg-faint transition-colors duration-500 hover:text-fg pl-3.5">setup</a></li><li><a href="#sdk-install" data-toc-link="sdk-install" data-seg-item class="relative z-10 -ml-px block border-l border-transparent py-0.5 text-fg-faint transition-colors duration-500 hover:text-fg pl-3.5">sdk install</a></li><li><a href="#auth" data-toc-link="auth" data-seg-item class="relative z-10 -ml-px block border-l border-transparent py-0.5 text-fg-faint transition-colors duration-500 hover:text-fg pl-3.5">auth</a></li><li><a href="#doctor" data-toc-link="doctor" data-seg-item class="relative z-10 -ml-px block border-l border-transparent py-0.5 text-fg-faint transition-colors duration-500 hover:text-fg pl-3.5">doctor</a></li><li><a href="#tunnel" data-toc-link="tunnel" data-seg-item class="relative z-10 -ml-px block border-l border-transparent py-0.5 text-fg-faint transition-colors duration-500 hover:text-fg pl-3.5">tunnel</a></li><li><a href="#device-selection" data-toc-link="device-selection" data-seg-item class="relative z-10 -ml-px block border-l border-transparent py-0.5 text-fg-faint transition-colors duration-500 hover:text-fg pl-3.5">Device selection</a></li><li><a href="#flutter" data-toc-link="flutter" data-seg-item class="relative z-10 -ml-px block border-l border-transparent py-0.5 text-fg-faint transition-colors duration-500 hover:text-fg pl-3.5">flutter</a></li><li><a href="#app-id-on-first-device-run" data-toc-link="app-id-on-first-device-run" data-seg-item class="relative z-10 -ml-px block border-l border-transparent py-0.5 text-fg-faint transition-colors duration-500 hover:text-fg pl-6">App ID on first device run</a></li><li><a href="#compose" data-toc-link="compose" data-seg-item class="relative z-10 -ml-px block border-l border-transparent py-0.5 text-fg-faint transition-colors duration-500 hover:text-fg pl-3.5">compose</a></li><li><a href="#ide" data-toc-link="ide" data-seg-item class="relative z-10 -ml-px block border-l border-transparent py-0.5 text-fg-faint transition-colors duration-500 hover:text-fg pl-3.5">ide</a></li><li><a href="#config" data-toc-link="config" data-seg-item class="relative z-10 -ml-px block border-l border-transparent py-0.5 text-fg-faint transition-colors duration-500 hover:text-fg pl-3.5">config</a></li><li><a href="#update" data-toc-link="update" data-seg-item class="relative z-10 -ml-px block border-l border-transparent py-0.5 text-fg-faint transition-colors duration-500 hover:text-fg pl-3.5">update</a></li><li><a href="#clean" data-toc-link="clean" data-seg-item class="relative z-10 -ml-px block border-l border-transparent py-0.5 text-fg-faint transition-colors duration-500 hover:text-fg pl-3.5">clean</a></li><li><a href="#completion" data-toc-link="completion" data-seg-item class="relative z-10 -ml-px block border-l border-transparent py-0.5 text-fg-faint transition-colors duration-500 hover:text-fg pl-3.5">completion</a></li><li><a href="#environment" data-toc-link="environment" data-seg-item class="relative z-10 -ml-px block border-l border-transparent py-0.5 text-fg-faint transition-colors duration-500 hover:text-fg pl-3.5">Environment</a></li></ul></nav><script type="module">var e=new Map;if(document.querySelectorAll(`[data-toc-link]`).forEach(t=>{e.set(t.dataset.tocLink,t)}),e.size>0){let t=t=>{e.forEach((e,n)=>{let r=n===t;e.classList.toggle(`border-accent`,r),e.classList.toggle(`text-fg`,r),e.classList.toggle(`border-transparent`,!r),e.classList.toggle(`text-fg-faint`,!r),e.toggleAttribute(`data-active`,r)})},n=new Set,r=new IntersectionObserver(r=>{for(let e of r){let t=e.target.id;e.isIntersecting?n.add(t):n.delete(t)}let i=[...e.keys()].find(e=>n.has(e));i?t(i):window.scrollY<40&&t([...e.keys()][0])},{rootMargin:`-80px 0px -70% 0px`,threshold:0});e.forEach((e,t)=>{let n=document.getElementById(t);n&&r.observe(n)}),t([...e.keys()][0])}</script></div></aside></div></div></main><footer data-site-footer class="border-t border-line bg-bg-soft"><div class="container-page py-14"><div class="grid gap-10 md:grid-cols-[1.4fr_1fr_1fr_1fr]"><div><div class="flex items-center gap-2.5"><svg width="20" height="20" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" class aria-hidden="true"><rect x="0.75" y="0.75" width="30.5" height="30.5" rx="8.25" stroke="url(#xc-b)" stroke-width="1.5"></rect><path d="M10 10.5 21.5 22M21.5 10.5 10 22" stroke="url(#xc-a)" stroke-width="2.4" stroke-linecap="round"></path><defs><linearGradient id="xc-a" x1="10" y1="10" x2="22" y2="22" gradientUnits="userSpaceOnUse"><stop stop-color="#8dc0ff"></stop><stop offset="1" stop-color="#4d9fff"></stop></linearGradient><linearGradient id="xc-b" x1="0" y1="0" x2="32" y2="32" gradientUnits="userSpaceOnUse"><stop stop-color="#4a4a57"></stop><stop offset="1" stop-color="#28282f"></stop></linearGradient></defs></svg><span class="font-mono text-sm text-fg">xcross</span></div><p class="mt-3 max-w-xs text-[13px] leading-relaxed text-fg-faint">Run and debug cross-platform (Flutter / CMP) iOS apps natively from Windows and Linux.</p><a href="https://ko-fi.com/E1E0I3G2D" target="_blank" rel="noreferrer" class="lift group mt-5 inline-flex items-center gap-2 rounded-md border border-line bg-surface px-3 py-1.5 text-[12px] text-fg-muted hover:border-line-strong hover:text-fg"><svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="transition-colors duration-300 group-hover:text-rose-400"><path d="M19 14c1.5-1.5 3-3.3 3-5.5A5.5 5.5 0 0 0 12 5.4 5.5 5.5 0 0 0 2 8.5c0 2.2 1.5 4 3 5.5l7 7Z"/></svg>Support development</a></div><div><h3 class="text-[11px] font-medium uppercase tracking-[0.12em] text-fg-faint">Getting started</h3><ul class="mt-4 space-y-2.5"><li><a href="/docs/introduction" class="inline-flex items-center gap-1 text-[13px] text-fg-muted transition-[color,transform] duration-400 hover:translate-x-0.5 hover:text-fg">Introduction</a></li><li><a href="/docs/installation" class="inline-flex items-center gap-1 text-[13px] text-fg-muted transition-[color,transform] duration-400 hover:translate-x-0.5 hover:text-fg">Installation</a></li><li><a href="/docs/quick-start" class="inline-flex items-center gap-1 text-[13px] text-fg-muted transition-[color,transform] duration-400 hover:translate-x-0.5 hover:text-fg">Quick start</a></li><li><a href="/docs/compose" class="inline-flex items-center gap-1 text-[13px] text-fg-muted transition-[color,transform] duration-400 hover:translate-x-0.5 hover:text-fg">Compose Multiplatform</a></li><li><a href="/docs/ide-integration" class="inline-flex items-center gap-1 text-[13px] text-fg-muted transition-[color,transform] duration-400 hover:translate-x-0.5 hover:text-fg">IDE integration</a></li></ul></div><div><h3 class="text-[11px] font-medium uppercase tracking-[0.12em] text-fg-faint">Reference</h3><ul class="mt-4 space-y-2.5"><li><a href="/docs/cli" class="inline-flex items-center gap-1 text-[13px] text-fg-muted transition-[color,transform] duration-400 hover:translate-x-0.5 hover:text-fg">CLI reference</a></li><li><a href="/docs/architecture" class="inline-flex items-center gap-1 text-[13px] text-fg-muted transition-[color,transform] duration-400 hover:translate-x-0.5 hover:text-fg">Architecture</a></li><li><a href="/docs/troubleshooting" class="inline-flex items-center gap-1 text-[13px] text-fg-muted transition-[color,transform] duration-400 hover:translate-x-0.5 hover:text-fg">Troubleshooting</a></li><li><a href="/docs/faq" class="inline-flex items-center gap-1 text-[13px] text-fg-muted transition-[color,transform] duration-400 hover:translate-x-0.5 hover:text-fg">FAQ</a></li></ul></div><div><h3 class="text-[11px] font-medium uppercase tracking-[0.12em] text-fg-faint">Project</h3><ul class="mt-4 space-y-2.5"><li><a href="https://github.com/arxdeus/xcross" target="_blank" rel="noreferrer" class="inline-flex items-center gap-1 text-[13px] text-fg-muted transition-[color,transform] duration-400 hover:translate-x-0.5 hover:text-fg">GitHub<svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="text-fg-faint"><path d="M7 17 17 7"/><path d="M8 7h9v9"/></svg></a></li><li><a href="https://github.com/arxdeus/xcross/releases" target="_blank" rel="noreferrer" class="inline-flex items-center gap-1 text-[13px] text-fg-muted transition-[color,transform] duration-400 hover:translate-x-0.5 hover:text-fg">Releases<svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="text-fg-faint"><path d="M7 17 17 7"/><path d="M8 7h9v9"/></svg></a></li><li><a href="https://github.com/arxdeus/xcross/issues" target="_blank" rel="noreferrer" class="inline-flex items-center gap-1 text-[13px] text-fg-muted transition-[color,transform] duration-400 hover:translate-x-0.5 hover:text-fg">Issues<svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="text-fg-faint"><path d="M7 17 17 7"/><path d="M8 7h9v9"/></svg></a></li><li><a href="https://github.com/arxdeus/xcross/blob/main/LICENSE" target="_blank" rel="noreferrer" class="inline-flex items-center gap-1 text-[13px] text-fg-muted transition-[color,transform] duration-400 hover:translate-x-0.5 hover:text-fg">AGPL-3.0 License<svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="text-fg-faint"><path d="M7 17 17 7"/><path d="M8 7h9v9"/></svg></a></li></ul></div></div><div class="mt-12 flex flex-col gap-3 border-t border-line pt-6 text-[12px] text-fg-faint sm:flex-row sm:items-center sm:justify-between"><p>AGPL-3.0 licensed. Not affiliated with Apple or Google.</p><a href="https://github.com/arxdeus" target="_blank" rel="noreferrer" class="group inline-flex items-center gap-2 font-mono transition-colors hover:text-fg-muted">built by<span class="text-fg-muted transition-colors group-hover:text-fg">arxdeus</span><svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="opacity-0 transition-all duration-300 group-hover:translate-x-0.5 group-hover:opacity-100"><path d="M7 17 17 7"/><path d="M8 7h9v9"/></svg></a></div></div></footer><dialog id="search-dialog" class="m-0 w-full max-w-xl translate-y-0 rounded-xl border border-line-strong bg-surface p-0 text-fg shadow-2xl shadow-black/60 backdrop:bg-black/70 backdrop:backdrop-blur-sm sm:mx-auto sm:mt-[12vh]" data-endpoint="/search.json" data-docs-base="/docs"><div class="flex items-center gap-2.5 border-b border-line px-4"><svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" class="text-fg-faint"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg><input type="search" id="search-input" placeholder="Search documentation..." autocomplete="off" spellcheck="false" class="h-12 w-full bg-transparent text-sm text-fg outline-none placeholder:text-fg-faint [&amp;::-webkit-search-cancel-button]:hidden"><kbd class="rounded border border-line bg-elevated px-1.5 py-0.5 font-mono text-[10px] text-fg-faint">ESC</kbd></div><ul id="search-results" class="max-h-[min(60vh,26rem)] overflow-y-auto p-2 text-sm"></ul><p id="search-empty" class="hidden px-4 pb-4 text-[13px] text-fg-faint">No results.</p></dialog><script type="module">var e=document.getElementById(`search-dialog`);if(e){let t=document.getElementById(`search-input`),n=document.getElementById(`search-results`),r=document.getElementById(`search-empty`),i=e.dataset.endpoint,a=e.dataset.docsBase,o=null,s=0,c=async()=>{if(o)return o;try{o=await(await fetch(i)).json()}catch{o=[]}return o},l=e=>{if(!o)return[];let t=e.trim().toLowerCase(),n=[];for(let e of o){let r=e.title.toLowerCase(),i=e.description.toLowerCase(),o=0;if(t?r.startsWith(t)?o=100:r.includes(t)?o=70:i.includes(t)&&(o=30):o=1,o>0&&n.push({title:e.title,sub:e.description,href:`${a}/${e.id}`,score:o}),t)for(let r of e.headings)r.text.toLowerCase().includes(t)&&n.push({title:r.text,sub:e.title,href:`${a}/${e.id}#${r.slug}`,score:50})}return n.sort((e,t)=>t.score-e.score).slice(0,12)},u=e=>{s=0,n.innerHTML=e.map((e,t)=>`
+        <li>
+          <a href="${e.href}" data-idx="${t}" class="flex flex-col gap-0.5 rounded-lg px-3 py-2.5 outline-none transition-colors duration-300 ${t===0?`bg-elevated`:``}">
+            <span class="text-[13px] text-fg">${d(e.title)}</span>
+            <span class="truncate text-[12px] text-fg-faint">${d(e.sub)}</span>
+          </a>
+        </li>`).join(``),r.classList.toggle(`hidden`,e.length>0)},d=e=>e.replace(/[&<>"']/g,e=>({"&":`&amp;`,"<":`&lt;`,">":`&gt;`,'"':`&quot;`,"'":`&#39;`})[e]),f=()=>{let e=n.querySelectorAll(`a`);e.forEach((e,t)=>e.classList.toggle(`bg-elevated`,t===s)),e[s]?.scrollIntoView({block:`nearest`})},p=async()=>{e.showModal(),t.value=``,await c(),u(l(``)),t.focus()};document.querySelectorAll(`[data-search-open]`).forEach(e=>e.addEventListener(`click`,p)),t.addEventListener(`input`,()=>u(l(t.value))),e.addEventListener(`keydown`,e=>{let t=n.querySelectorAll(`a`);e.key===`ArrowDown`?(e.preventDefault(),s=Math.min(s+1,t.length-1),f()):e.key===`ArrowUp`?(e.preventDefault(),s=Math.max(s-1,0),f()):e.key===`Enter`&&(e.preventDefault(),t[s]?.click())}),e.addEventListener(`click`,t=>{t.target===e&&e.close()}),document.addEventListener(`keydown`,t=>{(t.metaKey||t.ctrlKey)&&t.key.toLowerCase()===`k`&&(t.preventDefault(),e.open?e.close():p()),t.key===`/`&&!e.open&&!/^(INPUT|TEXTAREA)$/.test(t.target?.tagName)&&(t.preventDefault(),p())})}</script></body></html><script type="module" src="/_astro/BaseLayout.astro_astro_type_script_index_0_lang.C0R17M0H.js"></script>
