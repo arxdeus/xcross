@@ -12,6 +12,42 @@ import 'package:test/test.dart';
 
 void main() {
   group('DeveloperServicesClient', () {
+    test(
+      'finds exact certificate serial without unsupported server filter',
+      () async {
+        final client = DeveloperServicesClient(
+          token: _token(),
+          teamId: 'TEAM',
+          fetchAnisetteHeaders: () async => {},
+          httpClient: MockClient((request) async {
+            expect(request.headers['X-HTTP-Method-Override'], 'GET');
+            expect(
+              (jsonDecode(request.body) as Map)['urlEncodedQueryParams'],
+              'teamId=TEAM',
+            );
+            return http.Response(
+              jsonEncode({
+                'data': [
+                  {
+                    'id': 'unrelated',
+                    'attributes': {'serialNumber': 'OTHER'},
+                  },
+                  {
+                    'id': 'expected',
+                    'attributes': {'serialNumber': 'TARGET'},
+                  },
+                ],
+              }),
+              200,
+            );
+          }),
+        );
+        addTearDown(client.close);
+        expect(await client.findCertificateIdsBySerial('TARGET'), ['expected']);
+        expect(await client.findCertificateIdsBySerial('MISSING'), isEmpty);
+      },
+    );
+
     test('reports HTML 429 without JSON decoding or retrying', () async {
       var requests = 0;
       final client = DeveloperServicesClient(

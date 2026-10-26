@@ -65,14 +65,20 @@ final class DeveloperServicesClient implements DevelopmentProvisioningClient {
   Future<List<String>> listCertificateIds() async =>
       _ids(await _getCollection('/v1/certificates'));
 
+  // developerservices2 returns an empty page for serialNumber filtering.
+  // Match the exact serial locally, as with its unsupported UDID filter.
   @override
-  Future<List<String>> findCertificateIdsBySerial(String serialNumber) async =>
-      _ids(
-        await _getCollection(
-          '/v1/certificates?filter[serialNumber]='
-          '${Uri.encodeQueryComponent(serialNumber)}',
-        ),
-      );
+  Future<List<String>> findCertificateIdsBySerial(String serialNumber) async {
+    final matches = <String>[];
+    for (final entry in await _getCollection('/v1/certificates')) {
+      final row = (entry! as Map).cast<String, dynamic>();
+      final attributes = (row['attributes'] as Map).cast<String, dynamic>();
+      if (attributes['serialNumber'] == serialNumber) {
+        matches.add(row['id'] as String);
+      }
+    }
+    return matches;
+  }
 
   @override
   Future<void> revokeCertificate(String certificateId) async {
