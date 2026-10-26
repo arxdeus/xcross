@@ -9,6 +9,7 @@ import 'package:apple_developer_kit/shared/appstoreconnect/asc_config.dart';
 import 'package:apple_developer_kit/shared/appstoreconnect/developer_services_client.dart';
 import 'package:apple_developer_kit/shared/grandslam/anisette/anisette_data_provider.dart';
 import 'package:apple_developer_kit/shared/grandslam/anisette/anisette_provider.dart';
+import 'package:apple_developer_kit/shared/grandslam/anisette/omnisette_provider.dart';
 import 'package:apple_developer_kit/shared/grandslam/grandslam_session_store.dart';
 import 'package:apple_developer_kit/shared/secure/local_cipher.dart';
 import 'package:meta/meta.dart';
@@ -195,10 +196,16 @@ final class SigningSessionResolver implements SigningSessionProvider {
     final anisette = anisetteForSession(
       session,
       hostAbi: hostServices.abi,
-      createProvider: (directory) => AnisetteDataProvider(
+      anisetteUrlOverride: _anisetteUrlEnvironmentOverride(),
+      createAndroidProvider: (directory) => AnisetteDataProvider(
         directory,
         hostServices: hostServices,
         loader: createNativeLibraryLoader(),
+        httpClient: httpClients.create(),
+      ),
+      createOmnisetteProvider: (baseUrl) => OmnisetteAnisetteProvider(
+        baseUrl: baseUrl,
+        hostServices: hostServices,
         httpClient: httpClients.create(),
       ),
     );
@@ -224,26 +231,58 @@ final class SigningSessionResolver implements SigningSessionProvider {
     );
   }
 
+  String? _anisetteUrlEnvironmentOverride() {
+    final value = hostServices.host.environment.values[kAnisetteUrlEnvVar];
+    if (value == null || value.trim().isEmpty) return null;
+    return value.trim();
+  }
+
+  /// Rebuilds the anisette provider the session was signed in with:
+  /// local Android ADI libraries (the default) or the recorded remote
+  /// Omnisette server, with [anisetteUrlOverride] (XCROSS_ANISETTE_URL)
+  /// able to redirect an Omnisette session to a new server URL.
   @visibleForTesting
   static AnisetteProvider anisetteForSession(
     GrandSlamSession session, {
     required Abi hostAbi,
-    required AnisetteProvider Function(String directory) createProvider,
+    required AnisetteProvider Function(String directory) createAndroidProvider,
+    required AnisetteProvider Function(String baseUrl) createOmnisetteProvider,
+    String? anisetteUrlOverride,
   }) {
-    final abi = hostAbi;
-    if (!AdiLibraryFetcher.supportsAbi(abi)) {
+    final providerId = session.anisetteProvider;
+    final recordedDirectory = session.adiLibraryDirectory;
+    // Sessions saved by the Omnisette-only builds named neither a provider
+    // nor an ADI directory; every earlier session carries a directory.
+    final omnisette =
+        providerId == kOmnisetteProviderId ||
+        (providerId == null &&
+            (recordedDirectory == null || recordedDirectory.isEmpty));
+    if (omnisette) {
+      final override = anisetteUrlOverride?.trim();
+      final url =
+          (override == null || override.isEmpty)
+          ? session.anisetteUrl ?? kDefaultOmnisetteUrl
+          : override;
+      return createOmnisetteProvider(url);
+    }
+    if (providerId != null && providerId != kAdiProviderId) {
       throw XcrossError(
-        'Saved native Apple ID sessions support Linux and macOS x64/ARM64 '
-        'and Windows x64/ARM64 (got $abi).',
+        'Saved Apple ID session uses unknown anisette provider "$providerId". '
+        'Run xcross auth --apple-id <email> again.',
       );
     }
-    final adiDir = session.adiLibraryDirectory;
-    if (adiDir == null || adiDir.isEmpty) {
+    if (!AdiLibraryFetcher.supportsAbi(hostAbi)) {
+      throw XcrossError(
+        'Saved native Apple ID sessions support Linux and macOS x64/ARM64 '
+        'and Windows x64/ARM64 (got $hostAbi).',
+      );
+    }
+    if (recordedDirectory == null || recordedDirectory.isEmpty) {
       throw XcrossError(
         'Saved Apple ID session is missing adiLibraryDirectory. '
         'Run xcross auth --apple-id <email> again.',
       );
     }
-    return createProvider(adiDir);
+    return createAndroidProvider(recordedDirectory);
   }
 }

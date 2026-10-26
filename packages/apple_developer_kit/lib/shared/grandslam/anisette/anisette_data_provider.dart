@@ -26,6 +26,13 @@ import 'package:apple_developer_kit/src/shared/grandslam/internal/grandslam_resp
 import 'package:http/http.dart' as http;
 import 'package:propertylistserialization/propertylistserialization.dart';
 
+/// Stored in [AnisetteState.providerId] by this provider; a different
+/// stored value (e.g. from remote Omnisette provisioning) resets the
+/// state, since provisioning material never transfers between backends.
+/// A null stored value is a legacy state this provider wrote before
+/// provider IDs existed, and stays valid.
+const String kAdiProviderId = 'android-adi';
+
 /// Produces Anisette headers from a locally-loaded ADI native library.
 ///
 /// On first use it loads or creates the persisted pseudo-identity, runs
@@ -90,8 +97,23 @@ final class AnisetteDataProvider implements AnisetteProvider {
   @override
   void close() => _http.close();
 
-  Future<AnisetteState> _loadState() async =>
-      _state ??= await _stateStore.load();
+  Future<AnisetteState> _loadState() async {
+    final loaded = _state ??= await _stateStore.load();
+    // A state provisioned by a different backend (remote Omnisette) is
+    // reset: its adiPb/routingInfo belong to that backend, not to the
+    // local ADI libraries. A null providerId predates backend tagging and
+    // can only be a local-ADI state.
+    if (loaded.providerId == null || loaded.providerId == kAdiProviderId) {
+      return loaded;
+    }
+    final reset = AnisetteState(
+      localUserUid: loaded.localUserUid,
+      providerId: kAdiProviderId,
+    );
+    await _stateStore.save(reset);
+    _state = reset;
+    return reset;
+  }
 
   AdiProvisioning _adiFor(AnisetteState state) =>
       _adi ??= (_adiFactory ?? _defaultAdiFactory)(
@@ -123,8 +145,9 @@ final class AnisetteDataProvider implements AnisetteProvider {
       throw AppleError(
         'ADI reports this device is already provisioned, but xcross has '
         'no saved routing info for it (state file at ${_stateStore.path} '
-        'missing or corrupted?). Erase provisioning for this device '
-        '(delete its ADI provisioning directory) and retry.',
+        'reset by switching anisette backends, missing, or corrupted?). '
+        'Erase provisioning for this device (delete its ADI provisioning '
+        'directory) and retry.',
       );
     }
 
@@ -134,6 +157,7 @@ final class AnisetteDataProvider implements AnisetteProvider {
     final provisioned = state.copyWith(
       provisioned: true,
       routingInfo: routingInfo,
+      providerId: kAdiProviderId,
     );
     await _stateStore.save(provisioned);
     _state = provisioned;

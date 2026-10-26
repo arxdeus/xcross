@@ -11,6 +11,7 @@ import 'package:apple_developer_kit/shared/appstoreconnect/asc_config.dart';
 import 'package:apple_developer_kit/shared/appstoreconnect/developer_services_team_discovery_client.dart';
 import 'package:apple_developer_kit/shared/grandslam/anisette/anisette_data_provider.dart';
 import 'package:apple_developer_kit/shared/grandslam/anisette/anisette_provider.dart';
+import 'package:apple_developer_kit/shared/grandslam/anisette/omnisette_provider.dart';
 import 'package:apple_developer_kit/shared/grandslam/app_token_exchange.dart';
 import 'package:apple_developer_kit/shared/grandslam/grandslam_login.dart';
 import 'package:apple_developer_kit/shared/grandslam/grandslam_session_store.dart';
@@ -68,6 +69,19 @@ final class AuthArgs {
   late String? adiLibraryDir;
 
   late bool adiLibraryDirWasParsed;
+
+  @CliOption(
+    valueHelp: 'url',
+    help:
+        'Sign in via a remote Omnisette Mac-anisette server instead of the '
+        'local Android ADI libraries. Works with any omnisette-server v3 '
+        'deployment, self-hosted or public (e.g. '
+        'https://mac-ani.jkcoxson.com). Can also be set with the '
+        'XCROSS_ANISETTE_URL environment variable.',
+  )
+  late String? anisetteUrl;
+
+  late bool anisetteUrlWasParsed;
 }
 
 const _authOptionNames = [
@@ -77,6 +91,7 @@ const _authOptionNames = [
   'apple-id',
   'password',
   'adi-library-dir',
+  'anisette-url',
 ];
 
 /// `xcross auth` — save credentials for the native (no-Swift) signing
@@ -232,10 +247,14 @@ final class AuthCommand extends ParsedCommand<AuthArgs, void> {
         '--private-key, or none to use Apple ID login.',
       );
     }
-    if (options.adiLibraryDirWasParsed) {
-      throw XcrossError('--adi-library-dir only applies to Apple ID login.');
+    for (final (name, parsed) in [
+      ('--adi-library-dir', options.adiLibraryDirWasParsed),
+      ('--anisette-url', options.anisetteUrlWasParsed),
+    ]) {
+      if (parsed) {
+        throw XcrossError('$name only applies to Apple ID login.');
+      }
     }
-
     final logicalKeyPath = hostServices.host.paths.context.absolute(
       privateKeyPath!,
     );
@@ -267,18 +286,44 @@ final class AuthCommand extends ParsedCommand<AuthArgs, void> {
     if (options.appleIdWasParsed && !_present(appleId)) {
       throw XcrossError('--apple-id requires a non-empty email address.');
     }
-    requireAppleIdHost(hostServices.abi);
+
+    final anisetteUrl = resolveOmnisetteUrl();
+    if (anisetteUrl == null) {
+      // Local Android ADI path: refuse unsupported hosts before prompting.
+      requireAppleIdHost(hostServices.abi);
+    } else {
+      commandPrompt.write(
+        'Heads up:\n'
+        '  Anisette data comes from the remote Omnisette server at\n'
+        '  $anisetteUrl — a third party you must trust with your\n'
+        '  device identity (self-host an omnisette-server to avoid\n'
+        '  this). Your credentials are only ever sent to Apple.\n'
+        '  Consider using a secondary Apple ID since this is a\n'
+        '  private API.\n',
+      );
+    }
 
     // Credentials before any await: keeps interactive stdin simple on Windows.
     final (:username, :password) = _readAppleIdCredentials(appleId);
 
-    final adiLibraryDirectory = await _resolveAdiLibraryDirectory();
-    final anisette = AnisetteDataProvider(
-      adiLibraryDirectory,
-      httpClient: createHttpClient(),
-      hostServices: hostServices,
-      loader: createNativeLibraryLoader(),
-    );
+    final AnisetteProvider anisette;
+    final String? adiLibraryDirectory;
+    if (anisetteUrl != null) {
+      adiLibraryDirectory = null;
+      anisette = OmnisetteAnisetteProvider(
+        baseUrl: anisetteUrl,
+        httpClient: createHttpClient(),
+        hostServices: hostServices,
+      );
+    } else {
+      adiLibraryDirectory = await _resolveAdiLibraryDirectory();
+      anisette = AnisetteDataProvider(
+        adiLibraryDirectory,
+        hostServices: hostServices,
+        loader: createNativeLibraryLoader(),
+        httpClient: createHttpClient(),
+      );
+    }
     GrandSlamClient? loginClient;
     GrandSlamAppTokenExchange? tokenExchange;
     try {
@@ -313,6 +358,7 @@ final class AuthCommand extends ParsedCommand<AuthArgs, void> {
         username: username,
         token: token,
         team: team,
+        anisetteUrl: anisetteUrl,
         adiLibraryDirectory: adiLibraryDirectory,
       );
     } on XcrossError {
@@ -328,11 +374,78 @@ final class AuthCommand extends ParsedCommand<AuthArgs, void> {
     }
   }
 
+  /// The Omnisette server URL to sign in through, or null to use the
+  /// local Android ADI libraries. `--anisette-url` wins over the
+  /// `XCROSS_ANISETTE_URL` environment variable.
+  @visibleForTesting
+  String? resolveOmnisetteUrl({String? environmentValue}) =>
+      omnisetteUrlChoice(
+        flagValue: options.anisetteUrl,
+        flagParsed: options.anisetteUrlWasParsed,
+        adiLibraryDirParsed: options.adiLibraryDirWasParsed,
+        environmentValue:
+            environmentValue ?? _anisetteUrlEnvironmentValue(),
+      );
+
+  /// Pure form of [resolveOmnisetteUrl] over the raw inputs, so the choice
+  /// logic is testable without a parsed command line.
+  @visibleForTesting
+  static String? omnisetteUrlChoice({
+    required String? flagValue,
+    required bool flagParsed,
+    required bool adiLibraryDirParsed,
+    String? environmentValue,
+  }) {
+    final fromFlag = flagValue?.trim();
+    if (flagParsed && !_present(fromFlag)) {
+      throw XcrossError('--anisette-url requires a non-empty URL.');
+    }
+    final fromEnvironment = environmentValue?.trim();
+    if (!_present(fromFlag) && adiLibraryDirParsed) {
+      if (_present(fromEnvironment)) {
+        throw XcrossError(
+          'Use either --adi-library-dir or '
+          '--anisette-url/$kAnisetteUrlEnvVar, not both.',
+        );
+      }
+      return null;
+    }
+    final url = _present(fromFlag) ? fromFlag : fromEnvironment;
+    if (!_present(url)) return null;
+    final parsed = Uri.tryParse(url!);
+    if (parsed == null ||
+        (parsed.scheme != 'http' && parsed.scheme != 'https') ||
+        parsed.host.isEmpty) {
+      throw XcrossError(
+        '--anisette-url must be the http(s) URL of an omnisette-server '
+        '(got "$url").',
+      );
+    }
+    return url;
+  }
+
+  String? _anisetteUrlEnvironmentValue() =>
+      hostServices.host.environment.values[kAnisetteUrlEnvVar];
+
+  Future<String> _resolveAdiLibraryDirectory() {
+    final host = hostServices.host;
+    final environment = host.environment.values;
+    final home = environment['HOME'] ?? environment['USERPROFILE'];
+    if (home == null) {
+      throw StateError('Cannot determine a home directory (HOME is not set).');
+    }
+    return resolveAdiLibraryDirectory(
+      configuredDirectory: options.adiLibraryDir,
+      cacheDirectory: host.paths.context.join(home, '.cache', 'provision_dart'),
+    );
+  }
+
   Future<void> _saveAppleIdSession({
     required String username,
     required DeveloperServicesLoginToken token,
     required DeveloperServicesTeam team,
-    required String adiLibraryDirectory,
+    required String? anisetteUrl,
+    required String? adiLibraryDirectory,
   }) async {
     final store = GrandSlamSessionStore(hostServices: hostServices);
     await store.save(
@@ -340,6 +453,10 @@ final class AuthCommand extends ParsedCommand<AuthArgs, void> {
         username: username,
         token: token,
         teamId: team.id,
+        anisetteProvider: anisetteUrl == null
+            ? kAdiProviderId
+            : kOmnisetteProviderId,
+        anisetteUrl: anisetteUrl,
         adiLibraryDirectory: adiLibraryDirectory,
       ),
     );
@@ -436,19 +553,6 @@ final class AuthCommand extends ParsedCommand<AuthArgs, void> {
         'On this platform use App Store Connect API key flags.',
       );
     }
-  }
-
-  Future<String> _resolveAdiLibraryDirectory() {
-    final host = hostServices.host;
-    final environment = host.environment.values;
-    final home = environment['HOME'] ?? environment['USERPROFILE'];
-    if (home == null) {
-      throw StateError('Cannot determine a home directory (HOME is not set).');
-    }
-    return resolveAdiLibraryDirectory(
-      configuredDirectory: options.adiLibraryDir,
-      cacheDirectory: host.paths.context.join(home, '.cache', 'provision_dart'),
-    );
   }
 
   @visibleForTesting

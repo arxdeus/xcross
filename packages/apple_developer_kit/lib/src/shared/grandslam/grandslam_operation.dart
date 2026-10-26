@@ -91,7 +91,7 @@ abstract final class GrandSlamOperation {
       headers: {
         'Content-Type': 'text/x-xml-plist',
         'Accept': '*/*',
-        'User-Agent': 'akd/1.0 CFNetwork/978.0.7 Darwin/18.7.0',
+        'User-Agent': anisetteAkdUserAgent,
         'X-MMe-Client-Info':
             anisette['X-MMe-Client-Info'] ?? anisetteClientInfo,
       },

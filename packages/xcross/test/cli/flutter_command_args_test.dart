@@ -358,15 +358,15 @@ void main() {
     setUp(
       () => command = AuthCommand(
         commandPrompt: TestCommandPrompt(),
-        createAdiHttpClient: testRuntime().createHttpClient,
         log: testLog(),
         hostServices: testRuntime().appleHostServices,
-        createNativeLibraryLoader: testRuntime().createNativeLibraryLoader,
         createHttpClient: testRuntime().createAppleHttpClient,
+        createAdiHttpClient: testRuntime().createHttpClient,
+        createNativeLibraryLoader: testRuntime().createNativeLibraryLoader,
       ),
     );
 
-    test('exposes all six option names', () {
+    test('exposes all seven option names', () {
       final options = command.argParser.options;
       expect(
         options.keys,
@@ -377,6 +377,7 @@ void main() {
           'apple-id',
           'password',
           'adi-library-dir',
+          'anisette-url',
         ]),
       );
     });

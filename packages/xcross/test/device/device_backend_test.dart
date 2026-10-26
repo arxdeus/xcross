@@ -3,9 +3,10 @@ import 'dart:io';
 import 'dart:isolate';
 
 import 'package:apple_developer_kit/composition/apple_host.dart';
-import 'package:apple_developer_kit/shared/adi/apk_fetch.dart';
+import 'package:apple_developer_kit/shared/grandslam/anisette/anisette_data_provider.dart';
 import 'package:apple_developer_kit/shared/grandslam/anisette/anisette_provider.dart';
 import 'package:apple_developer_kit/shared/grandslam/anisette/grandslam_endpoints.dart';
+import 'package:apple_developer_kit/shared/grandslam/anisette/omnisette_provider.dart';
 import 'package:apple_developer_kit/shared/grandslam/app_token_exchange.dart';
 import 'package:apple_developer_kit/shared/grandslam/grandslam_session_store.dart';
 import 'package:cli_kit/host/macos/macos_host.dart';
@@ -32,86 +33,110 @@ void main() {
     MacOSHost(),
     log: testLog(),
   );
+
   group('saved Apple ID session provider', () {
     final directory = p.join(Directory.systemTemp.absolute.path, 'adi-fixture');
 
-    for (final abi in const [
-      Abi.linuxX64,
-      Abi.linuxArm64,
-      Abi.macosX64,
-      Abi.macosArm64,
-      Abi.windowsX64,
-      Abi.windowsArm64,
-    ]) {
-      test('uses the saved ADI directory on $abi without IO', () {
-        final provider = NoIoAnisetteProvider();
-        final directories = <String>[];
-        final resolved = SigningSessionResolver.anisetteForSession(
-          _session(directory),
-          hostAbi: abi,
-          createProvider: (path) {
-            directories.add(path);
-            return provider;
-          },
-        );
-        expect(resolved, same(provider));
-        expect(directories, [directory]);
-      });
+    AnisetteProvider resolve(
+      GrandSlamSession session, {
+      Abi hostAbi = Abi.macosArm64,
+      String? anisetteUrlOverride,
+    }) => SigningSessionResolver.anisetteForSession(
+      session,
+      hostAbi: hostAbi,
+      anisetteUrlOverride: anisetteUrlOverride,
+      createAndroidProvider: RecordingAnisetteProvider.new,
+      createOmnisetteProvider: RecordingAnisetteProvider.new,
+    );
 
-      test('preserves the missing-directory error on $abi', () {
-        expect(
-          () => SigningSessionResolver.anisetteForSession(
-            _session(null),
-            hostAbi: abi,
-            createProvider: (_) => fail('Must reject before creating provider'),
+    test('uses the saved ADI directory for recorded local sessions', () {
+      final provider = resolve(
+        _session(directory, anisetteProvider: kAdiProviderId),
+      );
+      expect(provider, isA<RecordingAnisetteProvider>());
+      expect((provider as RecordingAnisetteProvider).argument, directory);
+    });
+
+    test('legacy sessions with an ADI directory stay local', () {
+      final provider = resolve(_session(directory));
+      expect((provider as RecordingAnisetteProvider).argument, directory);
+    });
+
+    test('uses the recorded Omnisette URL for remote sessions', () {
+      final provider = resolve(
+        _session(null, anisetteProvider: kOmnisetteProviderId, url: 'https://om.example.test'),
+      );
+      expect((provider as RecordingAnisetteProvider).argument, 'https://om.example.test');
+    });
+
+    test('omnisette-only-build sessions without a directory go remote', () {
+      final provider = resolve(_session(null));
+      expect(
+        (provider as RecordingAnisetteProvider).argument,
+        kDefaultOmnisetteUrl,
+      );
+    });
+
+    test('XCROSS_ANISETTE_URL redirects a remote session', () {
+      final provider = resolve(
+        _session(null, anisetteProvider: kOmnisetteProviderId, url: 'https://om.example.test'),
+        anisetteUrlOverride: 'https://self.example.test',
+      );
+      expect(
+        (provider as RecordingAnisetteProvider).argument,
+        'https://self.example.test',
+      );
+    });
+
+    test('XCROSS_ANISETTE_URL never reroutes a local session', () {
+      final provider = resolve(
+        _session(directory, anisetteProvider: kAdiProviderId),
+        anisetteUrlOverride: 'https://om.example.test',
+      );
+      expect((provider as RecordingAnisetteProvider).argument, directory);
+    });
+
+    test('unknown recorded providers are refused', () {
+      expect(
+        () => resolve(_session(directory, anisetteProvider: 'future-thing')),
+        throwsA(
+          isA<XcrossError>().having(
+            (error) => error.message,
+            'message',
+            contains('unknown anisette provider "future-thing"'),
           ),
+        ),
+      );
+    });
+
+    for (final abi in const [Abi.windowsIA32, Abi.linuxArm, Abi.androidArm64]) {
+      test('preflights unsupported local $abi', () {
+        expect(
+          () => resolve(_session(directory), hostAbi: abi),
           throwsA(
             isA<XcrossError>().having(
               (error) => error.message,
               'message',
-              'Saved Apple ID session is missing adiLibraryDirectory. '
-                  'Run xcross auth --apple-id <email> again.',
+              'Saved native Apple ID sessions support Linux and macOS x64/ARM64 '
+                  'and Windows x64/ARM64 (got $abi).',
             ),
           ),
         );
       });
     }
 
-    for (final abi in const [Abi.windowsIA32, Abi.linuxArm, Abi.androidArm64]) {
-      for (final path in [directory, null]) {
-        test('preflights unsupported $abi with directory $path', () {
-          expect(
-            () => SigningSessionResolver.anisetteForSession(
-              _session(path),
-              hostAbi: abi,
-              createProvider: (_) =>
-                  fail('Must reject before creating provider'),
-            ),
-            throwsA(
-              isA<XcrossError>().having(
-                (error) => error.message,
-                'message',
-                'Saved native Apple ID sessions support Linux and macOS x64/ARM64 '
-                    'and Windows x64/ARM64 (got $abi).',
-              ),
-            ),
-          );
-        });
-      }
-    }
-
-    test('uses explicitly supplied ABI', () {
-      final provider = NoIoAnisetteProvider();
-      AnisetteProvider resolve() => SigningSessionResolver.anisetteForSession(
-        _session(directory),
-        hostAbi: Abi.macosArm64,
-        createProvider: (_) => provider,
+    test('local sessions still need a directory', () {
+      expect(
+        () => resolve(_session(null, anisetteProvider: kAdiProviderId)),
+        throwsA(
+          isA<XcrossError>().having(
+            (error) => error.message,
+            'message',
+            'Saved Apple ID session is missing adiLibraryDirectory. '
+                'Run xcross auth --apple-id <email> again.',
+          ),
+        ),
       );
-      if (AdiLibraryFetcher.supportsAbi(Abi.macosArm64)) {
-        expect(resolve(), same(provider));
-      } else {
-        expect(resolve, throwsA(isA<XcrossError>()));
-      }
     });
   });
 
@@ -155,7 +180,11 @@ void main() {
   });
 }
 
-GrandSlamSession _session(String? directory) => GrandSlamSession(
+GrandSlamSession _session(
+  String? directory, {
+  String? anisetteProvider,
+  String? url,
+}) => GrandSlamSession(
   username: 'fixture@example.invalid',
   token: DeveloperServicesLoginToken(
     adsid: 'fixture',
@@ -163,11 +192,17 @@ GrandSlamSession _session(String? directory) => GrandSlamSession(
     expiry: DateTime.utc(2099),
   ),
   teamId: 'FIXTURE',
+  anisetteProvider: anisetteProvider,
+  anisetteUrl: url,
   adiLibraryDirectory: directory,
 );
 
 @internal
-final class NoIoAnisetteProvider implements AnisetteProvider {
+final class RecordingAnisetteProvider implements AnisetteProvider {
+  RecordingAnisetteProvider(this.argument);
+
+  final String argument;
+
   @override
   Future<Map<String, String>> fetchAnisetteHeaders() =>
       throw StateError('Provider construction must not fetch headers');
