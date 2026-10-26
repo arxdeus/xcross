@@ -1,7 +1,9 @@
 // Tests for the `--anisette-url` / `XCROSS_ANISETTE_URL` sign-in mode
 // selection on `xcross auth`: URL validation, flag/env precedence, and the
 // mutual exclusion with the local Android ADI path.
+import 'dart:async';
 import 'dart:ffi';
+import 'dart:io';
 
 import 'package:test/test.dart';
 import 'package:xcross/src/shared/cli/basic/auth_command.dart';
@@ -147,6 +149,47 @@ void main() {
 
     test('fixture builds with the restored ADI seams', () {
       expect(authFixture(), isNotNull);
+    });
+  });
+
+  group('appleIdLoginFailureMessage', () {
+    const docs = 'https://xcross.sh/docs/authentication/#remote-anisette';
+
+    test('local ADI failure suggests any remote server', () {
+      final message = AuthCommand.appleIdLoginFailureMessage(
+        Exception('gsa refused'),
+        anisetteUrl: null,
+      );
+      expect(message, contains('Apple ID login failed: Exception: gsa refused'));
+      expect(message, contains(docs));
+      expect(message, contains('--anisette-url'));
+      expect(message, isNot(contains('unreachable')));
+    });
+
+    test('unreachable remote suggests trying another server', () {
+      final message = AuthCommand.appleIdLoginFailureMessage(
+        const SocketException('Connection refused'),
+        anisetteUrl: 'https://mac-ani.example.test',
+      );
+      expect(message, contains('unreachable'));
+      expect(message, contains(docs));
+      expect(message, contains('--anisette-url'));
+    });
+
+    test('timeout on remote is treated as unreachable', () {
+      final message = AuthCommand.appleIdLoginFailureMessage(
+        TimeoutException('slow'),
+        anisetteUrl: 'https://mac-ani.example.test',
+      );
+      expect(message, contains('unreachable'));
+    });
+
+    test('non-connectivity remote failure stays short', () {
+      final message = AuthCommand.appleIdLoginFailureMessage(
+        Exception('bad password'),
+        anisetteUrl: 'https://mac-ani.example.test',
+      );
+      expect(message, 'Apple ID login failed: Exception: bad password');
     });
   });
 }

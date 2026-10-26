@@ -20,6 +20,7 @@ import 'package:build_cli_annotations/build_cli_annotations.dart';
 import 'package:cli_kit/shared/logging/logging.dart';
 import 'package:http/http.dart' as http;
 import 'package:meta/meta.dart';
+import 'package:xcross/src/shared/auth/signing_availability.dart';
 import 'package:xcross/src/shared/cli/command_prompt.dart';
 import 'package:xcross/src/shared/cli/internal/parsed_command.dart';
 import 'package:xcross/src/shared/errors/errors.dart';
@@ -364,9 +365,10 @@ final class AuthCommand extends ParsedCommand<AuthArgs, void> {
     } on XcrossError {
       rethrow;
     } on Object catch (e, st) {
-      log.logError('Apple ID login failed: $e');
+      final message = appleIdLoginFailureMessage(e, anisetteUrl: anisetteUrl);
+      log.logError(message);
       log.logTrace('$st');
-      throw XcrossError('Apple ID login failed: $e');
+      throw XcrossError(message);
     } finally {
       tokenExchange?.close();
       loginClient?.close();
@@ -374,18 +376,42 @@ final class AuthCommand extends ParsedCommand<AuthArgs, void> {
     }
   }
 
+  /// User-facing wrap of a failed Apple ID login, with anisette advice when
+  /// useful: local ADI → try any remote server; unreachable remote → try
+  /// another from the same list.
+  @visibleForTesting
+  static String appleIdLoginFailureMessage(
+    Object error, {
+    required String? anisetteUrl,
+  }) {
+    const docs = 'https://xcross.sh/docs/authentication/#remote-anisette';
+    final base = 'Apple ID login failed: $error';
+    if (anisetteUrl == null) {
+      return '$base\n'
+          'If this keeps failing, try a remote Omnisette server — pick any '
+          'from $docs and pass it with --anisette-url '
+          '(or $kAnisetteUrlEnvVar).';
+    }
+    final hasConnectivityFailure =
+        SigningServiceUnavailable.isConnectivityFailure(error);
+    if (hasConnectivityFailure) {
+      return '$base\n'
+          'That Omnisette server looks unreachable. Try another from $docs '
+          'with --anisette-url (or $kAnisetteUrlEnvVar).';
+    }
+    return base;
+  }
+
   /// The Omnisette server URL to sign in through, or null to use the
   /// local Android ADI libraries. `--anisette-url` wins over the
   /// `XCROSS_ANISETTE_URL` environment variable.
   @visibleForTesting
-  String? resolveOmnisetteUrl({String? environmentValue}) =>
-      omnisetteUrlChoice(
-        flagValue: options.anisetteUrl,
-        flagParsed: options.anisetteUrlWasParsed,
-        adiLibraryDirParsed: options.adiLibraryDirWasParsed,
-        environmentValue:
-            environmentValue ?? _anisetteUrlEnvironmentValue(),
-      );
+  String? resolveOmnisetteUrl({String? environmentValue}) => omnisetteUrlChoice(
+    flagValue: options.anisetteUrl,
+    flagParsed: options.anisetteUrlWasParsed,
+    adiLibraryDirParsed: options.adiLibraryDirWasParsed,
+    environmentValue: environmentValue ?? _anisetteUrlEnvironmentValue(),
+  );
 
   /// Pure form of [resolveOmnisetteUrl] over the raw inputs, so the choice
   /// logic is testable without a parsed command line.
