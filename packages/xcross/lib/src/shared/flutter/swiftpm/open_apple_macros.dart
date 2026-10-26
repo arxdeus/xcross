@@ -22,7 +22,7 @@ const List<String> openAppleMacroModules = [
 /// Repository the release CI and the source fallback build the server from.
 @internal
 const String openAppleMacrosRepository =
-    'https://github.com/arxdeus/OpenAppleMacros';
+    'https://github.com/xtool-org/OpenAppleMacros';
 
 /// Revision of [openAppleMacrosRepository] this xcross was built against.
 ///
@@ -30,7 +30,7 @@ const String openAppleMacrosRepository =
 /// the two together.
 @internal
 const String openAppleMacrosRevision =
-    'f94be34b395c6685bb0391ffa84d61a52240989a';
+    'b29af51df1f1d6d4168c73955ad247ca1d1866ad';
 
 /// Product name of the compiler plugin server executable.
 @internal

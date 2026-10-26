@@ -1,6 +1,7 @@
 import 'dart:ffi';
 import 'dart:io';
 
+import 'package:apple_developer_kit/shared/grandslam/anisette/omnisette_provider.dart';
 import 'package:args/command_runner.dart';
 import 'package:cli_kit/host/linux/linux_host.dart';
 import 'package:cli_kit/host/macos/macos_host.dart';
@@ -240,7 +241,18 @@ void main() {
         runner.run(['auth', '--apple-id', 'fixture@example.test']),
         throwsA(same(failure)),
       );
-      expect(prompt.messages, ['secret:Password: :password']);
+      // Default Omnisette path prints a trust disclaimer before the password
+      // prompt; credentials still fail before any HTTP or native load.
+      expect(prompt.messages, hasLength(2));
+      expect(
+        prompt.messages.first,
+        allOf(
+          contains('Heads up:'),
+          contains('Omnisette'),
+          contains(kDefaultOmnisetteUrl),
+        ),
+      );
+      expect(prompt.messages.last, 'secret:Password: :password');
     },
   );
 
