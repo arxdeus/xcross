@@ -51,6 +51,9 @@ String _gsaResponsePlist(Map<String, Object?> response) =>
 const _macClientInfo =
     '<MacBookPro18,3> <macOS; 15.4; 24E248> <com.apple.AuthKit/1 '
     '(com.apple.akd/1.0)>';
+const _macUserAgent = 'akd/1.0 CFNetwork/811.5.4 Darwin/16.7.0';
+const _clientInfoJson =
+    '{"client_info": "$_macClientInfo", "user_agent": "$_macUserAgent"}';
 
 @internal
 final class FakeOmnisetteSocket implements OmnisetteSocket {
@@ -122,7 +125,7 @@ void main() {
             200,
           );
         case '$_baseUrl/v3/client_info':
-          return http.Response('{"client_info": "$_macClientInfo"}', 200);
+          return http.Response(_clientInfoJson, 200);
         case '$_baseUrl/v3/get_headers':
           return http.Response(
             jsonEncode(
@@ -170,7 +173,7 @@ void main() {
         );
       }
       if (request.url.toString() == '$_baseUrl/v3/client_info') {
-        return http.Response('{"client_info": "$_macClientInfo"}', 200);
+        return http.Response(_clientInfoJson, 200);
       }
       return http.Response('unexpected: ${request.url}', 500);
     });
@@ -190,6 +193,7 @@ void main() {
     expect(headers['X-Apple-I-MD-M'], _b64('machine-id'));
     expect(headers['X-Apple-I-MD-RINFO'], '1717976940');
     expect(headers['X-MMe-Client-Info'], _macClientInfo);
+    expect(headers['User-Agent'], _macUserAgent);
     expect(headers['X-Mme-Device-Id'], _uuid);
     expect(
       headers['X-Apple-I-MD-LU'],
@@ -224,7 +228,7 @@ void main() {
             200,
           );
         case '$_baseUrl/v3/client_info':
-          return http.Response('{"client_info": "$_macClientInfo"}', 200);
+          return http.Response(_clientInfoJson, 200);
         case '$_baseUrl/v3/get_headers':
           return http.Response(
             jsonEncode({
@@ -370,13 +374,15 @@ void main() {
   test('client_info is fetched once and reused for the lookup', () async {
     await provisionedState();
     var clientInfos = 0;
+    String? lookupUserAgent;
     final client = MockClient((request) async {
       switch (request.url.toString()) {
         case _lookupUrl:
+          lookupUserAgent = request.headers['User-Agent'];
           return http.Response(_lookupResponsePlist(), 200);
         case '$_baseUrl/v3/client_info':
           clientInfos++;
-          return http.Response('{"client_info": "$_macClientInfo"}', 200);
+          return http.Response(_clientInfoJson, 200);
         case '$_baseUrl/v3/get_headers':
           return http.Response(
             jsonEncode({
@@ -393,10 +399,12 @@ void main() {
 
     final p = provider(client);
     final endpoints = await p.resolveGrandSlamEndpoints();
-    await p.fetchAnisetteHeaders();
+    final headers = await p.fetchAnisetteHeaders();
 
     expect(endpoints.midStartProvisioning, _midStartUrl);
     expect(clientInfos, 1);
+    expect(lookupUserAgent, _macUserAgent);
+    expect(headers['User-Agent'], _macUserAgent);
   });
 
   test('unexpected socket message fails the handshake', () async {
@@ -424,7 +432,7 @@ void main() {
     await provisionedState();
     final client = MockClient((request) async {
       if (request.url.toString() == '$_baseUrl/v3/client_info') {
-        return http.Response('{"client_info": "$_macClientInfo"}', 200);
+        return http.Response(_clientInfoJson, 200);
       }
       if (request.url.toString() == '$_baseUrl/v3/get_headers') {
         return http.Response('server error', 500);

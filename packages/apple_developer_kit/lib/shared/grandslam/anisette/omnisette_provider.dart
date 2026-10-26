@@ -6,7 +6,7 @@
 /// libraries can no longer log in; Mac anisette is the working identity.
 ///
 /// Protocol, ported from xtool's `OmnisetteADIProvider`:
-/// - `GET /v3/client_info` returns the Mac client-info string.
+/// - `GET /v3/client_info` returns Mac `client_info` and matching `user_agent`.
 /// - `WS  /v3/provisioning_session` runs the one-time device provisioning
 ///   handshake, message for message, while this provider drives Apple's
 ///   `midStartProvisioning`/`midFinishProvisioning` plist dance over HTTP.
@@ -117,32 +117,37 @@ final class OmnisetteAnisetteProvider implements AnisetteProvider {
 
   AnisetteState? _state;
   GrandSlamEndpoints? _endpoints;
-  String? _clientInfo;
+  ({String clientInfo, String userAgent})? _clientInfo;
 
   @override
   Future<Map<String, String>> fetchAnisetteHeaders() async {
     final state = await _ensureProvisioned(await _loadState());
     final otp = await _requestOtp(state);
+    final clientInfo = await _fetchClientInfo();
     return AnisetteHeaders.buildAnisetteHeaders(
       oneTimePassword: otp.oneTimePassword,
       machineIdentifier: otp.machineIdentifier,
       routingInfo: '${otp.routingInfo ?? state.routingInfo}',
       localUserUid: state.localUserUid,
       localeName: hostServices.localeName,
-      clientInfo: await _fetchClientInfo(),
+      clientInfo: clientInfo.clientInfo,
+      userAgent: clientInfo.userAgent,
     );
   }
 
   @override
-  Future<GrandSlamEndpoints> resolveGrandSlamEndpoints() async =>
-      _endpoints ??= await GrandSlamEndpoints.fetchGrandSlamEndpoints(
-        _http,
-        headers: AnisetteHeaders.buildAnisetteLookupHeaders(
-          await _loadState(),
-          localeName: hostServices.localeName,
-          clientInfo: await _fetchClientInfo(),
-        ),
-      );
+  Future<GrandSlamEndpoints> resolveGrandSlamEndpoints() async {
+    final clientInfo = await _fetchClientInfo();
+    return _endpoints ??= await GrandSlamEndpoints.fetchGrandSlamEndpoints(
+      _http,
+      headers: AnisetteHeaders.buildAnisetteLookupHeaders(
+        await _loadState(),
+        localeName: hostServices.localeName,
+        clientInfo: clientInfo.clientInfo,
+        userAgent: clientInfo.userAgent,
+      ),
+    );
+  }
 
   @override
   void close() => _http.close();
@@ -231,6 +236,7 @@ final class OmnisetteAnisetteProvider implements AnisetteProvider {
     String url,
     Map<String, Object?> request,
   ) async {
+    final clientInfo = await _fetchClientInfo();
     final response = await GrandSlamEndpoints.sendGrandSlamRequest(
       _http,
       method: 'POST',
@@ -239,7 +245,7 @@ final class OmnisetteAnisetteProvider implements AnisetteProvider {
       headers: AnisetteHeaders.buildAnisetteProvisioningHeaders(
         await _loadState(),
         localeName: hostServices.localeName,
-        clientInfo: await _fetchClientInfo(),
+        clientInfo: clientInfo.clientInfo,
       ),
       body: PropertyListSerialization.stringWithPropertyList({
         'Header': <String, Object?>{},
@@ -287,7 +293,7 @@ final class OmnisetteAnisetteProvider implements AnisetteProvider {
     );
   }
 
-  Future<String> _fetchClientInfo() async {
+  Future<({String clientInfo, String userAgent})> _fetchClientInfo() async {
     final cached = _clientInfo;
     if (cached != null) return cached;
     final response = await _http.get(
@@ -309,9 +315,10 @@ final class OmnisetteAnisetteProvider implements AnisetteProvider {
         'Omnisette client_info returned non-object JSON',
       );
     }
-    return _clientInfo = _requiredField(
-      decoded.cast<String, Object?>(),
-      'client_info',
+    final json = decoded.cast<String, Object?>();
+    return _clientInfo = (
+      clientInfo: _requiredField(json, 'client_info'),
+      userAgent: _requiredField(json, 'user_agent'),
     );
   }
 

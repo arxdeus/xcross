@@ -38,6 +38,7 @@ abstract final class AnisetteHeaders {
     required String localUserUid,
     required String localeName,
     String? clientInfo,
+    String? userAgent,
     String? deviceId,
     String? localUserId,
   }) => {
@@ -50,6 +51,7 @@ abstract final class AnisetteHeaders {
     'X-Apple-Locale': anisetteSystemLocale(localeName: localeName),
     'X-Apple-I-TimeZone': _defaultTimeZone,
     'X-Apple-I-Client-Time': anisetteIsoClientTime(),
+    'User-Agent': userAgent ?? anisetteAkdUserAgent,
   };
 
   /// Headers for the GrandSlam endpoint-bag lookup, which runs before any
@@ -59,6 +61,7 @@ abstract final class AnisetteHeaders {
     AnisetteState state, {
     required String localeName,
     String? clientInfo,
+    String? userAgent,
     String? deviceId,
   }) => {
     'X-MMe-Client-Info': clientInfo ?? anisetteClientInfo,
@@ -67,6 +70,7 @@ abstract final class AnisetteHeaders {
     'X-Apple-I-TimeZone': _defaultTimeZone,
     'X-Apple-I-TimeZone-Offset': '${DateTime.now().timeZoneOffset.inSeconds}',
     'X-MMe-Country': _defaultCountry,
+    'User-Agent': userAgent ?? anisetteAkdUserAgent,
   };
 
   /// Headers for the one-time device provisioning POSTs.

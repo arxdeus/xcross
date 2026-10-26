@@ -91,7 +91,7 @@ abstract final class GrandSlamOperation {
       headers: {
         'Content-Type': 'text/x-xml-plist',
         'Accept': '*/*',
-        'User-Agent': anisetteAkdUserAgent,
+        'User-Agent': anisette['User-Agent'] ?? anisetteAkdUserAgent,
         'X-MMe-Client-Info':
             anisette['X-MMe-Client-Info'] ?? anisetteClientInfo,
       },

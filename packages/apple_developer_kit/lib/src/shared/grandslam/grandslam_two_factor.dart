@@ -163,7 +163,7 @@ final class GrandSlamTwoFactor {
         ...anisette,
         'Content-Type': 'application/x-plist',
         'Accept': 'application/x-buddyml',
-        'User-Agent': anisetteAkdUserAgent,
+        'User-Agent': anisette['User-Agent'] ?? anisetteAkdUserAgent,
         'X-Apple-App-Info': 'com.apple.gs.xcode.auth',
         'X-Xcode-Version': _xcodeVersion,
         'X-Apple-Identity-Token': loginData.identityToken,
