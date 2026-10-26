@@ -1,3 +1,7 @@
+## 2.0.8
+
+- Match a development certificate's serial against the team's certificate list locally. Apple's Developer Services returns an empty page for `filter[serialNumber]`, so after issuing a certificate xcross failed with "Development certificate serial … is not on the team after issuance" and a later run could revoke the team's certificates. ([#140](https://github.com/arxdeus/xcross/pull/140))
+
 ## 2.0.7
 
 - Default Apple ID login to Omnisette Mac anisette (`https://mac-ani.jkcoxson.com`, overridable with `--anisette-url` / `XCROSS_ANISETTE_URL`) because Apple’s GSA now rejects Android-identifying clients (`-80046`). `--adi-library-dir` remains a legacy opt-in to local Android ADI.

@@ -1,7 +1,7 @@
 name: xcross_workspace
 description: >-
   Workspace root for xcross — the CLI lives in packages/xcross.
-version: 2.0.7
+version: 2.0.8
 publish_to: none
 
 environment:
