@@ -96,7 +96,7 @@ void main() {
       expect(processes.arguments, [
         ['usbmux', 'list', '--usb'],
         ['lockdown', 'remotepairing', '--pair', '--udid', 'USB'],
-        ['lockdown', 'wifi-connections', '--state', 'on', '--udid', 'USB'],
+        ['lockdown', 'wifi-connections', 'on', '--udid', 'USB'],
         ['mounter', 'auto-mount', '--rsd', 'fd00::1', '1234'],
       ]);
       expect(processes.cleaned, isEmpty);

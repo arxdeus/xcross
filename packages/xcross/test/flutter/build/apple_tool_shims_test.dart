@@ -374,9 +374,8 @@ void main() {
         File(p.join(framework.path, 'Flutter')).writeAsStringSync('binary');
         File(p.join(framework.path, '.DS_Store')).writeAsStringSync('junk');
         final output = Directory(p.join(tmp.path, 'out'))..createSync();
-        File(
-          p.join(output.path, 'Flutter.framework', 'stale'),
-        ).createSync(recursive: true);
+        File(p.join(output.path, 'Flutter.framework', 'stale'))
+            .createSync(recursive: true);
 
         final result = await Process.run(
           'rsync',
@@ -533,6 +532,40 @@ void main() {
       expect(
         File(p.join(tmp.path, 'ar')).readAsStringSync(),
         contains('/toolchain/llvm-ar'),
+      );
+      expect(
+        File(p.join(tmp.path, 'ld')).readAsStringSync(),
+        contains('/toolchain/ld64.lld'),
+        reason: 'native_toolchain_c resolves the Apple linker beside clang',
+      );
+      final hostLdDir = Directory(p.join(tmp.path, 'host-ld'))..createSync();
+      final hostLd = File(p.join(hostLdDir.path, 'ld'))
+        ..writeAsStringSync('#!/bin/sh\necho host-ld "\$@"\n');
+      await Process.run('chmod', ['+x', hostLd.path]);
+      final ldPath = '${tmp.path}:${hostLdDir.path}';
+      final gnuLd = await Process.run(
+        p.join(tmp.path, 'ld'),
+        const ['-plugin', 'lto.so', '--eh-frame-hdr', '-maarch64linux'],
+        environment: {'PATH': ldPath},
+        includeParentEnvironment: false,
+      );
+      expect(
+        gnuLd.stdout.toString().trim(),
+        'host-ld -plugin lto.so --eh-frame-hdr -maarch64linux',
+        reason:
+            'host GCC (collect2) finds the shim on PATH and must keep '
+            'linking ELF through the host ld',
+      );
+      final machoLd = await Process.run(
+        p.join(tmp.path, 'ld'),
+        const ['-arch', 'arm64', 'a.o'],
+        environment: {'PATH': ldPath},
+        includeParentEnvironment: false,
+      );
+      expect(
+        machoLd.stderr.toString(),
+        contains('/toolchain/ld64.lld'),
+        reason: 'Mach-O links still reach the configured ld64.lld',
       );
 
       final hostCc = await Process.run(
@@ -734,9 +767,8 @@ void declarativeXcrunTests<T extends PlatformHostInterface>(
         files.write(path);
       }
       expect(
-        await resolver(
-          launcher: constructorLauncher,
-        ).resolveXcrun(launcher: callLauncher),
+        await resolver(launcher: constructorLauncher)
+            .resolveXcrun(launcher: callLauncher),
         constructorSibling,
       );
       expect(files.lookups, [constructorSibling]);
@@ -756,9 +788,8 @@ void declarativeXcrunTests<T extends PlatformHostInterface>(
       files.write(currentSibling);
       files.write(callSibling);
       expect(
-        await resolver(
-          launcher: constructorLauncher,
-        ).resolveXcrun(launcher: callLauncher),
+        await resolver(launcher: constructorLauncher)
+            .resolveXcrun(launcher: callLauncher),
         currentSibling,
       );
       expect(files.lookups, [constructorSibling, currentSibling]);
