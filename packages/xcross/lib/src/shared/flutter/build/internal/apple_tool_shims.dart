@@ -33,6 +33,7 @@ final class AppleToolShimConfig {
     required this.xcrun,
     required this.deploymentTarget,
     required this.target,
+    this.strip,
     this.hostCompilerArguments = const [],
   });
 
@@ -45,6 +46,11 @@ final class AppleToolShimConfig {
   final String lipo;
   final OtoolConfig? otool;
   final String? installNameTool;
+
+  /// `llvm-strip`, exposed as `strip`. flutter_tools strips native asset
+  /// frameworks with the `strip` on PATH, which on Linux is GNU strip and
+  /// cannot read Mach-O.
+  final String? strip;
   final String xcrun;
   final String deploymentTarget;
   final IosBuildPlatformInterface target;
@@ -105,6 +111,7 @@ final class AppleToolShimResolver<T extends PlatformHostInterface> {
       lipo: await locateLlvmTool('llvm-lipo'),
       otool: await resolveOtool(),
       installNameTool: await findLlvmTool('llvm-install-name-tool'),
+      strip: await findLlvmTool('llvm-strip'),
       xcrun: await resolveXcrun(),
       deploymentTarget: deploymentTarget,
       target: target.buildPlatform,
