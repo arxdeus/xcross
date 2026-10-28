@@ -25,6 +25,7 @@ final class WindowsAppleToolShimRenderer<T extends WindowsHostInterface>
       'lipo': config.lipo,
       if (config.otool != null) 'otool': otoolShim,
       'install_name_tool': ?config.installNameTool,
+      'strip': ?config.strip,
     };
     await host.fileSystem.directory(directory).create(recursive: true);
 

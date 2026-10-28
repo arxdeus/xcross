@@ -415,6 +415,11 @@ final class XcrunSdkCommand {
           runner.host.paths.executableName('llvm-install-name-tool'),
         );
         return llvmInstallNameTool;
+      case 'strip':
+        final llvmStrip = await toolchain.locateLlvmTool(
+          runner.host.paths.executableName('llvm-strip'),
+        );
+        return llvmStrip;
       case 'codesign':
         return null;
       default:

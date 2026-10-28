@@ -478,6 +478,7 @@ void main() {
           lipo: '/bin/echo',
           otool: OtoolConfig('/bin/echo', usesObjdump: false),
           installNameTool: '/bin/echo',
+          strip: '/toolchain/llvm-strip',
           xcrun: '/bin/echo',
         ),
         toolForwarderExecutable: Platform.resolvedExecutable,
@@ -533,6 +534,11 @@ void main() {
       expect(
         File(p.join(tmp.path, 'ar')).readAsStringSync(),
         contains('/toolchain/llvm-ar'),
+      );
+      expect(
+        File(p.join(tmp.path, 'strip')).readAsStringSync(),
+        contains('/toolchain/llvm-strip'),
+        reason: 'flutter_tools strips Mach-O frameworks with PATH strip',
       );
 
       final hostCc = await Process.run(
