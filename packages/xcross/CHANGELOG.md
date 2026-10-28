@@ -1,3 +1,8 @@
+## 2.0.9
+
+- Strip native asset frameworks with `llvm-strip` in release and profile builds. Flutter's `install_code_assets` runs the `strip` found on PATH, which on Linux is GNU strip and fails on Mach-O (`file format not recognized`) for code assets such as `super_native_extensions`. ([#141](https://github.com/arxdeus/xcross/issues/141), [#142](https://github.com/arxdeus/xcross/pull/142))
+- `xcross setup` on Linux no longer accepts a PATH `ld64.lld` that cannot link for iOS (such as the Swift toolchain's) as the fixed linker, so it installs lld 19+ instead of falling back to an older lld that miswires Objective-C selector stubs. ([#142](https://github.com/arxdeus/xcross/pull/142))
+
 ## 2.0.8
 
 - Match a development certificate's serial against the team's certificate list locally. Apple's Developer Services returns an empty page for `filter[serialNumber]`, so after issuing a certificate xcross failed with "Development certificate serial … is not on the team after issuance" and a later run could revoke the team's certificates. ([#140](https://github.com/arxdeus/xcross/pull/140))
