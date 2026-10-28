@@ -153,6 +153,53 @@ void main() {
   test(
     testOn: '!windows',
 
+    'Linux installs fixed lld when PATH ld64.lld cannot link for iOS',
+    () async {
+      final mapped = FixtureMappedFileSystem(fixture);
+      Directory(mapped.physical('/usr/bin')).createSync(recursive: true);
+      File(mapped.physical('/usr/bin/ld64.lld-18')).createSync();
+      final pathDir = Directory(mapped.physical('/fixture-bin'))
+        ..createSync(recursive: true);
+      for (final tool in ['sudo', 'apt-get', 'apt-cache', 'ld64.lld']) {
+        File(p.join(pathDir.path, tool)).createSync();
+      }
+      final iosless = FixtureIoslessLinkerProcesses();
+      final host = LinuxHost(
+        processes: iosless,
+        fileSystem: mapped,
+        environment: {'PATH': '/fixture-bin'},
+      );
+      final mappedRunner = fixtureRunner(host, log: fixtureLog());
+      final configured = SetupRequirementServices(
+        host: host,
+        runner: mappedRunner,
+        privileges: privileges,
+        console: services.console,
+        toolchain: DarwinToolchainResolver(
+          mappedRunner,
+          FixtureLocations(fixture.path),
+        ),
+        resolvePipx: services.resolvePipx,
+        ensurePymdInstalled: services.ensurePymdInstalled,
+      );
+      iosless.onInstall = () =>
+          File(mapped.physical('/usr/bin/ld64.lld-20')).createSync();
+      await LinuxSetupRequirements(
+        configured,
+      ).ensureFixedLd64Lld(LinuxPackageManager.apt);
+      expect(
+        iosless.commands,
+        containsAllInOrder([
+          contains('apt-get install -y lld-20'),
+          endsWith('ln -sf /usr/bin/ld64.lld-20 /usr/local/bin/ld64.lld'),
+        ]),
+      );
+    },
+  );
+
+  test(
+    testOn: '!windows',
+
     'macOS drives Homebrew without Linux privilege or package operations',
     () async {
       await MacOSSetupRequirements(services).run();
@@ -356,4 +403,39 @@ final class FixturePrivileges implements HostPrivilegesInterface {
     String? manualHint,
     String? deniedMessage,
   }) async => throw StateError('unexpected elevation');
+}
+
+/// A Swift-toolchain style ld64.lld (LLD 22) that rejects iOS links.
+@internal
+final class FixtureIoslessLinkerProcesses extends FixtureProcesses {
+  void Function()? onInstall;
+  @override
+  Future<Process> start(
+    String executable,
+    List<String> arguments, {
+    String? workingDirectory,
+    Map<String, String>? environment,
+    bool includeParentEnvironment = true,
+    bool runInShell = false,
+    ProcessStartMode mode = ProcessStartMode.normal,
+  }) async {
+    if (executable.contains('apt-cache')) {
+      return FixtureChild('lld-18\nlld-20');
+    }
+    if (executable.contains('ld64.lld') && arguments.contains('-arch')) {
+      return FixtureChild(
+        'error: This version of lld does not support linking for platform iOS',
+      );
+    }
+    if (arguments.contains('install')) onInstall?.call();
+    return await super.start(
+      executable,
+      arguments,
+      workingDirectory: workingDirectory,
+      environment: environment,
+      includeParentEnvironment: includeParentEnvironment,
+      runInShell: runInShell,
+      mode: mode,
+    );
+  }
 }

@@ -183,10 +183,17 @@ final class LinuxSetupRequirements implements SetupRequirements {
   }
 
   Future<void> ensureFixedLd64Lld(LinuxPackageManager manager) async {
-    final onPath = await runner.which(
+    final found = await runner.which(
       'ld64.lld',
       accept: toolchain.usableLd64Lld,
     );
+    // A Swift toolchain ships an ld64.lld built without Darwin targets
+    // ("does not support linking for platform iOS"). It must not count as
+    // the fixed linker, or resolution falls back to a defective lld <= 18.
+    final onPath =
+        found == null || await toolchain.probeIosSupport(found) != null
+        ? null
+        : found;
     final defect = onPath == null
         ? null
         : await toolchain.selectorStubDefect(onPath);
