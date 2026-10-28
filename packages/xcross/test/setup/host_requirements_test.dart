@@ -418,17 +418,19 @@ final class FixtureIoslessLinkerProcesses extends FixtureProcesses {
     bool includeParentEnvironment = true,
     bool runInShell = false,
     ProcessStartMode mode = ProcessStartMode.normal,
-  }) async {
+  }) {
     if (executable.contains('apt-cache')) {
-      return FixtureChild('lld-18\nlld-20');
+      return Future.value(FixtureChild('lld-18\nlld-20'));
     }
     if (executable.contains('ld64.lld') && arguments.contains('-arch')) {
-      return FixtureChild(
-        'error: This version of lld does not support linking for platform iOS',
+      return Future.value(
+        FixtureChild(
+          'error: This version of lld does not support linking for platform iOS',
+        ),
       );
     }
     if (arguments.contains('install')) onInstall?.call();
-    return await super.start(
+    return super.start(
       executable,
       arguments,
       workingDirectory: workingDirectory,
