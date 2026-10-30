@@ -30,7 +30,7 @@ dependencies:
   cli_kit: ^1.0.0
   cli_util: ^0.6.0
   completion: ^1.0.2
-  crypto: ^3.0.7
+  crypto: ^3.0.8
   dart_mobile_device: ^1.0.0
   darwin_sdk_kit: ^1.0.0
   dds: ^5.4.0
