@@ -17,6 +17,6 @@ workspace:
   - tool/repo_analyzer
 
 dev_dependencies:
-  analyzer: 14.5.0
+  analyzer: 14.6.0
   arxdeus_lints: ^1.0.1
   meta: ^1.19.0
