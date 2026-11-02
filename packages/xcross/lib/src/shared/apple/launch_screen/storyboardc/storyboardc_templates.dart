@@ -1,7 +1,9 @@
 // GENERATED from ibtool output of the Flutter default launch storyboard.
 // ignore_for_file: prefer_const_literals_to_create_immutables, prefer_const_constructors
+import 'package:meta/meta.dart';
 import 'package:xcross/src/shared/apple/launch_screen/storyboardc/nib_archive.dart';
 
+@internal
 final viewWithImageObjects = <NibObject>[
   NibObject('NSObject', [
     NibValue.ref('UINibTopLevelObjectsKey', 1),
@@ -262,6 +264,7 @@ final viewWithImageObjects = <NibObject>[
   NibObject('NSArray', [NibValue.yes('NSInlinedValue')]),
 ];
 
+@internal
 final viewWithoutImageObjects = <NibObject>[
   NibObject('NSObject', [
     NibValue.ref('UINibTopLevelObjectsKey', 1),
@@ -472,6 +475,7 @@ final viewWithoutImageObjects = <NibObject>[
   NibObject('NSArray', [NibValue.yes('NSInlinedValue')]),
 ];
 
+@internal
 final controllerObjects = <NibObject>[
   NibObject('NSObject', [
     NibValue.ref('UINibTopLevelObjectsKey', 1),
