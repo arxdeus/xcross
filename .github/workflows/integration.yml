@@ -533,6 +533,13 @@ jobs:
             ${{ runner.os == 'Windows' && '~/AppData/Local' || '~/.cache' }}/xcross/open-apple-macros/*/OpenAppleMacrosServer*
           key: open-apple-macros-${{ runner.os }}-${{ runner.arch }}-swift-${{ env.SWIFT_VERSION }}-${{ hashFiles('.gitmodules', 'packages/xcross/lib/src/shared/flutter/swiftpm/open_apple_macros.dart') }}
 
+      - name: Add entitlements fixture to Flutter example
+        if: steps.darwin.outputs.available == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/ios_bundle_check.py add-entitlements examples/flutter_example/ios
+
       - name: Build Flutter example on Linux
         if: runner.os == 'Linux' && steps.darwin.outputs.available == 'true'
         shell: bash
@@ -633,6 +640,49 @@ jobs:
           $ErrorActionPreference = 'Stop'
           dart test test/signing/built_app_signing_test.dart --reporter expanded
           if ($LASTEXITCODE -ne 0) { throw 'Signing the flutter_example artifact failed' }
+
+      - name: Verify bundle icons launch screen entitlements and IPA on Linux
+        if: runner.os == 'Linux' && steps.darwin.outputs.available == 'true'
+        shell: bash
+        working-directory: examples/flutter_example
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          check() { python3 "$GITHUB_WORKSPACE/.github/scripts/ios_bundle_check.py" "$1" \
+            --expect-icon AppIcon --expect-launch-image LaunchImage \
+            --expect-entitlements aps-environment com.apple.developer.associated-domains --no-private-keys; }
+          apps=(build/xcross-ios/*.app)
+          test "${#apps[@]}" -eq 1
+          check "${apps[0]}"
+          "$RUNNER_TEMP/xcross-bundle/bin/xcross" --verbose flutter build --release --ipa
+          apps=(build/xcross-ios/*.app)
+          check "${apps[0]}"
+          ipas=(build/xcross-ios/*.ipa build/ios/ipa/*.ipa)
+          test "${#ipas[@]}" -ge 1
+          check "${ipas[0]}"
+
+      - name: Verify bundle icons launch screen entitlements and IPA on Windows
+        if: runner.os == 'Windows' && steps.darwin.outputs.available == 'true'
+        shell: pwsh
+        working-directory: examples/flutter_example
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $checker = Join-Path $env:GITHUB_WORKSPACE '.github/scripts/ios_bundle_check.py'
+          function Check($path) {
+            python $checker $path --expect-icon AppIcon --expect-launch-image LaunchImage `
+              --expect-entitlements aps-environment com.apple.developer.associated-domains --no-private-keys
+            if ($LASTEXITCODE -ne 0) { throw "Bundle check failed for $path" }
+          }
+          $apps = @(Get-ChildItem build/xcross-ios -Directory -Filter *.app)
+          if ($apps.Count -ne 1) { throw "Expected one .app, found $($apps.Count)" }
+          Check $apps[0].FullName
+          & "$env:RUNNER_TEMP\xcross-bundle\bin\xcross.exe" --verbose flutter build --release --ipa
+          if ($LASTEXITCODE -ne 0) { throw 'flutter_example --ipa build failed' }
+          $apps = @(Get-ChildItem build/xcross-ios -Directory -Filter *.app)
+          Check $apps[0].FullName
+          $ipas = @(Get-ChildItem build -Recurse -Filter *.ipa)
+          if ($ipas.Count -lt 1) { throw 'No .ipa produced' }
+          Check $ipas[0].FullName
 
       - name: Build Flutter example for ARM64 simulator on Linux
         if: runner.os == 'Linux' && steps.darwin.outputs.available == 'true'
@@ -1140,6 +1190,26 @@ jobs:
         with:
           name: flutter-example-simulator-${{ matrix.host }}
           path: ${{ runner.temp }}/cross-built
+
+      - name: Verify cross-built simulator bundle resources
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          apps=("$RUNNER_TEMP/cross-built/"*.app)
+          test "${#apps[@]}" -eq 1
+          python3 .github/scripts/ios_bundle_check.py "${apps[0]}" \
+            --expect-icon AppIcon --expect-launch-image LaunchImage
+          xcrun assetutil --info "${apps[0]}/Assets.car" > "$RUNNER_TEMP/assets.json"
+          python3 - "$RUNNER_TEMP/assets.json" <<'PY'
+          import json, sys
+          items = json.load(open(sys.argv[1]))
+          names = {i.get("Name") for i in items}
+          types = {i.get("AssetType") for i in items}
+          assert "LaunchImage" in names, names
+          assert "Color" in types, types
+          print("assetutil ok:", sorted(n for n in names if n))
+          PY
 
       - name: Boot install launch and observe cross-built Flutter example headlessly
         shell: bash
