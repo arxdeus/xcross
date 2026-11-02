@@ -126,14 +126,65 @@ void main() {
     expect(img.decodePng(icon.readAsBytesSync())!.width, 120);
     expect(xml, contains('CFBundleIcons'));
     expect(xml, contains('CFBundleIcons~ipad'));
-    expect(xml, isNot(contains('UILaunchStoryboardName')));
-    expect(xml, contains('<key>UILaunchScreen</key>'));
-    expect(xml, contains('<key>UIImageName</key>'));
-    expect(xml, contains('<string>LaunchImage</string>'));
-    expect(xml, contains('<string>XCrossLaunchBackground</string>'));
+    // Like Xcode: the storyboard is compiled, and the plist keeps naming it.
+    expect(xml, contains('<key>UILaunchStoryboardName</key>'));
+    expect(xml, isNot(contains('UILaunchScreen</key>')));
+    final storyboardc = p.join(
+      bundle.path,
+      'Base.lproj',
+      'LaunchScreen.storyboardc',
+    );
+    expect(
+      Directory(storyboardc).listSync().map((e) => p.basename(e.path)),
+      unorderedEquals([
+        'Info.plist',
+        'UIViewController-01J-lp-oVM.nib',
+        '01J-lp-oVM-view-Ze5-6b-2t3.nib',
+      ]),
+    );
     final car = File(p.join(bundle.path, 'Assets.car'));
     expect(car.existsSync(), isTrue);
     expect(ascii.decode(car.readAsBytesSync().sublist(0, 8)), 'BOMStore');
+  });
+
+  test('falls back to UILaunchScreen for a storyboard ibtool output '
+      'cannot be reproduced for', () async {
+    const cat = 'Assets.xcassets';
+    write(
+      p.join(cat, 'LaunchImage.imageset', 'Contents.json'),
+      jsonEncode({
+        'images': [
+          {'idiom': 'universal', 'filename': 'li.png', 'scale': '1x'},
+        ],
+      }),
+    );
+    write(p.join(cat, 'LaunchImage.imageset', 'li.png'), png(10));
+    write(
+      p.join('Base.lproj', 'LaunchScreen.storyboard'),
+      _storyboard.replaceFirst(
+        '</subviews>',
+        '<label text="Loading" id="lbl-1"/></subviews>',
+      ),
+    );
+    final bundle = Directory(p.join(tmp.path, 'Runner.app'))..createSync();
+
+    final xml = await compiler().compile(
+      bundleDir: bundle.path,
+      infoPlistXml: _plist,
+      catalogs: [p.join(tmp.path, cat)],
+      deploymentTarget: '13.0',
+      launchStoryboard: p.join(
+        tmp.path,
+        'Base.lproj',
+        'LaunchScreen.storyboard',
+      ),
+    );
+
+    expect(xml, isNot(contains('UILaunchStoryboardName')));
+    expect(xml, contains('<key>UILaunchScreen</key>'));
+    expect(xml, contains('<string>LaunchImage</string>'));
+    expect(xml, contains('<string>XCrossLaunchBackground</string>'));
+    expect(Directory(p.join(bundle.path, 'Base.lproj')).existsSync(), isFalse);
   });
 
   test('no catalogs and no storyboard leaves plist untouched', () async {

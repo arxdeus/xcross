@@ -676,6 +676,26 @@ APP[sdk=iphoneos*] = $(inherited).device
 
     test(
       testOn: '!windows',
+      'keeps UILaunchStoryboardName compiled into Base.lproj like Xcode',
+      () {
+        Directory(
+          p.join(tmp.path, 'Base.lproj', 'LaunchScreen.storyboardc'),
+        ).createSync(recursive: true);
+        const xml =
+            '<key>UILaunchStoryboardName</key>\n\t<string>LaunchScreen</string>';
+
+        expect(
+          testIPhoneRuntime().storyboards.stripUnsatisfiableStoryboards(
+            xml,
+            tmp.path,
+          ),
+          xml,
+        );
+      },
+    );
+
+    test(
+      testOn: '!windows',
       'replaces a missing UILaunchStoryboardName with UILaunchScreen',
       () {
         const xml =

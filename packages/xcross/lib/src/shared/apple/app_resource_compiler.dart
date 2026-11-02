@@ -11,6 +11,7 @@ import 'package:xcross/src/shared/apple/asset_catalog/assets_car_writer.dart';
 import 'package:xcross/src/shared/apple/launch_screen/launch_screen_plan.dart';
 import 'package:xcross/src/shared/apple/launch_screen/launch_screen_plist.dart';
 import 'package:xcross/src/shared/apple/launch_screen/launch_storyboard_reader.dart';
+import 'package:xcross/src/shared/apple/launch_screen/storyboardc/launch_storyboard_compiler.dart';
 import 'package:xcross/src/shared/artifact/plist_mutations.dart';
 
 /// Compiles an app target's asset catalogs and launch storyboard the way
@@ -25,9 +26,10 @@ import 'package:xcross/src/shared/artifact/plist_mutations.dart';
 ///   `UIImageName`/`UIColorName` only resolve through it.
 /// * Loose `AppIcon60x60@2x.png`-style icons with `CFBundleIcons`, which
 ///   SpringBoard uses whenever it does not read the icon from `Assets.car`.
-/// * A `UILaunchScreen` dictionary translated from the launch storyboard,
-///   replacing the `UILaunchStoryboardName` that cannot be honored without a
-///   compiled `.storyboardc`.
+/// * The launch storyboard compiled into `Base.lproj/<name>.storyboardc`,
+///   the way ibtool does, for the shapes xcross reproduces faithfully (a
+///   solid background and at most one image view). Anything else falls back
+///   to a `UILaunchScreen` dictionary replacing `UILaunchStoryboardName`.
 ///
 /// Nothing here fails a build: a catalog or storyboard xcross cannot
 /// reproduce is reported as a warning and left out, which is what happened to
@@ -129,8 +131,13 @@ final class AppResourceCompiler {
     }
 
     if (launchStoryboard != null) {
-      final plan = _planLaunchScreen(launchStoryboard, catalog);
-      if (plan != null) {
+      final spec = _readLaunchStoryboard(launchStoryboard);
+      if (spec != null &&
+          _writeCompiledStoryboard(spec, launchStoryboard, bundleDir)) {
+        // Native: `UILaunchStoryboardName` stays and points at the compiled
+        // `.storyboardc`, exactly as Xcode's ibtool step leaves it.
+      } else if (spec != null) {
+        final plan = _planLaunchScreen(spec, launchStoryboard, catalog);
         if (plan.synthesizedColor case final ColorSetAsset color) {
           catalog = catalog.withColorSet(color);
         }
@@ -172,7 +179,7 @@ final class AppResourceCompiler {
     return AssetCatalog.merge(catalogs.first, read);
   }
 
-  LaunchScreenPlan? _planLaunchScreen(String storyboard, AssetCatalog catalog) {
+  LaunchScreenSpec? _readLaunchStoryboard(String storyboard) {
     final name = paths.basename(storyboard);
     final LaunchScreenSpec? spec;
     try {
@@ -188,8 +195,45 @@ final class AppResourceCompiler {
         'Launch storyboard $name has no initial view controller xcross can '
         'translate; the app launches with a blank screen.',
       );
-      return null;
     }
+    return spec;
+  }
+
+  /// Writes the `.storyboardc` ibtool would produce for [spec] next to where
+  /// Xcode puts it (`Base.lproj/<name>.storyboardc` for a Base-localized
+  /// storyboard, the bundle root otherwise). False when [spec] is outside
+  /// the shapes xcross compiles faithfully.
+  bool _writeCompiledStoryboard(
+    LaunchScreenSpec spec,
+    String storyboard,
+    String bundleDir,
+  ) {
+    final compiled = LaunchStoryboardCompiler.compile(spec);
+    if (compiled == null) return false;
+    final parent = paths.basename(paths.dirname(storyboard));
+    final localization = paths.extension(parent) == '.lproj' ? parent : null;
+    final directory = paths.joinAll([
+      bundleDir,
+      ?localization,
+      '${paths.basenameWithoutExtension(storyboard)}.storyboardc',
+    ]);
+    fileSystem.directory(directory).createSync(recursive: true);
+    for (final MapEntry(key: name, value: bytes) in compiled.files.entries) {
+      fileSystem.file(paths.join(directory, name)).writeAsBytesSync(bytes);
+    }
+    log.logTrace(
+      'launch screen: compiled ${paths.basename(storyboard)} into '
+      '${paths.relative(directory, from: bundleDir)}',
+    );
+    return true;
+  }
+
+  LaunchScreenPlan _planLaunchScreen(
+    LaunchScreenSpec spec,
+    String storyboard,
+    AssetCatalog catalog,
+  ) {
+    final name = paths.basename(storyboard);
     final plan = LaunchScreenPlanner(
       fileSystem: fileSystem,
     ).plan(spec, catalog);
