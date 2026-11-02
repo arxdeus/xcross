@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:cli_kit/shared/platform/platform_host.dart';
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
@@ -58,6 +60,13 @@ final class FlutterFrameworkCopier {
   /// application root, where Xcode places them and where SwiftPM's generated
   /// `Bundle.module` accessor looks (`Bundle.main.bundleURL`). Must run
   /// before signing so the bundles are sealed into the app's resources.
+  ///
+  /// SwiftPM builds these bundles with symlinks back into the package
+  /// checkout (a `PrivacyInfo.xcprivacy`, say). Those links dangle once the
+  /// bundle moves, and both codesign and installd reject an app holding one,
+  /// so every link is materialized as the regular file or directory it
+  /// points at, as Xcode's copy phase does. A link whose target is gone is
+  /// dropped.
   Future<List<String>> copyResourceBundles(
     Iterable<String> bundles,
     String bundleDir,
@@ -66,9 +75,32 @@ final class FlutterFrameworkCopier {
     for (final bundle in bundles) {
       final destination = paths.join(bundleDir, paths.basename(bundle));
       if (fileSystem.directory(destination).existsSync()) continue;
-      await copier.copy(bundle, destination);
+      await _copyDereferenced(bundle, destination);
       copied.add(destination);
     }
     return copied;
+  }
+
+  Future<void> _copyDereferenced(String source, String destination) async {
+    await fileSystem.directory(destination).create(recursive: true);
+    await for (final entity
+        in fileSystem.directory(source).list(followLinks: false)) {
+      final target = paths.join(destination, paths.basename(entity.path));
+      final String resolved;
+      if (entity is Link) {
+        try {
+          resolved = await fileSystem.link(entity.path).resolveSymbolicLinks();
+        } on FileSystemException {
+          continue;
+        }
+      } else {
+        resolved = entity.path;
+      }
+      if (fileSystem.directory(resolved).existsSync()) {
+        await _copyDereferenced(resolved, target);
+      } else if (fileSystem.file(resolved).existsSync()) {
+        await fileSystem.file(resolved).copy(fileSystem.file(target).path);
+      }
+    }
   }
 }

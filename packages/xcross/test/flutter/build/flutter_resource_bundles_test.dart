@@ -48,4 +48,54 @@ void main() {
     );
     expect(existing.listSync(), isEmpty);
   });
+
+  test(
+    testOn: '!windows',
+    'materializes symlinked resources and drops dangling links',
+    () async {
+      final host = LinuxHost();
+      final copier = FlutterFrameworkCopier(
+        host.fileSystem,
+        p.context,
+        copier: RecursiveDirectoryCopier(
+          fileSystem: host.fileSystem,
+          paths: p.context,
+        ),
+      );
+      // SwiftPM links resources back into the package checkout.
+      final checkout = Directory(p.join(tmp.path, 'checkout', 'Resources'))
+        ..createSync(recursive: true);
+      File(
+        p.join(checkout.path, 'PrivacyInfo.xcprivacy'),
+      ).writeAsStringSync('privacy');
+      Directory(p.join(checkout.path, 'images')).createSync();
+      File(p.join(checkout.path, 'images', 'a.png')).writeAsStringSync('png');
+      final source = Directory(p.join(tmp.path, 'products', 'Pkg_T.bundle'))
+        ..createSync(recursive: true);
+      Link(
+        p.join(source.path, 'PrivacyInfo.xcprivacy'),
+      ).createSync(p.join(checkout.path, 'PrivacyInfo.xcprivacy'));
+      Link(
+        p.join(source.path, 'images'),
+      ).createSync(p.join(checkout.path, 'images'));
+      Link(
+        p.join(source.path, 'gone.txt'),
+      ).createSync(p.join(checkout.path, 'missing.txt'));
+      final app = Directory(p.join(tmp.path, 'Runner.app'))..createSync();
+
+      await copier.copyResourceBundles([source.path], app.path);
+
+      final bundle = p.join(app.path, 'Pkg_T.bundle');
+      final entries = Directory(
+        bundle,
+      ).listSync(recursive: true, followLinks: false);
+      expect(entries.whereType<Link>(), isEmpty);
+      expect(
+        File(p.join(bundle, 'PrivacyInfo.xcprivacy')).readAsStringSync(),
+        'privacy',
+      );
+      expect(File(p.join(bundle, 'images', 'a.png')).readAsStringSync(), 'png');
+      expect(File(p.join(bundle, 'gone.txt')).existsSync(), isFalse);
+    },
+  );
 }
