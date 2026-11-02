@@ -12,6 +12,7 @@ final class LaunchScreenSpec {
     this.backgroundColorName,
     this.imageName,
     this.imageIsCentered = false,
+    this.imageContentMode = 'scaleToFill',
     this.backgroundImageName,
     this.unsupported = const [],
   });
@@ -27,6 +28,9 @@ final class LaunchScreenSpec {
 
   /// Whether [imageName] is displayed centered at natural size.
   final bool imageIsCentered;
+
+  /// `contentMode` of the foreground image view.
+  final String imageContentMode;
 
   /// A full-screen image used as background (`flutter_native_splash` style).
   final String? backgroundImageName;
@@ -125,6 +129,7 @@ final class LaunchStoryboardReader {
 
     String? imageName;
     var centered = false;
+    var imageMode = 'scaleToFill';
     String? backgroundImage;
     final subviews = view.childElements
         .where((e) => e.name.local == 'subviews')
@@ -165,6 +170,7 @@ final class LaunchStoryboardReader {
       } else {
         imageName = image;
         centered = isCentered;
+        imageMode = mode;
         if (!isCentered) unsupported.add('image $image is not centered');
       }
     }
@@ -174,6 +180,7 @@ final class LaunchStoryboardReader {
       backgroundColorName: colorName,
       imageName: imageName,
       imageIsCentered: centered,
+      imageContentMode: imageMode,
       backgroundImageName: backgroundImage,
       unsupported: unsupported,
     );
