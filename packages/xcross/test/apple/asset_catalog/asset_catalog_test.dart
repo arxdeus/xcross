@@ -8,13 +8,13 @@ import 'package:xcross/src/shared/apple/asset_catalog/app_icon_stager.dart';
 import 'package:xcross/src/shared/apple/asset_catalog/asset_catalog.dart';
 import 'package:xcross/src/shared/apple/asset_catalog/asset_catalog_reader.dart';
 
-import '../../flutter/flutter_test_runtime.dart';
+import '../support/native_test_file_system.dart';
 
 void main() {
   late Directory tmp;
   late String xc;
   final paths = p.context;
-  final fs = testIPhoneRuntime().host.fileSystem;
+  const fs = NativeTestFileSystem();
 
   void write(String rel, Object content) {
     final f = File(p.join(xc, rel))..parent.createSync(recursive: true);

@@ -7,7 +7,7 @@ import 'package:test/test.dart';
 import 'package:xcross/src/shared/apple/app_resource_compiler.dart';
 
 import '../flutter/flutter_test_log.dart';
-import '../flutter/flutter_test_runtime.dart';
+import 'support/native_test_file_system.dart';
 
 const _storyboard = '''
 <?xml version="1.0" encoding="UTF-8" standalone="no"?>
@@ -49,7 +49,7 @@ const _plist = '''
 
 void main() {
   late Directory tmp;
-  final fs = testIPhoneRuntime().host.fileSystem;
+  const fs = NativeTestFileSystem();
 
   setUp(() => tmp = Directory.systemTemp.createTempSync('arc_'));
   tearDown(() => tmp.deleteSync(recursive: true));

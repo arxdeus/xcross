@@ -9,7 +9,7 @@ import 'package:xcross/src/shared/apple/launch_screen/launch_screen_plist.dart';
 import 'package:xcross/src/shared/apple/launch_screen/launch_storyboard_locator.dart';
 import 'package:xcross/src/shared/apple/launch_screen/launch_storyboard_reader.dart';
 
-import '../../flutter/flutter_test_runtime.dart';
+import '../support/native_test_file_system.dart';
 
 String _sb(String view, {String resources = ''}) =>
     '''
@@ -115,10 +115,8 @@ void main() {
       File(png).writeAsBytesSync(img.encodePng(image));
       final spec = LaunchStoryboardReader.read(_sb(_splash))!;
       expect(spec.backgroundImageName, 'LaunchBackground');
-      final plan =
-          LaunchScreenPlanner(
-            fileSystem: testIPhoneRuntime().host.fileSystem,
-          ).plan(
+      final plan = const LaunchScreenPlanner(fileSystem: NativeTestFileSystem())
+          .plan(
             spec,
             AssetCatalog(
               path: 'x',
@@ -171,13 +169,13 @@ void main() {
       ).writeAsStringSync('');
     }
     final found = LaunchStoryboardLocator(
-      testIPhoneRuntime().host.fileSystem,
+      const NativeTestFileSystem(),
       p.context,
     ).locate(tmp.path, 'LaunchScreen');
     expect(found, contains('Base.lproj'));
     expect(
       LaunchStoryboardLocator(
-        testIPhoneRuntime().host.fileSystem,
+        const NativeTestFileSystem(),
         p.context,
       ).locate(tmp.path, 'Nope'),
       isNull,
