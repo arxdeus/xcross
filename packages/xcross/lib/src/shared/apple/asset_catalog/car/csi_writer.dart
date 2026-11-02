@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:meta/meta.dart';
+import 'package:xcross/src/shared/apple/asset_catalog/car/lzfse_writer.dart';
 
 /// CoreUI rendition key attributes (`kCRTheme*Name`) xcross writes.
 @internal
@@ -79,6 +80,7 @@ abstract final class CsiWriter {
     required bool opaque,
     required Uint8List bgra,
     bool icon = false,
+    bool compress = true,
   }) {
     final tlv = CarByteSink()
       // Slices: one slice covering the whole image.
@@ -112,12 +114,30 @@ abstract final class CsiWriter {
       ..u32(0x3EF)
       ..u32(4)
       ..u32(width * 4);
-    final payload = CarByteSink()
-      ..ascii('MLEC')
-      ..u32(opaque ? 2 : 0) // flags: bit 1 marks an opaque bitmap
-      ..u32(0) // compression: none
-      ..u32(bgra.length)
-      ..bytes(bgra);
+    Uint8List? compressed;
+    if (compress) {
+      try {
+        compressed = _lzfsePixels(
+          bgra,
+          width: width,
+          height: height,
+          opaque: opaque,
+        );
+        // Incompressible pixels are cheaper (and faster to load) raw.
+        if (compressed.length >= bgra.length) compressed = null;
+      } on Object {
+        compressed = null;
+      }
+    }
+    final payload =
+        compressed ??
+        (CarByteSink()
+              ..ascii('MLEC')
+              ..u32(opaque ? 2 : 0) // flags: bit 1 marks an opaque bitmap
+              ..u32(0) // compression: none
+              ..u32(bgra.length)
+              ..bytes(bgra))
+            .toBytes();
     return _rendition(
       name: name,
       // actool sets bit 4 (template mode "automatic") on image set bitmaps.
@@ -129,8 +149,51 @@ abstract final class CsiWriter {
       colorSpace: 1,
       layout: CarLayout.image,
       tlv: tlv.toBytes(),
-      payload: payload.toBytes(),
+      payload: payload,
     );
+  }
+
+  /// Pixel rows per `KCBC` chunk, bounded like actool (about 1.4 MB of raw
+  /// pixels per chunk).
+  static const _chunkBytes = 341 * 4096;
+
+  /// `MLEC` pixel data compressed with LZFSE, split into `KCBC` chunks of
+  /// whole rows the way `actool` writes it.
+  static Uint8List _lzfsePixels(
+    Uint8List bgra, {
+    required int width,
+    required int height,
+    required bool opaque,
+  }) {
+    final rowBytes = width * 4;
+    final rowsPerChunk = rowBytes == 0
+        ? 1
+        : (_chunkBytes ~/ rowBytes).clamp(1, height < 1 ? 1 : height);
+    final chunks = <(int, Uint8List)>[];
+    for (var row = 0; row < height; row += rowsPerChunk) {
+      final rows = row + rowsPerChunk > height ? height - row : rowsPerChunk;
+      chunks.add((
+        rows,
+        LzfseWriter.compress(
+          Uint8List.sublistView(bgra, row * rowBytes, (row + rows) * rowBytes),
+        ),
+      ));
+    }
+    final out = CarByteSink()
+      ..ascii('MLEC')
+      ..u32(opaque ? 3 : 1) // flags, as actool writes them
+      ..u32(4) // compression: lzfse
+      ..u32(chunks.length);
+    for (final (rows, data) in chunks) {
+      out
+        ..ascii('KCBC')
+        ..u32(0)
+        ..u32(0)
+        ..u32(rows)
+        ..u32(data.length)
+        ..bytes(data);
+    }
+    return out.toBytes();
   }
 
   /// A color rendition. [colorSpaceId] is CoreUI's color space number and

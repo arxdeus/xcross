@@ -6,6 +6,8 @@ import 'package:test/test.dart';
 import 'package:xcross/src/shared/apple/asset_catalog/asset_catalog.dart';
 import 'package:xcross/src/shared/apple/asset_catalog/assets_car_writer.dart';
 
+import 'lzfse_writer_test.dart';
+
 /// Minimal BOM reader used only to check the writer's output.
 @internal
 final class BomTestReader {
@@ -82,6 +84,24 @@ List<(int, int)> _sizes(Uint8List csi) {
   ];
 }
 
+/// `(MLEC flags, decoded BGRA)` of an LZFSE bitmap rendition, checking the
+/// `KCBC` chunk layout actool uses.
+(int, Uint8List) _pixels(Uint8List csi) {
+  final payload = csi.sublist(184 + _u32(csi, 168));
+  expect(String.fromCharCodes(payload, 0, 4), 'MLEC');
+  expect(_u32(payload, 8), 4, reason: 'lzfse');
+  final out = BytesBuilder();
+  var p = 16;
+  for (var i = 0; i < _u32(payload, 12); i++) {
+    expect(String.fromCharCodes(payload, p, p + 4), 'KCBC');
+    final length = _u32(payload, p + 16);
+    out.add(LzfseTestDecoder.decode(payload.sublist(p + 20, p + 20 + length)));
+    p += 20 + length;
+  }
+  expect(p, payload.length);
+  return (_u32(payload, 4), out.toBytes());
+}
+
 Uint8List _png(int width, int height, List<int> rgba) {
   final image = img.Image(width: width, height: height, numChannels: 4);
   for (var y = 0; y < height; y++) {
@@ -94,8 +114,8 @@ Uint8List _png(int width, int height, List<int> rgba) {
 
 void main() {
   final files = {
-    '/c/Launch.imageset/a.png': _png(4, 2, [255, 0, 0, 255]),
-    '/c/Launch.imageset/b.png': _png(8, 4, [0, 0, 255, 128]),
+    '/c/Launch.imageset/a.png': _png(40, 20, [255, 0, 0, 255]),
+    '/c/Launch.imageset/b.png': _png(80, 40, [0, 0, 255, 128]),
     '/c/AppIcon.appiconset/icon.png': _png(16, 16, [0, 200, 0, 255]),
     '/c/bad.png': Uint8List.fromList([1, 2, 3]),
   };
@@ -232,23 +252,22 @@ void main() {
     expect(images, hasLength(2));
     final (key1, one) = images.firstWhere((i) => _token(i.$1, _scalePos) == 1);
     expect(_token(key1, _appearancePos), 0);
-    expect(_u32(one, 12), 4);
-    expect(_u32(one, 16), 2);
+    expect(_u32(one, 12), 40);
+    expect(_u32(one, 16), 20);
     expect(_u32(one, 20), 100);
     expect(String.fromCharCodes(one, 24, 28), 'BGRA');
     expect(_u16(one, 36), 12);
-    final pixels = one.sublist(184 + _u32(one, 168));
-    expect(String.fromCharCodes(pixels, 0, 4), 'MLEC');
-    expect(_u32(pixels, 4), 2, reason: 'opaque');
-    expect(_u32(pixels, 12), 4 * 2 * 4);
-    expect(pixels.sublist(16, 20), [0, 0, 255, 255]);
+    final (flags, pixels) = _pixels(one);
+    expect(flags, 3, reason: 'opaque');
+    expect(pixels, hasLength(40 * 20 * 4));
+    expect(pixels.sublist(0, 4), [0, 0, 255, 255]);
 
     final (key2, two) = images.firstWhere((i) => _token(i.$1, _scalePos) == 2);
     expect(_token(key2, _appearancePos), 1);
     expect(_u32(two, 20), 200);
-    final pixels2 = two.sublist(184 + _u32(two, 168));
-    expect(_u32(pixels2, 4), 0);
-    expect(pixels2.sublist(16, 20), [128, 0, 0, 128]);
+    final (flags2, pixels2) = _pixels(two);
+    expect(flags2, 1);
+    expect(pixels2.sublist(0, 4), [128, 0, 0, 128]);
   });
 
   test('writes the app icon for iPhone and iPad plus a size index', () {
