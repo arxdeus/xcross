@@ -40,12 +40,37 @@ final class IpaPackager {
       ]);
       final bytes = await entity.readAsBytes();
       final file = ArchiveFile.bytes(entryName, bytes);
-      file.mode = entity.statSync().mode & 0xFFF;
+      file.mode = entryMode(entity.statSync().mode, bytes);
       archive.addFile(file);
     }
 
     final zipBytes = ZipEncoder().encode(archive);
     await ipaFile.writeAsBytes(zipBytes);
     return ipaPath;
+  }
+
+  /// Unix mode recorded for an IPA entry.
+  ///
+  /// Windows `stat` has no exec bit (and reports `0666`-style modes), so a
+  /// Mach-O main executable or framework binary would land in the IPA
+  /// non-executable and installd would refuse to launch it. Mach-O files are
+  /// therefore always `0755`; other files keep their host mode, falling back
+  /// to `0644` when the host reports none.
+  @visibleForTesting
+  static int entryMode(int statMode, List<int> bytes) {
+    if (_isMachO(bytes)) return 0x1ED; // 0755
+    final mode = statMode & 0x1FF;
+    return mode == 0 ? 0x1A4 : mode;
+  }
+
+  static bool _isMachO(List<int> b) {
+    if (b.length < 4) return false;
+    final be = (b[0] << 24) | (b[1] << 16) | (b[2] << 8) | b[3];
+    return be == 0xFEEDFACE ||
+        be == 0xFEEDFACF ||
+        be == 0xCEFAEDFE ||
+        be == 0xCFFAEDFE ||
+        be == 0xCAFEBABE ||
+        be == 0xCAFEBABF;
   }
 }
