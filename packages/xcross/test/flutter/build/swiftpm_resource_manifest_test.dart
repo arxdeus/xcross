@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
@@ -407,14 +408,53 @@ commands:
           {
             'SDWebImage_SDWebImage.bundle': [privacy],
             'prefs_prefs.bundle': [prefs],
+            // Compiled for the plan or a sibling product, never linked.
+            'SDWebImage_SDWebImageMapKit.bundle': [privacy],
             // A test target the plugin build never compiled.
             'Pkg_PkgTests.bundle': [prefs],
             'Empty_Empty.bundle': [],
           },
           {'prefs_prefs.bundle'},
-          ['SDWebImage', 'prefs', 'Empty'],
+          ['SDWebImage', 'SDWebImageMapKit', 'prefs', 'Empty'],
+          {'SDWebImage', 'prefs', 'Empty'},
         ),
         ['SDWebImage_SDWebImage.bundle'],
+      );
+    });
+
+    test('targets linked into a dylib or framework', () {
+      String link(String output, List<String> inputs) =>
+          '  "C.$output":\n'
+          '    tool: shell\n'
+          '    inputs: ${jsonEncode(inputs)}\n'
+          '    outputs: ${jsonEncode([output])}\n';
+      final manifest =
+          'commands:\n'
+          '${link('/d/libFlutterPluginsGenerated.dylib', ['/d/FlutterPluginsGenerated.build/A.swift.o', '/d/SDWebImage.build/SDImageCache.m.o', '/d/swift-version.txt'])}'
+          '${link('/d/Lib.framework/Lib', ['/d/Lib.build/Lib.swift.o'])}'
+          // Compile only: the object is not linked.
+          '  "C.SDWebImageMapKit.module":\n'
+          '    tool: shell\n'
+          '    inputs: ["/s/MKAnnotationView+WebCache.m"]\n'
+          '    outputs: ["/d/SDWebImageMapKit.build/MKAnnotationView.m.o"]\n'
+          // A static archive is not embedded on its own.
+          '${link('/d/libStatic.a', ['/d/Static.build/S.swift.o'])}';
+      expect(parseSwiftPmLinkedTargets(manifest, p.posix), {
+        '/d/libFlutterPluginsGenerated.dylib': {
+          'FlutterPluginsGenerated',
+          'SDWebImage',
+        },
+        '/d/Lib.framework/Lib': {'Lib'},
+      });
+      expect(
+        parseSwiftPmLinkedTargets(
+          'commands:\n'
+          '${link(r'C:\d\libP.dylib', [r'C:\d\Win.build\W.swift.o'])}',
+          p.windows,
+        ),
+        {
+          r'C:\d\libP.dylib': {'Win'},
+        },
       );
     });
 

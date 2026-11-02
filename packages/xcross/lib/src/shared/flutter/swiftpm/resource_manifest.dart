@@ -136,6 +136,65 @@ Map<String, List<SwiftPmBundleResource>> parseSwiftPmResourceCopies(
   return result;
 }
 
+/// The targets whose objects SwiftPM's build manifest links into each
+/// dynamic library or framework binary, keyed by that binary's path: the
+/// `<Target>.build` directory of every `.o` input of a `shell` command whose
+/// single output is a `.dylib` or a binary directly inside a `.framework`.
+/// Xcode embeds the resource bundles of exactly the targets linked into what
+/// the app embeds; targets that were only compiled (plan builds, sibling
+/// products such as `SDWebImageMapKit`) do not count.
+@internal
+Map<String, Set<String>> parseSwiftPmLinkedTargets(
+  String manifest,
+  p.Context paths,
+) {
+  final result = <String, Set<String>>{};
+  String? tool;
+  List<String>? inputs;
+  List<String>? outputs;
+
+  void flush() {
+    final output = outputs?.length == 1 ? outputs!.single : null;
+    if (tool == 'shell' &&
+        inputs != null &&
+        output != null &&
+        (paths.extension(output) == '.dylib' ||
+            paths.extension(paths.dirname(output)) == '.framework')) {
+      final targets = result.putIfAbsent(output, () => <String>{});
+      for (final input in inputs!) {
+        if (paths.extension(input) != '.o') continue;
+        for (final segment in paths.split(paths.dirname(input))) {
+          if (paths.extension(segment) == '.build') {
+            targets.add(paths.basenameWithoutExtension(segment));
+          }
+        }
+      }
+    }
+    tool = null;
+    inputs = null;
+    outputs = null;
+  }
+
+  for (final line in const LineSplitter().convert(manifest)) {
+    final trimmed = line.trimLeft();
+    final indent = line.length - trimmed.length;
+    if (trimmed.isEmpty) continue;
+    if (indent <= 2) {
+      flush();
+      continue;
+    }
+    if (trimmed.startsWith('tool:')) {
+      tool = trimmed.substring('tool:'.length).trim();
+    } else if (trimmed.startsWith('inputs:')) {
+      inputs = _jsonList(trimmed.substring('inputs:'.length));
+    } else if (trimmed.startsWith('outputs:')) {
+      outputs = _jsonList(trimmed.substring('outputs:'.length));
+    }
+  }
+  flush();
+  return result;
+}
+
 List<String>? _jsonList(String text) {
   try {
     final decoded = jsonDecode(text.trim());
@@ -266,8 +325,9 @@ String? targetOfBundle(String bundleName, Iterable<String> targets) {
 
 /// The bundles of [copies] (from [parseSwiftPmResourceCopies]) that
 /// `swift build` declared but did not leave in the products directory
-/// ([listed] holds the bundle names it did leave), for a target that was
-/// built there ([targets], the `<Target>.build` directory names), sorted.
+/// ([listed] holds the bundle names it did leave), for a target ([targets],
+/// the `<Target>.build` directory names) that is linked into a binary the
+/// app embeds ([linked], from [parseSwiftPmLinkedTargets]), sorted.
 ///
 /// llbuild records a `copy-tool` output that is a dangling link (SDWebImage
 /// copies `Resources/PrivacyInfo.xcprivacy`, a git symlink pointing outside
@@ -279,13 +339,17 @@ List<String> missingSwiftPmResourceBundles(
   Map<String, List<SwiftPmBundleResource>> copies,
   Set<String> listed,
   Iterable<String> targets,
-) => [
-  for (final entry in copies.entries)
-    if (!listed.contains(entry.key) &&
-        entry.value.isNotEmpty &&
-        targetOfBundle(entry.key, targets) != null)
-      entry.key,
-]..sort();
+  Set<String> linked,
+) {
+  final known = {...targets, ...linked};
+  return [
+    for (final entry in copies.entries)
+      if (!listed.contains(entry.key) &&
+          entry.value.isNotEmpty &&
+          linked.contains(targetOfBundle(entry.key, known)))
+        entry.key,
+  ]..sort();
+}
 
 /// The `Info.plist` Xcode generates for a SwiftPM resource bundle, before
 /// the platform and toolchain (`DT*`) keys are stamped in, measured against

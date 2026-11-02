@@ -82,11 +82,13 @@ final class SwiftPmAssembly<T extends PlatformHostInterface> {
     );
     var copies = const <String, List<SwiftPmBundleResource>>{};
     var versions = const <String, String>{};
+    var linkCommands = const <String, Set<String>>{};
     if (manifest.existsSync()) {
       try {
         final text = await manifest.readAsString();
         copies = parseSwiftPmResourceCopies(text, p.context);
         versions = parseSwiftPmTargetDeploymentVersions(text);
+        linkCommands = parseSwiftPmLinkedTargets(text, p.context);
       } on FileSystemException {
         // Unreadable: fall back to copying the built bundles as they are.
       }
@@ -116,9 +118,19 @@ final class SwiftPmAssembly<T extends PlatformHostInterface> {
     // once the products directory is wiped: llbuild recorded the dangling
     // output as missing, so a missing output looks up to date. Its resources
     // are copied from source anyway, as Xcode does, so a manifest bundle of
-    // a target that was built here is kept even without a directory.
+    // a target linked into a binary this build left (and the app embeds) is
+    // kept without a directory.
+    final linked = {
+      for (final MapEntry(key: binary, value: targets) in linkCommands.entries)
+        if (fileSystem.file(binary).existsSync()) ...targets,
+    };
     final listed = {for (final path in resourceBundlePaths) p.basename(path)};
-    for (final name in missingSwiftPmResourceBundles(copies, listed, targets)) {
+    for (final name in missingSwiftPmResourceBundles(
+      copies,
+      listed,
+      targets,
+      linked,
+    )) {
       resourceBundlePaths.add(
         p.absolute(fileSystem.processPath(p.join(targetDebugDir, name))),
       );

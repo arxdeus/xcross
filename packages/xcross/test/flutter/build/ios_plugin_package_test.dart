@@ -5224,14 +5224,22 @@ module FirebaseFirestore {
       );
       final missing = p.join(output.path, 'SDWebImage_SDWebImage.bundle');
       final testOnly = p.join(output.path, 'SDWebImage_Tests.bundle');
+      final mapKit = p.join(output.path, 'SDWebImage_SDWebImageMapKit.bundle');
+      Directory(p.join(output.path, 'SDWebImageMapKit.build')).createSync();
       String copy(String bundle) =>
           '  "${p.join(bundle, 'PrivacyInfo.xcprivacy')}":\n'
           '    tool: copy-tool\n'
           '    inputs: ${jsonEncode([source])}\n'
           '    outputs: ${jsonEncode([p.join(bundle, 'PrivacyInfo.xcprivacy')])}\n';
-      File(
-        p.join(scratch.path, 'debug.yaml'),
-      ).writeAsStringSync('commands:\n${copy(missing)}${copy(testOnly)}');
+      final dylib = p.join(output.path, 'libFlutterPluginsGenerated.dylib');
+      final link =
+          '  "C.dylib":\n'
+          '    tool: shell\n'
+          '    inputs: ${jsonEncode([p.join(output.path, 'SDWebImage.build', 'SDImageCache.m.o')])}\n'
+          '    outputs: ${jsonEncode([dylib])}\n';
+      File(p.join(scratch.path, 'debug.yaml')).writeAsStringSync(
+        'commands:\n${copy(missing)}${copy(testOnly)}${copy(mapKit)}$link',
+      );
 
       final result = await _swiftPmRuntime.assembly.discoverAndRewriteDylibs(
         output.path,
