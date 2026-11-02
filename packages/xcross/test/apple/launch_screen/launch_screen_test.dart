@@ -1,6 +1,5 @@
 import 'dart:io';
 
-import 'package:cli_kit/shared/platform/platform_host.dart';
 import 'package:image/image.dart' as img;
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
@@ -10,14 +9,7 @@ import 'package:xcross/src/shared/apple/launch_screen/launch_screen_plist.dart';
 import 'package:xcross/src/shared/apple/launch_screen/launch_storyboard_locator.dart';
 import 'package:xcross/src/shared/apple/launch_screen/launch_storyboard_reader.dart';
 
-class _Fs implements HostFileSystemInterface {
-  @override
-  File file(String path) => File(path);
-  @override
-  Directory directory(String path) => Directory(path);
-  @override
-  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
-}
+import '../../flutter/flutter_test_runtime.dart';
 
 String _sb(String view, {String resources = ''}) =>
     '''
@@ -123,19 +115,22 @@ void main() {
       File(png).writeAsBytesSync(img.encodePng(image));
       final spec = LaunchStoryboardReader.read(_sb(_splash))!;
       expect(spec.backgroundImageName, 'LaunchBackground');
-      final plan = LaunchScreenPlanner(fileSystem: _Fs()).plan(
-        spec,
-        AssetCatalog(
-          path: 'x',
-          imageSets: [
-            ImageSetAsset(
-              name: 'LaunchBackground',
-              images: [ImageSetEntry(filePath: png)],
+      final plan =
+          LaunchScreenPlanner(
+            fileSystem: testIPhoneRuntime().host.fileSystem,
+          ).plan(
+            spec,
+            AssetCatalog(
+              path: 'x',
+              imageSets: [
+                ImageSetAsset(
+                  name: 'LaunchBackground',
+                  images: [ImageSetEntry(filePath: png)],
+                ),
+                const ImageSetAsset(name: 'LaunchImage', images: []),
+              ],
             ),
-            const ImageSetAsset(name: 'LaunchImage', images: []),
-          ],
-        ),
-      );
+          );
       final c = plan.synthesizedColor!.colors.single.color;
       expect([c.red, c.green, c.blue], [1, 0, 0]);
     });
@@ -176,12 +171,15 @@ void main() {
       ).writeAsStringSync('');
     }
     final found = LaunchStoryboardLocator(
-      _Fs(),
+      testIPhoneRuntime().host.fileSystem,
       p.context,
     ).locate(tmp.path, 'LaunchScreen');
     expect(found, contains('Base.lproj'));
     expect(
-      LaunchStoryboardLocator(_Fs(), p.context).locate(tmp.path, 'Nope'),
+      LaunchStoryboardLocator(
+        testIPhoneRuntime().host.fileSystem,
+        p.context,
+      ).locate(tmp.path, 'Nope'),
       isNull,
     );
   });

@@ -1,7 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:cli_kit/shared/platform/platform_host.dart';
 import 'package:image/image.dart' as img;
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
@@ -9,26 +8,13 @@ import 'package:xcross/src/shared/apple/asset_catalog/app_icon_stager.dart';
 import 'package:xcross/src/shared/apple/asset_catalog/asset_catalog.dart';
 import 'package:xcross/src/shared/apple/asset_catalog/asset_catalog_reader.dart';
 
-final class _Fs implements HostFileSystemInterface {
-  @override
-  File file(String path) => File(path);
-  @override
-  Directory directory(String path) => Directory(path);
-  @override
-  Link link(String path) => Link(path);
-  @override
-  void makeExecutable(String path) {}
-  @override
-  void setPermissions(String path, int mode) {}
-  @override
-  Future<void> createArchiveLink(String destination, String target) async {}
-}
+import '../../flutter/flutter_test_runtime.dart';
 
 void main() {
   late Directory tmp;
   late String xc;
   final paths = p.context;
-  final fs = _Fs();
+  final fs = testIPhoneRuntime().host.fileSystem;
 
   void write(String rel, Object content) {
     final f = File(p.join(xc, rel))..parent.createSync(recursive: true);
