@@ -19,6 +19,7 @@ import 'package:xcross/src/shared/flutter/build/bundle_entitlements.dart';
 import 'package:xcross/src/shared/flutter/project/pbx_project_reader.dart';
 
 import '../../apple/support/linkable_macho_fixture.dart';
+import '../flutter_test_runtime.dart';
 
 const _pbxproj = r'''
 // !$*UTF8*$!
@@ -203,6 +204,28 @@ void main() {
       MachOCodeSignature.embeddedEntitlementsXml(share.readAsBytesSync()),
       contains('group.com.example'),
     );
+    // `_provisionExtensions` reads each extension's own signature.
+    final host = testHost();
+    final extension = p.join(app, 'PlugIns', 'Share.appex');
+    expect(
+      AppEntitlements(
+        fileSystem: host.fileSystem,
+        paths: host.paths,
+      ).of(extension)['com.apple.security.application-groups'],
+      ['group.com.example'],
+    );
+    expect(
+      AppCapabilities(
+        fileSystem: host.fileSystem,
+        paths: host.paths,
+      ).of(extension),
+      contains('APP_GROUPS'),
+    );
+  });
+
+  test('only device builds embed entitlements', () {
+    expect(testIPhoneRuntime().policy.embedsEntitlements, isTrue);
+    expect(testSimulatorRuntime().policy.embedsEntitlements, isFalse);
   });
 
   test('falls back to the preferred configuration only when it exists', () {
