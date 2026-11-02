@@ -4,7 +4,6 @@ import 'dart:io';
 import 'package:image/image.dart' as img;
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
-import 'package:xcross/src/shared/apple/asset_catalog/app_icon_stager.dart';
 import 'package:xcross/src/shared/apple/asset_catalog/asset_catalog.dart';
 import 'package:xcross/src/shared/apple/asset_catalog/asset_catalog_reader.dart';
 
@@ -107,98 +106,5 @@ void main() {
     expect(b.colors.first.color.blue, 0.2);
     expect(b.colors.last.color, const AssetColor.gray(0.5));
     expect(r.catalog.colorSet('c'), isNotNull);
-  });
-
-  test('stages legacy icons loose and patches Info.plist', () async {
-    write(
-      'AppIcon.appiconset/Contents.json',
-      jsonEncode({
-        'images': [
-          {
-            'size': '60x60',
-            'idiom': 'iphone',
-            'filename': 'a.png',
-            'scale': '2x',
-          },
-          {
-            'size': '60x60',
-            'idiom': 'iphone',
-            'filename': 'a.png',
-            'scale': '3x',
-          },
-          {
-            'size': '83.5x83.5',
-            'idiom': 'ipad',
-            'filename': 'a.png',
-            'scale': '2x',
-          },
-          {
-            'size': '1024x1024',
-            'idiom': 'ios-marketing',
-            'filename': 'a.png',
-            'scale': '1x',
-          },
-        ],
-      }),
-    );
-    write('AppIcon.appiconset/a.png', png(8));
-    final cat = AssetCatalogReader(fs, paths).read(xc).catalog;
-    final app = p.join(tmp.path, 'Runner.app');
-    Directory(app).createSync();
-    final plist = await AppIconStager(fs, paths).stage(
-      cat.appIconSet('AppIcon')!,
-      bundleDir: app,
-      deviceFamilies: {AssetIdiom.iphone, AssetIdiom.ipad},
-    );
-    expect(File(p.join(app, 'AppIcon60x60@2x.png')).existsSync(), isTrue);
-    expect(File(p.join(app, 'AppIcon60x60@3x.png')).existsSync(), isTrue);
-    expect(
-      File(p.join(app, 'AppIcon83.5x83.5@2x~ipad.png')).existsSync(),
-      isTrue,
-    );
-    expect(plist.cfBundleIconsIpad, isNotNull);
-    final xml = AppIconPlist.applyToInfoPlist(
-      '<plist>\n<dict>\n\t<key>CFBundleIcons</key>\n\t<dict/>\n</dict>\n</plist>',
-      plist,
-    );
-    expect('CFBundleIcons</key>'.allMatches(xml), hasLength(1));
-    expect(xml, contains('<string>AppIcon83.5x83.5</string>'));
-    expect(xml, contains('<key>CFBundleIconName</key>'));
-  });
-
-  test('synthesizes sizes from single 1024 icon, opaque', () async {
-    write(
-      'AppIcon.appiconset/Contents.json',
-      jsonEncode({
-        'images': [
-          {
-            'size': '1024x1024',
-            'idiom': 'universal',
-            'platform': 'ios',
-            'filename': 'big.png',
-          },
-        ],
-      }),
-    );
-    write('AppIcon.appiconset/big.png', png(256, alpha: true));
-    final cat = AssetCatalogReader(fs, paths).read(xc).catalog;
-    final app = p.join(tmp.path, 'Runner.app');
-    Directory(app).createSync();
-    await AppIconStager(fs, paths).stage(
-      cat.appIconSet('AppIcon')!,
-      bundleDir: app,
-      deviceFamilies: {AssetIdiom.iphone, AssetIdiom.ipad},
-    );
-    final sizes = {
-      'AppIcon60x60@2x.png': 120,
-      'AppIcon60x60@3x.png': 180,
-      'AppIcon76x76@2x~ipad.png': 152,
-      'AppIcon83.5x83.5@2x~ipad.png': 167,
-    };
-    sizes.forEach((name, px) {
-      final d = img.decodePng(File(p.join(app, name)).readAsBytesSync())!;
-      expect(d.width, px);
-      expect(d.hasAlpha, isFalse);
-    });
   });
 }

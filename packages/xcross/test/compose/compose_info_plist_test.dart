@@ -18,6 +18,19 @@ import 'package:xcross/src/shared/flutter/constants.dart';
 import 'support/compose_platforms.dart';
 
 void main() {
+  test('UIDeviceFamily follows TARGETED_DEVICE_FAMILY like Xcode', () {
+    expect(ComposeInfoPlist.deviceFamilyOf(null), [1]);
+    expect(ComposeInfoPlist.deviceFamilyOf(const {}), [1]);
+    expect(
+      ComposeInfoPlist.deviceFamilyOf(const {'TARGETED_DEVICE_FAMILY': '1,2'}),
+      [1, 2],
+    );
+    expect(
+      ComposeInfoPlist.deviceFamilyOf(const {'TARGETED_DEVICE_FAMILY': '2'}),
+      [2],
+    );
+  });
+
   late ComposeTestSession session;
   setUp(() {
     session = createComposeTestSession();

@@ -111,12 +111,19 @@ def check(path, entitlements=(), launch_image=None, icon=None,
         top = info.get("CFBundleIconName")
         if icon not in (got, top):
             errors.append(f"CFBundleIconName != {icon}")
-        for scale, px in ((2, 120), (3, 180)):
-            name = f"{icon}60x60@{scale}x.png"
+        ipad = (info.get("CFBundleIcons~ipad", {}).get("CFBundlePrimaryIcon", {})
+                .get("CFBundleIconFiles", []))
+        if f"{icon}76x76" not in ipad:
+            errors.append(f"CFBundleIcons~ipad lacks {icon}76x76: {ipad}")
+        # Exactly what actool writes loose for a deployment target >= 11.
+        for name, px in ((f"{icon}60x60@2x.png", 120),
+                         (f"{icon}76x76@2x~ipad.png", 152)):
             if not b.has(name):
                 errors.append(f"missing {name}")
             elif png_size(b.read(name)) != (px, px):
                 errors.append(f"{name} is not a {px}x{px} PNG")
+        if b.has(f"{icon}60x60@3x.png"):
+            errors.append(f"unexpected {icon}60x60@3x.png (actool omits it)")
         notes.append("icons ok")
 
     if b.has("Assets.car"):

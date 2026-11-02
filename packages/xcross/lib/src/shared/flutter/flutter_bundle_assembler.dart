@@ -3,6 +3,7 @@ import 'package:meta/meta.dart';
 import 'package:xcross/src/shared/apple/app_resource_compiler.dart';
 import 'package:xcross/src/shared/artifact/plist_mutations.dart';
 import 'package:xcross/src/shared/flutter/build/app_extension_builder.dart';
+import 'package:xcross/src/shared/flutter/build/bundle_pkg_info.dart';
 import 'package:xcross/src/shared/flutter/build/info_plist.dart';
 import 'package:xcross/src/shared/flutter/build/ios_bundle_resources.dart';
 import 'package:xcross/src/shared/flutter/build/ios_bundle_versions.dart';
@@ -288,6 +289,7 @@ final class FlutterBundleAssembler<T extends PlatformHostInterface>
       plistXml,
       bundleId: bundleId,
       deploymentTarget: deploymentTarget,
+      deviceFamily: resources.deviceFamily,
     );
     plistXml = runtime.policy.transformPlist(plistXml, sdkName: sdkName);
     if (options.buildMode != FlutterBuildMode.release) {
@@ -315,6 +317,11 @@ final class FlutterBundleAssembler<T extends PlatformHostInterface>
     await runtime.host.fileSystem
         .file(runtime.host.paths.context.join(bundleDir, 'Info.plist'))
         .writeAsString(plistXml);
+    await runtime.host.fileSystem
+        .file(
+          runtime.host.paths.context.join(bundleDir, BundlePkgInfo.fileName),
+        )
+        .writeAsString(BundlePkgInfo.contentsFor(plistXml));
   }
 
   /// Compiles the target's asset catalogs into `Assets.car` and loose app
@@ -334,6 +341,9 @@ final class FlutterBundleAssembler<T extends PlatformHostInterface>
       catalogs: resources.assetCatalogs,
       deploymentTarget: deploymentTarget.version,
       appIconName: resources.appIconName,
+      alternateAppIconNames: resources.alternateAppIconNames,
+      includeAllAppIcons: resources.includeAllAppIcons,
+      accentColorName: resources.accentColorName,
       launchStoryboard: launchName == null
           ? null
           : resources.storyboard(launchName, paths),

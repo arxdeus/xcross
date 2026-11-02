@@ -354,6 +354,25 @@ APP[sdk=iphoneos*] = $(inherited).device
   });
 
   group('applyIosRequiredKeys', () {
+    test('writes TARGETED_DEVICE_FAMILY as UIDeviceFamily like Xcode', () {
+      final result = InfoPlist.applyIosRequiredKeys(
+        _minimalPlist,
+        bundleId: 'com.example.app',
+        deploymentTarget: const IosDeploymentTarget(
+          '15.0',
+          platform: IPhoneBuildPlatform(),
+        ),
+        deviceFamily: const [1, 2],
+      );
+      expect(
+        result,
+        contains(
+          '<key>UIDeviceFamily</key>\n'
+          '\t<array><integer>1</integer><integer>2</integer></array>',
+        ),
+      );
+    });
+
     test('inserts all mandatory keys with sensible defaults', () {
       final result = applyIPhoneRequiredKeys(
         _minimalPlist,

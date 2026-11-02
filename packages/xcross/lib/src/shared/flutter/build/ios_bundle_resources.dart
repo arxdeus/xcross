@@ -16,6 +16,10 @@ final class StagedIosResources {
     this.assetCatalogs = const [],
     this.storyboards = const [],
     this.appIconName,
+    this.alternateAppIconNames = const [],
+    this.includeAllAppIcons = false,
+    this.accentColorName,
+    this.deviceFamily,
   });
 
   /// Absolute paths of the target's `.xcassets`, in build phase order.
@@ -27,6 +31,21 @@ final class StagedIosResources {
 
   /// The target's `ASSETCATALOG_COMPILER_APPICON_NAME`, when set literally.
   final String? appIconName;
+
+  /// `ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES`, space separated.
+  final List<String> alternateAppIconNames;
+
+  /// `ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES`: every other
+  /// app icon set is an alternate icon.
+  final bool includeAllAppIcons;
+
+  /// `ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME`, when set literally.
+  final String? accentColorName;
+
+  /// `TARGETED_DEVICE_FAMILY` (`"1,2"` -> `[1, 2]`), what Xcode writes as
+  /// `UIDeviceFamily` and passes to `actool` as target devices. Null when
+  /// unset or unreadable.
+  final List<int>? deviceFamily;
 
   /// The uncompiled storyboard named [name] (`LaunchScreen`), or null.
   String? storyboard(String name, p.Context paths) => storyboards
@@ -127,15 +146,38 @@ final class IosBundleResources {
         await fileSystem.file(source).copy(fileSystem.file(destination).path);
       }
     }
-    final appIconSetting = project.buildSettings(
+    final settings = project.buildSettings(
       target,
       preferredConfiguration: configuration,
-    )['ASSETCATALOG_COMPILER_APPICON_NAME'];
-    final appIcon = appIconSetting is String ? appIconSetting : null;
+    );
+    String? literal(String key) {
+      final value = settings[key];
+      final text = switch (value) {
+        final String s => s.trim(),
+        final num n => '$n',
+        _ => null,
+      };
+      return text == null || text.isEmpty || text.contains(r'$') ? null : text;
+    }
+
+    final family = literal(
+      'TARGETED_DEVICE_FAMILY',
+    )?.split(',').map((v) => int.tryParse(v.trim())).nonNulls.toList();
     return StagedIosResources(
       assetCatalogs: catalogs,
       storyboards: storyboards,
-      appIconName: appIcon == null || appIcon.contains(r'$') ? null : appIcon,
+      appIconName: literal('ASSETCATALOG_COMPILER_APPICON_NAME'),
+      alternateAppIconNames:
+          literal(
+            'ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES',
+          )?.split(RegExp(r'\s+')).where((n) => n.isNotEmpty).toList() ??
+          const [],
+      includeAllAppIcons:
+          literal('ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS') == 'YES',
+      accentColorName: literal(
+        'ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME',
+      ),
+      deviceFamily: family == null || family.isEmpty ? null : family,
     );
   }
 

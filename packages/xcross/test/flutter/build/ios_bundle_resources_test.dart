@@ -69,7 +69,12 @@ void main() {
   test('reads the app icon name from the build configuration', () async {
     _writeProject(project, appRefs: const [], flavorAppIcon: 'AppIcon-prod');
 
-    expect((await _stage(project, bundle)).appIconName, 'AppIcon');
+    final debug = await _stage(project, bundle);
+    expect(debug.appIconName, 'AppIcon');
+    expect(debug.deviceFamily, [1, 2]);
+    expect(debug.alternateAppIconNames, ['AppIconRed', 'AppIconBlue']);
+    expect(debug.accentColorName, 'AccentColor');
+    expect(debug.includeAllAppIcons, isFalse);
     expect(
       (await _stage(
         project,
@@ -442,7 +447,7 @@ void _writeProject(
     BASE_LABELS = { isa = PBXFileReference; path = Base.lproj/Labels.strings; sourceTree = "<group>"; };
     FR_LABELS = { isa = PBXFileReference; path = fr.lproj/Labels.strings; sourceTree = "<group>"; };
     APP_CONFIG_LIST = { isa = XCConfigurationList; buildConfigurations = (APP_CONFIG${flavorAppIcon.isEmpty ? '' : ', PROD_CONFIG'}); };
-    APP_CONFIG = { isa = XCBuildConfiguration; name = Debug; buildSettings = { INFOPLIST_FILE = Runner/Info.plist; ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon; }; };
+    APP_CONFIG = { isa = XCBuildConfiguration; name = Debug; buildSettings = { INFOPLIST_FILE = Runner/Info.plist; ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon; TARGETED_DEVICE_FAMILY = "1,2"; ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES = "AppIconRed AppIconBlue"; ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor; }; };
     ${flavorAppIcon.isEmpty ? '' : 'PROD_CONFIG = { isa = XCBuildConfiguration; name = Release-prod; buildSettings = { INFOPLIST_FILE = Runner/Info.plist; ASSETCATALOG_COMPILER_APPICON_NAME = $flavorAppIcon; }; };'}
     APP_TARGET = { isa = PBXNativeTarget; productType = $productType; buildConfigurationList = APP_CONFIG_LIST; buildPhases = (APP_RESOURCES); ${synchronized ? 'fileSystemSynchronizedGroups = (SYNC_GROUP);' : ''} };
     ${synchronized ? 'SYNC_GROUP = { isa = PBXFileSystemSynchronizedRootGroup; path = Runner; sourceTree = SOURCE_ROOT; exceptions = (SYNC_EXCEPTIONS); };\n    SYNC_EXCEPTIONS = { isa = PBXFileSystemSynchronizedBuildFileExceptionSet; target = APP_TARGET; membershipExceptions = (${exceptions.join(', ')}); };' : ''}

@@ -11,6 +11,7 @@ import 'package:xcross/src/shared/apple/asset_catalog/assets_car_writer.dart';
 import 'package:xcross/src/shared/apple/launch_screen/launch_screen_plan.dart';
 import 'package:xcross/src/shared/apple/launch_screen/launch_screen_plist.dart';
 import 'package:xcross/src/shared/apple/launch_screen/launch_storyboard_reader.dart';
+import 'package:xcross/src/shared/artifact/plist_mutations.dart';
 
 /// Compiles an app target's asset catalogs and launch storyboard the way
 /// Xcode's `actool` and `ibtool` steps would, in pure Dart, so a bundle built
@@ -61,6 +62,9 @@ final class AppResourceCompiler {
     required List<String> catalogs,
     required String deploymentTarget,
     String? appIconName,
+    List<String> alternateAppIconNames = const [],
+    bool includeAllAppIcons = false,
+    String? accentColorName,
     String? launchStoryboard,
     Set<AssetIdiom> deviceFamilies = const {AssetIdiom.iphone},
   }) async {
@@ -69,11 +73,29 @@ final class AppResourceCompiler {
 
     final iconName = appIconName ?? defaultAppIconName;
     final icon = catalog.appIconSet(iconName);
+    final alternates = [
+      for (final set in catalog.appIconSets)
+        if (set.name != iconName &&
+            (includeAllAppIcons || alternateAppIconNames.contains(set.name)))
+          set,
+    ];
+    for (final name in alternateAppIconNames) {
+      if (catalog.appIconSet(name) == null) {
+        log.logWarn(
+          'Alternate app icon set "$name" '
+          '(ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES) is not in the '
+          'asset catalogs; skipping it.',
+        );
+      }
+    }
     if (icon != null) {
-      final icons = await AppIconStager(
-        fileSystem,
-        paths,
-      ).stage(icon, bundleDir: bundleDir, deviceFamilies: deviceFamilies);
+      final icons = await AppIconStager(fileSystem, paths).stage(
+        icon,
+        bundleDir: bundleDir,
+        deviceFamilies: deviceFamilies,
+        deploymentTarget: deploymentTarget,
+        alternates: alternates,
+      );
       if (_hasIconFiles(icons)) {
         xml = AppIconPlist.applyToInfoPlist(xml, icons);
         log.logTrace('app icon: staged loose "$iconName" icons');
@@ -88,6 +110,22 @@ final class AppResourceCompiler {
         'App icon set "$appIconName" (ASSETCATALOG_COMPILER_APPICON_NAME) is '
         'not in the asset catalogs; the app will show a blank icon.',
       );
+    }
+
+    if (accentColorName != null && accentColorName.isNotEmpty) {
+      if (catalog.colorSet(accentColorName) != null) {
+        xml = PlistMutations.setPlistString(
+          xml,
+          'NSAccentColorName',
+          accentColorName,
+        );
+      } else {
+        log.logWarn(
+          'Accent color "$accentColorName" '
+          '(ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME) is not in the '
+          'asset catalogs; NSAccentColorName is not set.',
+        );
+      }
     }
 
     if (launchStoryboard != null) {
@@ -106,6 +144,8 @@ final class AppResourceCompiler {
         bundleDir: bundleDir,
         deploymentTarget: deploymentTarget,
         appIconName: icon == null ? null : iconName,
+        alternateAppIconNames: [for (final a in alternates) a.name],
+        targetDevices: deviceFamilies,
       );
     }
     return xml;
@@ -167,14 +207,18 @@ final class AppResourceCompiler {
     required String bundleDir,
     required String deploymentTarget,
     required String? appIconName,
+    required List<String> alternateAppIconNames,
+    required Set<AssetIdiom> targetDevices,
   }) {
     final Uint8List bytes;
     try {
       bytes = _carWriter.write(
         catalog,
         readFile: (path) => fileSystem.file(path).readAsBytesSync(),
-        deploymentTargetMajor: _major(deploymentTarget),
+        deploymentTarget: deploymentTarget,
         appIconName: appIconName,
+        alternateAppIconNames: alternateAppIconNames,
+        targetDevices: targetDevices,
       );
     } on AssetsCarException catch (error) {
       log.logWarn(
@@ -203,9 +247,6 @@ final class AppResourceCompiler {
     };
     return has(icons.cfBundleIcons) || has(icons.cfBundleIconsIpad);
   }
-
-  static int _major(String version) =>
-      int.tryParse(version.split('.').first) ?? 13;
 
   /// The device families an Info.plist's `UIDeviceFamily` declares.
   static Set<AssetIdiom> deviceFamiliesOf(String infoPlistXml) {

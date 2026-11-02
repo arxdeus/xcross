@@ -69,8 +69,14 @@ final class AppIconPlist {
 }
 
 /// Writes loose app icon PNGs into an `.app` and describes them for
-/// Info.plist, matching `actool`'s naming (`AppIcon60x60@2x.png`,
-/// `AppIcon76x76@2x~ipad.png`).
+/// Info.plist exactly as `actool` does (measured against Xcode 26):
+///
+/// * Deployment target 11 or later: only `AppIcon60x60@2x.png` and
+///   `AppIcon76x76@2x~ipad.png`, both always, whatever the target devices.
+/// * Earlier targets: every slot loose (`AppIcon29x29.png`,
+///   `AppIcon83.5x83.5@2x~ipad.png`, ...).
+/// * Explicit slots are copied byte for byte; a single-size 1024 icon is
+///   downscaled to RGBA PNGs with its alpha kept.
 @internal
 final class AppIconStager {
   AppIconStager(this.fileSystem, this.paths);
@@ -78,38 +84,95 @@ final class AppIconStager {
   final HostFileSystemInterface fileSystem;
   final p.Context paths;
 
-  /// (point size, scale) pairs synthesized from a single 1024 source.
-  static const _phoneSynth = [(60.0, 2), (60.0, 3)];
-  static const _padSynth = [(76.0, 2), (83.5, 2)];
+  /// Slots `actool` writes loose for a deployment target of 11 or later.
+  static const _modernPhone = [(60.0, 2)];
+  static const _modernPad = [(76.0, 2)];
 
-  /// Returns null `cfBundleIconsIpad` unless [deviceFamilies] has ipad.
+  /// Slots `actool` generates from a single-size icon below iOS 11.
+  static const _legacySynthPhone = [
+    (20.0, 2), (20.0, 3), (29.0, 2), (29.0, 3), //
+    (40.0, 2), (40.0, 3), (60.0, 2), (60.0, 3),
+  ];
+  static const _legacySynthPad = [
+    (20.0, 2),
+    (29.0, 2),
+    (40.0, 2),
+    (76.0, 2),
+    (83.5, 2),
+  ];
+
+  /// Stages [icons] (the primary icon) and [alternates] into [bundleDir].
   Future<AppIconPlist> stage(
     AppIconSetAsset icons, {
     required String bundleDir,
     required Set<AssetIdiom> deviceFamilies,
+    String deploymentTarget = '13.0',
+    List<AppIconSetAsset> alternates = const [],
   }) async {
     final wantPhone =
         deviceFamilies.contains(AssetIdiom.iphone) ||
         !deviceFamilies.contains(AssetIdiom.ipad);
     final wantPad = deviceFamilies.contains(AssetIdiom.ipad);
+    final modern = _major(deploymentTarget) >= 11;
+
+    final primary = _stageSet(icons, bundleDir, modern: modern);
+    final hasPhone = primary.explicit ? primary.phoneSlots : wantPhone;
+    final hasPad = primary.explicit ? primary.padSlots : wantPad;
+
+    final alternateIcons = <String, Object?>{
+      for (final alt in alternates)
+        alt.name: modern
+            ? {'CFBundleIconName': alt.name}
+            : {
+                'CFBundleIconFiles': _stageSet(
+                  alt,
+                  bundleDir,
+                  modern: false,
+                ).allBases,
+                'CFBundleIconName': alt.name,
+              },
+    };
+
+    Map<String, Object?> dict(
+      List<String> files, {
+      required bool named,
+      required bool withAlternates,
+    }) => {
+      if (withAlternates && alternates.isNotEmpty)
+        'CFBundleAlternateIcons': alternateIcons,
+      'CFBundlePrimaryIcon': {
+        'CFBundleIconFiles': files,
+        if (named) 'CFBundleIconName': icons.name,
+      },
+    };
+
+    return AppIconPlist(
+      cfBundleIcons: dict(
+        primary.phoneBases(marketingLast: !wantPhone),
+        named: hasPhone,
+        withAlternates: wantPhone,
+      ),
+      cfBundleIconsIpad: dict(
+        primary.padBases,
+        named: hasPad,
+        withAlternates: wantPad,
+      ),
+    );
+  }
+
+  StagedIconSet _stageSet(
+    AppIconSetAsset icons,
+    String bundleDir, {
+    required bool modern,
+  }) {
     final name = icons.name;
-
-    // base name (e.g. AppIcon60x60) -> size, per family.
-    final phoneBases = <String, double>{};
-    final padBases = <String, double>{};
-    final written = <String>{};
-
-    Future<void> put(
-      String file,
-      Uint8List bytes,
-      Map<String, double> bases,
-      double size,
-    ) async {
-      if (!written.add(file)) return;
+    final staged = StagedIconSet(name);
+    void put(String file, Uint8List? bytes, double size, {required bool pad}) {
+      if (bytes == null || !staged.files.add(file)) return;
       final out = fileSystem.file(paths.join(bundleDir, file));
       out.parent.createSync(recursive: true);
       out.writeAsBytesSync(bytes);
-      bases['$name${_fmt(size)}x${_fmt(size)}'] = size;
+      (pad ? staged.pad : staged.phone).add(size);
     }
 
     final usable = icons.images
@@ -122,83 +185,74 @@ final class AppIconStager {
               e.platform == null,
         )
         .toList();
+    staged
+      ..phoneSlots = slots.any((e) => e.idiom == AssetIdiom.iphone)
+      ..padSlots = slots.any((e) => e.idiom == AssetIdiom.ipad);
 
-    for (final e in slots) {
-      final isPad = e.idiom == AssetIdiom.ipad;
-      if (isPad ? !wantPad : !wantPhone) continue;
-      final bytes = _asPng(fileSystem.file(e.filePath).readAsBytesSync());
-      if (bytes == null) continue;
-      await put(
-        _fileName(name, e.size, e.scale, isPad),
-        bytes,
-        isPad ? padBases : phoneBases,
-        e.size,
-      );
-    }
-
-    // Single-size / marketing source: synthesize what the loose slots lack.
-    final sources =
-        usable
-            .where(
-              (e) => e.idiom != AssetIdiom.iphone && e.idiom != AssetIdiom.ipad,
-            )
-            .where(
-              (e) =>
-                  e.idiom == AssetIdiom.universal ||
-                  e.idiom == AssetIdiom.iosMarketing,
-            )
-            .toList()
-          ..sort((a, b) => b.pixelSize.compareTo(a.pixelSize));
-    if (sources.isNotEmpty &&
-        (phoneBases.isEmpty || (wantPad && padBases.isEmpty))) {
-      final decoded = _decode(
-        fileSystem.file(sources.first.filePath).readAsBytesSync(),
-      );
-      if (decoded != null) {
-        final opaque = _flatten(decoded);
-        if (wantPhone && phoneBases.isEmpty) {
-          for (final (size, scale) in _phoneSynth) {
-            await put(
-              _fileName(name, size, scale, false),
-              _resized(opaque, size, scale),
-              phoneBases,
-              size,
-            );
-          }
+    if (slots.isNotEmpty) {
+      staged.explicit = true;
+      for (final e in slots) {
+        final pad = e.idiom == AssetIdiom.ipad;
+        if (modern &&
+            !(pad ? _modernPad : _modernPhone).contains((e.size, e.scale))) {
+          continue;
         }
-        if (wantPad && padBases.isEmpty) {
-          for (final (size, scale) in _padSynth) {
-            await put(
-              _fileName(name, size, scale, true),
-              _resized(opaque, size, scale),
-              padBases,
-              size,
-            );
-          }
-        }
+        put(
+          _fileName(name, e.size, e.scale, pad),
+          _asPng(fileSystem.file(e.filePath).readAsBytesSync()),
+          e.size,
+          pad: pad,
+        );
       }
+      return staged;
     }
 
-    List<String> ordered(Map<String, double> m) =>
-        (m.entries.toList()..sort((a, b) => a.value.compareTo(b.value)))
-            .map((e) => e.key)
-            .toList();
-
-    Map<String, Object?> dict(List<String> files) => {
-      'CFBundlePrimaryIcon': {
-        'CFBundleIconFiles': files,
-        'CFBundleIconName': name,
-      },
-    };
-
-    final phone = ordered(phoneBases);
-    return AppIconPlist(
-      cfBundleIcons: dict(phone),
-      cfBundleIconsIpad: wantPad
-          ? dict(ordered({...phoneBases, ...padBases}))
-          : null,
-    );
+    final source =
+        (usable
+                .where(
+                  (e) =>
+                      e.idiom == AssetIdiom.universal ||
+                      e.idiom == AssetIdiom.iosMarketing,
+                )
+                .toList()
+              ..sort((a, b) => b.pixelSize.compareTo(a.pixelSize)))
+            .firstOrNull;
+    if (source == null) return staged;
+    final bytes = fileSystem.file(source.filePath).readAsBytesSync();
+    final decoded = _decode(bytes);
+    if (decoded == null) return staged;
+    if (!modern) {
+      staged.marketing = true;
+      put(
+        _fileName(name, source.size, 1, false),
+        _asPng(bytes),
+        -1,
+        pad: false,
+      );
+      staged.phone.remove(-1);
+    }
+    for (final (size, scale) in modern ? _modernPhone : _legacySynthPhone) {
+      put(
+        _fileName(name, size, scale, false),
+        _resized(decoded, size, scale),
+        size,
+        pad: false,
+      );
+    }
+    for (final (size, scale) in modern ? _modernPad : _legacySynthPad) {
+      put(
+        _fileName(name, size, scale, true),
+        _resized(decoded, size, scale),
+        size,
+        pad: true,
+      );
+    }
+    staged.marketingSize = source.size;
+    return staged;
   }
+
+  static int _major(String version) =>
+      int.tryParse(version.trim().split('.').first) ?? 13;
 
   static String _fmt(double size) =>
       size == size.roundToDouble() ? '${size.round()}' : '$size';
@@ -209,10 +263,11 @@ final class AppIconStager {
     return '$name${s}x$s$at${pad ? '~ipad' : ''}.png';
   }
 
+  /// Downscaled RGBA PNG, alpha kept (actool does not flatten).
   static Uint8List _resized(img.Image source, double size, int scale) {
     final px = (size * scale).round();
     final out = img.copyResize(
-      source,
+      source.numChannels == 4 ? source : source.convert(numChannels: 4),
       width: px,
       height: px,
       interpolation: img.Interpolation.cubic,
@@ -238,12 +293,50 @@ final class AppIconStager {
     final decoded = _decode(bytes);
     return decoded == null ? null : Uint8List.fromList(img.encodePng(decoded));
   }
+}
 
-  /// iOS icons must be opaque: composite onto white.
-  static img.Image _flatten(img.Image source) {
-    if (!source.hasAlpha) return source;
-    final base = img.Image(width: source.width, height: source.height)
-      ..clear(img.ColorRgb8(255, 255, 255));
-    return img.compositeImage(base, source);
+/// Loose files one icon set produced, by family.
+@internal
+final class StagedIconSet {
+  StagedIconSet(this.name);
+
+  final String name;
+  final files = <String>{};
+  final phone = <double>{};
+  final pad = <double>{};
+  bool explicit = false;
+  bool phoneSlots = false;
+  bool padSlots = false;
+
+  /// A single-size source copied loose as `AppIcon1024x1024.png` (< iOS 11).
+  bool marketing = false;
+  double marketingSize = 1024;
+
+  String _base(double size) {
+    final s = AppIconStager._fmt(size);
+    return '$name${s}x$s';
   }
+
+  List<String> _sorted(Iterable<double> sizes) =>
+      (sizes.toSet().toList()..sort()).map(_base).toList();
+
+  String get _marketingBase => _base(marketingSize);
+
+  List<String> phoneBases({bool marketingLast = false}) => [
+    if (marketing && !marketingLast) _marketingBase,
+    ..._sorted(phone),
+    if (marketing && marketingLast) _marketingBase,
+  ];
+
+  /// iPad list: includes the iPhone sizes, except for the full set actool
+  /// generates from a single-size icon below iOS 11.
+  List<String> get padBases => [
+    if (marketing) _marketingBase,
+    ..._sorted(explicit || !marketing ? {...phone, ...pad} : pad),
+  ];
+
+  List<String> get allBases => [
+    if (marketing) _marketingBase,
+    ..._sorted({...phone, ...pad}),
+  ];
 }

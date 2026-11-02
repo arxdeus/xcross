@@ -15,6 +15,7 @@ import 'package:xcross/src/shared/compose/compose_ios_constants.dart';
 import 'package:xcross/src/shared/compose/project/ios_app_config.dart';
 import 'package:xcross/src/shared/compose/project/kmp_project.dart';
 import 'package:xcross/src/shared/errors/errors.dart';
+import 'package:xcross/src/shared/flutter/build/bundle_pkg_info.dart';
 import 'package:xcross/src/target/shared/compose/compose_target.dart';
 
 @internal
@@ -220,15 +221,17 @@ final class ComposeAppAssembler<T extends PlatformHostInterface> {
           AppEntitlements.infoPlistKey: declared,
       },
     );
+    final compiledPlist = await _compileAppResources(
+      project: project,
+      stagingPath: stagingPath,
+      infoPlist: infoPlist,
+    );
     await target.host.fileSystem
         .file(p.join(stagingPath, 'Info.plist'))
-        .writeAsString(
-          await _compileAppResources(
-            project: project,
-            stagingPath: stagingPath,
-            infoPlist: infoPlist,
-          ),
-        );
+        .writeAsString(compiledPlist);
+    await target.host.fileSystem
+        .file(p.join(stagingPath, BundlePkgInfo.fileName))
+        .writeAsString(BundlePkgInfo.contentsFor(compiledPlist));
 
     // A static framework is linked into Runner, so there is nothing to embed;
     // copying it would ship a ~400 MB archive inside the .app for no reason.
@@ -268,6 +271,7 @@ final class ComposeAppAssembler<T extends PlatformHostInterface> {
   }) {
     final catalog = _assetCatalog(project);
     if (catalog == null) return Future.value(infoPlist);
+    final settings = project.iosConfig?.buildSettings ?? const {};
     return AppResourceCompiler(
       fileSystem: target.host.fileSystem,
       paths: p.context,
@@ -277,9 +281,16 @@ final class ComposeAppAssembler<T extends PlatformHostInterface> {
       infoPlistXml: infoPlist,
       catalogs: [catalog],
       deploymentTarget: composeMinimumIosVersion,
-      appIconName: project
-          .iosConfig
-          ?.buildSettings['ASSETCATALOG_COMPILER_APPICON_NAME'],
+      appIconName: settings['ASSETCATALOG_COMPILER_APPICON_NAME'],
+      alternateAppIconNames:
+          (settings['ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES'] ?? '')
+              .split(RegExp(r'\s+'))
+              .where((n) => n.isNotEmpty)
+              .toList(),
+      includeAllAppIcons:
+          settings['ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS'] == 'YES',
+      accentColorName:
+          settings['ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME'],
       deviceFamilies: AppResourceCompiler.deviceFamiliesOf(infoPlist),
     );
   }

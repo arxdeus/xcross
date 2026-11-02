@@ -28,6 +28,9 @@ INFO = {
     "CFBundleExecutable": "Runner",
     "CFBundleIcons": {"CFBundlePrimaryIcon": {
         "CFBundleIconFiles": ["AppIcon60x60"], "CFBundleIconName": "AppIcon"}},
+    "CFBundleIcons~ipad": {"CFBundlePrimaryIcon": {
+        "CFBundleIconFiles": ["AppIcon60x60", "AppIcon76x76"],
+        "CFBundleIconName": "AppIcon"}},
     "UILaunchScreen": {"UIImageName": "LaunchImage", "UIColorName": "LaunchBg"},
 }
 ENTS = {"aps-environment": "development",
@@ -39,7 +42,7 @@ def files(info=INFO, car=b"BOMStore....", ents=ENTS):
         "Info.plist": plistlib.dumps(info),
         "Assets.car": car,
         "AppIcon60x60@2x.png": png(120, 120),
-        "AppIcon60x60@3x.png": png(180, 180),
+        "AppIcon76x76@2x~ipad.png": png(152, 152),
         "Runner": macho(ents),
     }
 
@@ -69,9 +72,9 @@ class T(unittest.TestCase):
         info = dict(INFO, XCrossEntitlements={}, UILaunchStoryboardName="LaunchScreen")
         info["UILaunchScreen"] = {"UIImageName": "Other"}
         fs = files(info, car=b"nope", ents={"aps-environment": "x"})
-        del fs["AppIcon60x60@3x.png"]
+        del fs["AppIcon76x76@2x~ipad.png"]
         text = "\n".join(self.run_check(self.app(fs)))
-        for s in ("BOM", "@3x", "UIColorName", "UIImageName", "XCrossEntitlements",
+        for s in ("BOM", "~ipad", "UIColorName", "UIImageName", "XCrossEntitlements",
                   "UILaunchStoryboardName", "associated-domains"):
             self.assertIn(s, text)
 
