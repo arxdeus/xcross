@@ -3,6 +3,7 @@ import 'package:darwin_sdk_kit/target/shared/ios_target.dart';
 import 'package:meta/meta.dart';
 import 'package:xcross/src/target/shared/flutter/flutter_target_build_policy.dart';
 import 'package:xcross/src/target/shared/flutter/ios_plist_metadata.dart';
+import 'package:xcross/src/target/shared/flutter/xcode_build_metadata.dart';
 
 @internal
 final class IPhoneFlutterTarget<T extends PlatformHostInterface>
@@ -34,12 +35,16 @@ final class IPhoneFlutterTarget<T extends PlatformHostInterface>
   @override
   bool matchesLibraryVariant(String? variant) => variant == null;
   @override
-  String transformPlist(String xml, {String? sdkName}) =>
-      IosPlistMetadata.overwrite(
-        xml,
-        platform: target.buildPlatform,
-        sdkName: sdkName,
-      );
+  String transformPlist(
+    String xml, {
+    String? sdkName,
+    XcodeBuildMetadata? build,
+  }) => IosPlistMetadata.overwrite(
+    xml,
+    platform: target.buildPlatform,
+    sdkName: sdkName,
+    build: build,
+  );
   @override
   String get sanitizerRuntimeLibrary => 'libclang_rt.ios.a';
   @override

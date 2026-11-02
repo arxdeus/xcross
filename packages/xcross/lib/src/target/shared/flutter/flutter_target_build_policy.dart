@@ -3,6 +3,7 @@ import 'package:darwin_sdk_kit/target/shared/ios_target.dart';
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/shared/flutter/errors.dart';
+import 'package:xcross/src/target/shared/flutter/xcode_build_metadata.dart';
 
 @internal
 abstract interface class FlutterTargetBuildPolicy<
@@ -26,7 +27,14 @@ abstract interface class FlutterTargetBuildPolicy<
   List<String> get engineSliceIdentifiers;
   String selectEngineSlice(String xcframework);
   bool matchesLibraryVariant(String? variant);
-  String transformPlist(String xml, {String? sdkName});
+
+  /// Stamps the target's platform keys, plus the Xcode/SDK provenance keys
+  /// from [build] when known (see [XcodeBuildMetadata.load]).
+  String transformPlist(
+    String xml, {
+    String? sdkName,
+    XcodeBuildMetadata? build,
+  });
   String get sanitizerRuntimeLibrary;
   String get workspaceSuffix;
   String get binaryArtifactDirectory;
