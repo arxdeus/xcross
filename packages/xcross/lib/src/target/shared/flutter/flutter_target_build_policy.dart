@@ -16,6 +16,13 @@ abstract interface class FlutterTargetBuildPolicy<
   /// Whether this target runs ahead-of-time compiled Flutter code. Flutter's
   /// simulator engines are JIT-only in every build mode.
   bool get supportsPrecompiledModes;
+
+  /// Whether the build embeds the project's entitlements in the ad-hoc
+  /// signature. Devices need them carried to the re-signer; the simulator
+  /// refuses to launch an ad-hoc binary whose signature carries restricted
+  /// entitlements (`aps-environment`, associated domains), as with Apple's
+  /// own `codesign -s -`, which is why Xcode keeps them out of it there.
+  bool get embedsEntitlements;
   List<String> get engineSliceIdentifiers;
   String selectEngineSlice(String xcframework);
   bool matchesLibraryVariant(String? variant);

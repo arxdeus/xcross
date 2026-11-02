@@ -24,6 +24,8 @@ final class SimulatorFlutterTarget<T extends PlatformHostInterface>
   @override
   bool get supportsPrecompiledModes => false;
   @override
+  bool get embedsEntitlements => false;
+  @override
   List<String> get engineSliceIdentifiers => const [
     'ios-arm64_x86_64-simulator',
     'ios-arm64-simulator',

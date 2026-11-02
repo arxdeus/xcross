@@ -21,6 +21,8 @@ final class IPhoneFlutterTarget<T extends PlatformHostInterface>
   @override
   bool get supportsPrecompiledModes => true;
   @override
+  bool get embedsEntitlements => true;
+  @override
   List<String> get engineSliceIdentifiers => const ['ios-arm64'];
   @override
   String selectEngineSlice(String xcframework) => selectFlutterEngineSlice(

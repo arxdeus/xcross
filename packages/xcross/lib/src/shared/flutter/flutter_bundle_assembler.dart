@@ -192,11 +192,7 @@ final class FlutterBundleAssembler<T extends PlatformHostInterface>
     );
     // After Info.plist is final: the ad-hoc signature hashes it, and carries
     // the target's entitlements for re-signers and `xcross flutter run`.
-    // Device builds only: the simulator refuses to launch an ad-hoc binary
-    // whose signature carries restricted entitlements (aps-environment,
-    // associated domains), exactly as with Apple's `codesign -s -`. Xcode
-    // keeps simulator entitlements out of the signature for that reason.
-    if (!sdkName.startsWith('iphonesimulator')) {
+    if (runtime.policy.embedsEntitlements) {
       final entitled = runtime.entitlements.resolve(
         projectRoot: projectRoot,
         bundleDir: bundleDir,
