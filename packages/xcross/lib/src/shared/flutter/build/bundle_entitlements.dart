@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -224,9 +225,7 @@ final class BundleEntitlements {
     final file = fileSystem.file(paths.join(bundlePath, 'Info.plist'));
     if (!file.existsSync()) return null;
     try {
-      final object = PropertyListSerialization.propertyListWithString(
-        file.readAsStringSync(),
-      );
+      final object = parsePlist(file.readAsBytesSync());
       return object is Map ? object : null;
     } on Object {
       return null;
@@ -235,9 +234,9 @@ final class BundleEntitlements {
 
   Map<String, Object?>? _readPlist(String path, String bundle) {
     final file = fileSystem.file(path);
-    final String xml;
+    final Uint8List bytes;
     try {
-      xml = file.readAsStringSync();
+      bytes = file.readAsBytesSync();
     } on FileSystemException catch (error) {
       log.logWarn(
         'Entitlements file "$path" of $bundle could not be read '
@@ -247,10 +246,10 @@ final class BundleEntitlements {
     }
     final Object? object;
     try {
-      object = PropertyListSerialization.propertyListWithString(xml);
+      object = parsePlist(bytes);
     } on Object catch (error) {
       log.logWarn(
-        'Entitlements file "$path" of $bundle is not a valid XML plist '
+        'Entitlements file "$path" of $bundle is not a valid plist '
         '($error); the app is built without its entitlements.',
       );
       return null;
@@ -260,6 +259,25 @@ final class BundleEntitlements {
       return null;
     }
     return object.cast<String, Object?>();
+  }
+
+  /// Parses a plist file's [bytes]: binary (`bplist00`) or XML, tolerating
+  /// the UTF-8 byte-order mark Windows editors prepend (the XML reader
+  /// rejects it). CRLF line endings are handled by the XML reader itself.
+  @visibleForTesting
+  static Object parsePlist(Uint8List bytes) {
+    const binaryMagic = [0x62, 0x70, 0x6c, 0x69, 0x73, 0x74]; // bplist
+    if (bytes.length >= binaryMagic.length &&
+        Iterable<int>.generate(
+          binaryMagic.length,
+        ).every((i) => bytes[i] == binaryMagic[i])) {
+      return PropertyListSerialization.propertyListWithData(
+        ByteData.sublistView(bytes),
+      );
+    }
+    var xml = utf8.decode(bytes);
+    if (xml.startsWith('\uFEFF')) xml = xml.substring(1);
+    return PropertyListSerialization.propertyListWithString(xml);
   }
 
   static final _variable = RegExp(r'\$\(([A-Za-z0-9_]+)(?::[^)]*)?\)');

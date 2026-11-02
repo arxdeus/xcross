@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -214,7 +215,55 @@ void main() {
       configuration: 'Debug',
     );
     expect(resolved.where((e) => e.identifier == 'com.example.app'), isEmpty);
-    expect(warnings.any((w) => w.contains('not a valid XML plist')), isTrue);
+    expect(warnings.any((w) => w.contains('not a valid plist')), isTrue);
+  });
+
+  group('entitlements files from Windows checkouts', () {
+    final xml = _plist({'aps-environment': 'development'});
+    final crlf = xml.replaceAll('\r\n', '\n').replaceAll('\n', '\r\n');
+
+    test('parses CRLF line endings', () {
+      expect(
+        BundleEntitlements.parsePlist(Uint8List.fromList(utf8.encode(crlf))),
+        {'aps-environment': 'development'},
+      );
+    });
+
+    test('strips a UTF-8 byte-order mark', () {
+      final bytes = [0xEF, 0xBB, 0xBF, ...utf8.encode(crlf)];
+      expect(BundleEntitlements.parsePlist(Uint8List.fromList(bytes)), {
+        'aps-environment': 'development',
+      });
+    });
+
+    test('reads binary plists', () {
+      final data = PropertyListSerialization.dataWithPropertyList({
+        'aps-environment': 'development',
+      });
+      expect(BundleEntitlements.parsePlist(Uint8List.sublistView(data)), {
+        'aps-environment': 'development',
+      });
+    });
+
+    test('a BOM-prefixed entitlements file is embedded', () {
+      File(
+        p.join(root.path, 'ios', 'Runner', 'Runner.entitlements'),
+      ).writeAsBytesSync([0xEF, 0xBB, 0xBF, ...utf8.encode(crlf)]);
+      final resolved = entitlements.resolve(
+        projectRoot: root.path,
+        bundleDir: app,
+        configuration: 'Release',
+      );
+      expect(resolved.first.entitlements, {'aps-environment': 'development'});
+    });
+  });
+
+  test('an emptied array survives only if it was empty', () {
+    expect(BundleEntitlements.expandValue(<Object?>[], const {}), isEmpty);
+    expect(
+      BundleEntitlements.expandValue([r'$(AppIdentifierPrefix)x'], const {}),
+      isNull,
+    );
   });
 
   test('a linker-only signature yields no entitlements', () {
