@@ -26,6 +26,7 @@ import 'package:xcross/src/shared/flutter/swiftpm/foundation.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/gate_platform.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/host_policy.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/manifest_dependencies.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/resource_manifest.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/runtime.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/sdk_identity.dart';
 import 'package:xcross/src/target/shared/flutter/flutter_target_build_policy.dart';
@@ -91,6 +92,7 @@ final class GeneratedPluginsBuildResult {
     required this.modulesDir,
     this.frameworkPaths = const [],
     this.resourceBundlePaths = const [],
+    this.resourceBundles = const [],
   });
   final String libraryPath;
   final List<String> dylibPaths;
@@ -99,6 +101,10 @@ final class GeneratedPluginsBuildResult {
   /// SwiftPM resource bundles (`<Package>_<Target>.bundle`, e.g. plugin
   /// privacy manifests) that Xcode copies into the application root.
   final List<String> resourceBundlePaths;
+
+  /// [resourceBundlePaths] with the resources SwiftPM's build manifest
+  /// copies into each, so they can be copied from their sources as Xcode does.
+  final List<SwiftPmResourceBundle> resourceBundles;
   final String? modulesDir;
 }
 

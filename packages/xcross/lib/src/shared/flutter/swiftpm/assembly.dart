@@ -10,6 +10,7 @@ import 'package:xcross/src/shared/flutter/build/ios_plugin_package.dart';
 import 'package:xcross/src/shared/flutter/errors.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_filesystem.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/host_build_services.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/resource_manifest.dart';
 
 @internal
 const String flutterFrameworkPackageName = 'FlutterFramework';
@@ -74,11 +75,73 @@ final class SwiftPmAssembly<T extends PlatformHostInterface> {
     }
     frameworkPaths.sort();
     resourceBundlePaths.sort();
+    // `<scratch>/<triple>/debug`: SwiftPM's build manifest names the source
+    // of every resource it copied into a bundle.
+    final manifest = fileSystem.file(
+      p.join(p.dirname(p.dirname(targetDebugDir)), 'debug.yaml'),
+    );
+    var copies = const <String, List<SwiftPmBundleResource>>{};
+    var versions = const <String, String>{};
+    if (manifest.existsSync()) {
+      try {
+        final text = await manifest.readAsString();
+        copies = parseSwiftPmResourceCopies(text, p.context);
+        versions = parseSwiftPmTargetDeploymentVersions(text);
+      } on FileSystemException {
+        // Unreadable: fall back to copying the built bundles as they are.
+      }
+    }
+    final scratchPath = p.dirname(p.dirname(targetDebugDir));
+    final state = fileSystem.file(p.join(scratchPath, 'workspace-state.json'));
+    var locations = const <String, String>{};
+    if (state.existsSync()) {
+      try {
+        locations = parseSwiftPmPackageLocations(
+          await state.readAsString(),
+          scratchPath,
+          p.context,
+        );
+      } on FileSystemException {
+        // Unreadable: bundle identifiers fall back to the package name.
+      }
+    }
+    final targets = <String>[];
+    await for (final entity in fileSystem.directory(targetDebugDir).list()) {
+      if (entity is Directory && p.extension(entity.path) == '.build') {
+        targets.add(p.basenameWithoutExtension(entity.path));
+      }
+    }
+    SwiftPmResourceBundle describe(String path) {
+      final name = p.basename(path);
+      final resources = copies[name];
+      final target = targetOfBundle(name, targets);
+      final stem = p.basenameWithoutExtension(name);
+      final source = resources?.firstOrNull?.source;
+      final identity =
+          (source == null
+              ? null
+              : packageIdentityOf(source, locations, p.context)) ??
+          (target == null
+                  ? null
+                  : stem.substring(0, stem.length - target.length - 1))
+              ?.toLowerCase();
+      return SwiftPmResourceBundle(
+        bundlePath: path,
+        resources: resources,
+        packageIdentity: identity,
+        targetName: target,
+        minimumOsVersion: target == null ? null : versions[target],
+      );
+    }
+
     return GeneratedPluginsBuildResult(
       libraryPath: aggregatePath,
       dylibPaths: List.unmodifiable(dylibPaths),
       frameworkPaths: List.unmodifiable(frameworkPaths),
       resourceBundlePaths: List.unmodifiable(resourceBundlePaths),
+      resourceBundles: List.unmodifiable([
+        for (final path in resourceBundlePaths) describe(path),
+      ]),
       modulesDir: fileSystem.directory(modulesPath).existsSync()
           ? p.absolute(modulesPath)
           : null,

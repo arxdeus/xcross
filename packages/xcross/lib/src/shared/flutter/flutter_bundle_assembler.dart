@@ -14,6 +14,7 @@ import 'package:xcross/src/shared/flutter/flutter_build_runtime.dart';
 import 'package:xcross/src/shared/flutter/flutter_build_steps.dart';
 import 'package:xcross/src/shared/flutter/models/flutter/flutter_build_mode.dart';
 import 'package:xcross/src/shared/flutter/models/flutter/flutter_build_options.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/resource_manifest.dart';
 import 'package:xcross/src/target/shared/flutter/xcode_build_metadata.dart';
 
 @internal
@@ -38,8 +39,7 @@ final class FlutterBundleAssembler<T extends PlatformHostInterface>
         sdkPath: linked.runner.sdkPath,
         pluginLibraries: linked.compiled.plugins?.dylibPaths ?? const [],
         pluginFrameworks: linked.compiled.plugins?.frameworkPaths ?? const [],
-        resourceBundles:
-            linked.compiled.plugins?.resourceBundlePaths ?? const [],
+        resourceBundles: linked.compiled.plugins?.resourceBundles ?? const [],
         nativeAssetFrameworks: linked.compiled.nativeAssets.frameworks,
         deploymentTarget: context.deploymentTarget,
         extensions: linked.extensions,
@@ -53,7 +53,7 @@ final class FlutterBundleAssembler<T extends PlatformHostInterface>
     required String? sdkPath,
     required List<String> pluginLibraries,
     required List<String> pluginFrameworks,
-    required List<String> resourceBundles,
+    required List<SwiftPmResourceBundle> resourceBundles,
     required List<String> nativeAssetFrameworks,
     required IosDeploymentTarget deploymentTarget,
     required List<BuiltAppExtension> extensions,
@@ -145,7 +145,7 @@ final class FlutterBundleAssembler<T extends PlatformHostInterface>
     required String? sdkPath,
     required List<String> pluginLibraries,
     required List<String> pluginFrameworks,
-    required List<String> resourceBundles,
+    required List<SwiftPmResourceBundle> resourceBundles,
     required List<String> nativeAssetFrameworks,
     required IosDeploymentTarget deploymentTarget,
     required List<BuiltAppExtension> extensions,
@@ -190,7 +190,27 @@ final class FlutterBundleAssembler<T extends PlatformHostInterface>
     );
     // SwiftPM plugin resource bundles (privacy manifests and other
     // resources) sit in the app root, as Xcode embeds them.
-    await runtime.frameworks.copyResourceBundles(resourceBundles, bundleDir);
+    await runtime.frameworks.copyResourceBundles(
+      resourceBundles,
+      bundleDir,
+      warn: runtime.runner.log.logWarn,
+      infoPlist: (bundle) => runtime.policy.transformPlist(
+        swiftPmResourceBundleInfoPlist(
+          bundle,
+          deploymentTarget: deploymentTarget.version,
+          device: sdkName.startsWith('iphoneos'),
+          paths: runtime.host.paths.context,
+        ),
+        sdkName: sdkName,
+        build: sdkPath == null
+            ? null
+            : XcodeBuildMetadata.load(
+                runtime.host.fileSystem,
+                runtime.host.paths.context,
+                sdkPath,
+              ),
+      ),
+    );
 
     await _embedAppExtensions(bundleDir, extensions);
     final staged = await runtime.resources.stage(
