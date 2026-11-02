@@ -440,31 +440,21 @@ commands:
     test('Flutter plugin identities carry the pub package version', () {
       expect(
         flutterPluginSwiftPmIdentities({
-          'file_picker_darwin': (
-            basename: 'file_picker_darwin-1.0.4',
-            manifest: 'let package = Package(name: "file_picker_darwin")',
-          ),
-          'firebase_core': (
-            basename: 'firebase_core-4.15.0',
-            manifest: 'let package = Package(name: "firebase_core")',
-          ),
-          'firebase_auth': (
-            basename: 'firebase_auth-6.7.0',
-            manifest:
-                '.package(name: "firebase_core", path: "../firebase_core")',
-          ),
-          'flutter_chrome_cast': (
-            basename: 'flutter_chrome_cast',
-            manifest: '',
-          ),
-          'forked': (basename: 'other_fork', manifest: ''),
+          'file_picker_darwin': 'file_picker_darwin-1.0.4',
+          // Depended on by firebase_auth via "../firebase_core": flutter_tools
+          // rewrites that path to the versioned basename too.
+          'firebase_core': 'firebase_core-4.15.0',
+          'webview_flutter_wkwebview': 'webview_flutter_wkwebview-3.26.1',
+          // A path dependency keeps its directory name.
+          'flutter_chrome_cast': 'flutter_chrome_cast',
+          'forked': 'Other_Fork',
         }),
         {
           'file_picker_darwin': 'file_picker_darwin-1.0.4',
-          'firebase_core': 'firebase_core',
-          'firebase_auth': 'firebase_auth-6.7.0',
+          'firebase_core': 'firebase_core-4.15.0',
+          'webview_flutter_wkwebview': 'webview_flutter_wkwebview-3.26.1',
           'flutter_chrome_cast': 'flutter_chrome_cast',
-          'forked': 'forked',
+          'forked': 'other_fork',
         },
       );
     });

@@ -425,35 +425,22 @@ int _compareVersions(String left, String right) {
 }
 
 /// The SwiftPM identity Xcode gives each Flutter plugin package, keyed by
-/// plugin name: flutter_tools links the plugin into
+/// plugin name: flutter_tools links every plugin into
 /// `ephemeral/Packages/.packages` under its pub package directory basename
-/// (`file_picker_darwin-1.0.4`, carrying the version) unless that basename
-/// is neither the plugin name nor `<name>-...`, or another plugin's manifest
-/// depends on it by relative path (`"../<name>"`); then it uses the plugin
-/// name. Mirrors `_dependenciesForPlugins` in flutter_tools'
-/// `swift_package_manager.dart`. [plugins] holds each plugin's package
-/// directory basename and `Package.swift` contents.
+/// (`file_picker_darwin-1.0.4`, carrying the version) and rewrites a
+/// plugin's `"../<dependency>"` path to that versioned basename too, so the
+/// identity is the lowercased basename (measured: `firebase_core-4.15.0`,
+/// `webview_flutter_wkwebview-3.26.1`, a path plugin `flutter_chrome_cast`).
+/// Mirrors `_dependenciesForPlugins` and `_getPluginDependencies` in
+/// flutter_tools' `swift_package_manager.dart`. [plugins] holds each
+/// plugin's package directory basename.
 @internal
 Map<String, String> flutterPluginSwiftPmIdentities(
-  Map<String, ({String basename, String manifest})> plugins,
-) {
-  final referenced = <String>{};
-  final pattern = RegExp(r'"\.\./([^"]+)"');
-  for (final plugin in plugins.values) {
-    for (final match in pattern.allMatches(plugin.manifest)) {
-      referenced.add(match.group(1)!);
-    }
-  }
-  return {
-    for (final MapEntry(key: name, value: plugin) in plugins.entries)
-      name:
-          (referenced.contains(name) ||
-              (plugin.basename != name &&
-                  !plugin.basename.startsWith('$name-')))
-          ? name.toLowerCase()
-          : plugin.basename.toLowerCase(),
-  };
-}
+  Map<String, String> plugins,
+) => {
+  for (final MapEntry(key: name, value: basename) in plugins.entries)
+    name: basename.toLowerCase(),
+};
 
 /// The identity of the package whose directory holds [source], the
 /// deepest match in [locations].

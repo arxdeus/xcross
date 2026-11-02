@@ -210,12 +210,7 @@ final class GeneratedPluginsPackage<T extends PlatformHostInterface> {
       final pluginIdentities = {
         for (final MapEntry(:key, :value) in flutterPluginSwiftPmIdentities({
           for (final plugin in spmPlugins)
-            plugin.name: (
-              basename: p.basename(plugin.packageRoot),
-              manifest: await runtime.artifactFileSystem
-                  .file(plugin.swiftPackageManifest)
-                  .readAsString(),
-            ),
+            plugin.name: p.basename(plugin.packageRoot),
         }).entries)
           key.toLowerCase(): value,
       };
