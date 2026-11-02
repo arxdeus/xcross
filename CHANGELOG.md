@@ -1,3 +1,7 @@
+## Unreleased
+
+- Flutter IPAs now carry the app icon, `Assets.car`, launch screen and entitlements. xcross compiles the app's image and color sets and app icon into `Assets.car` and writes icon PNGs and `CFBundleIcons` into `Info.plist`. It translates a simple `LaunchScreen.storyboard` (background color, centered image) into `UILaunchScreen` and warns about anything else it drops. It embeds the target's `CODE_SIGN_ENTITLEMENTS` (and extensions' own) in the ad-hoc signature, and `xcross flutter run` enables the matching App ID capabilities. The project's `AppDelegate.swift` and `SceneDelegate.swift` are still not compiled, which the README now documents. ([#149](https://github.com/arxdeus/xcross/issues/149))
+
 ## 2.0.9
 
 - Strip native asset frameworks with `llvm-strip` in release and profile builds. Flutter's `install_code_assets` runs the `strip` found on PATH, which on Linux is GNU strip and fails on Mach-O (`file format not recognized`) for code assets such as `super_native_extensions`. ([#141](https://github.com/arxdeus/xcross/issues/141), [#142](https://github.com/arxdeus/xcross/pull/142))

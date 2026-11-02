@@ -451,6 +451,19 @@ Swift Package Manager iOS plugins work on both Windows and Linux. Their native c
 
 Plugins that only ship a CocoaPods podspec are currently **skipped with a warning** - prefer plugin releases that include `ios/<package_name>/Package.swift`.
 
+The Runner is also xcross's own (an Objective-C `FlutterAppDelegate` shim), so the project's `AppDelegate.swift` and `SceneDelegate.swift` are **not compiled**. Move native SDK setup into a SwiftPM plugin or initialize it from Dart (for example `firebase_core` initializes from Dart, and `GoogleService-Info.plist` is still copied as a resource).
+
+## App icon, launch screen and entitlements
+
+xcross reads the app target's `.xcassets` (icon set named by `ASSETCATALOG_COMPILER_APPICON_NAME`, default `AppIcon`) without `actool`:
+
+- **App icon**: loose icon PNGs for all iPhone and iPad slots plus `CFBundleIcons` and `CFBundleIcons~ipad` in `Info.plist`. A single 1024 px icon (Xcode 14+) is downscaled to 120/180/152/167 px. The icon is also compiled into `Assets.car`.
+- **`Assets.car`**: image sets and color sets are compiled, so `UIImage(named:)`, `UIColor(named:)` and the launch screen work. Symbol, data, sprite atlas, `.launchimage`, AR, texture and sticker sets are skipped with a warning. Dark and tinted icon variants are not supported yet.
+- **Launch screen**: `ibtool` is macOS-only, so `LaunchScreen.storyboard` is translated into the iOS 14+ `UILaunchScreen` Info.plist key (background color and one centered image). That covers Flutter's default template and `flutter_native_splash`. Anything else (labels, custom layouts, several images, custom classes) is dropped with a build warning, so keep the storyboard simple or use a Flutter-side splash. A precompiled `.storyboardc` next to the storyboard is used as-is.
+- **Entitlements**: the `CODE_SIGN_ENTITLEMENTS` file (such as `ios/Runner/Runner.entitlements`) is embedded in the ad-hoc signature of `Runner`, and extensions' own entitlements in theirs, so `xcross flutter build --ipa` keeps them when re-signed with tools that preserve binary entitlements (Sideloadly, AltStore, zsign, fastlane `resign`). `xcross flutter run` enables the matching App ID capabilities (Push Notifications, Associated Domains, Sign in with Apple, ...) before provisioning and signs with the declared values.
+
+Free Apple ID accounts cannot use Push Notifications or Associated Domains (an Apple limitation), and a development profile carries `aps-environment=development`.
+
 ## App extensions
 
 Share and action extensions are built, embedded under `PlugIns/`, signed with their own provisioning profiles and installed alongside the app, so plugins like [receive_sharing_intent](https://github.com/KasemJaffer/receive_sharing_intent) put your app in the iOS share sheet. No configuration needed.
