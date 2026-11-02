@@ -1,10 +1,11 @@
 import 'dart:io';
 
-import 'package:cli_kit/host/linux/linux_host.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 import 'package:xcross/src/shared/flutter/build/internal/recursive_directory_copy.dart';
 import 'package:xcross/src/shared/flutter/flutter_framework_copier.dart';
+
+import '../../apple/support/native_test_file_system.dart';
 
 void main() {
   late Directory tmp;
@@ -12,12 +13,12 @@ void main() {
   tearDown(() => tmp.deleteSync(recursive: true));
 
   test('copies SwiftPM resource bundles into the app root', () async {
-    final host = LinuxHost();
+    const fileSystem = NativeTestFileSystem();
     final copier = FlutterFrameworkCopier(
-      host.fileSystem,
+      fileSystem,
       p.context,
       copier: RecursiveDirectoryCopier(
-        fileSystem: host.fileSystem,
+        fileSystem: fileSystem,
         paths: p.context,
       ),
     );
@@ -53,12 +54,12 @@ void main() {
     testOn: '!windows',
     'materializes symlinked resources and drops dangling links',
     () async {
-      final host = LinuxHost();
+      const fileSystem = NativeTestFileSystem();
       final copier = FlutterFrameworkCopier(
-        host.fileSystem,
+        fileSystem,
         p.context,
         copier: RecursiveDirectoryCopier(
-          fileSystem: host.fileSystem,
+          fileSystem: fileSystem,
           paths: p.context,
         ),
       );
