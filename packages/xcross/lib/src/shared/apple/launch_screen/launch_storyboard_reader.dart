@@ -1,7 +1,6 @@
 import 'package:meta/meta.dart';
-import 'package:xml/xml.dart';
-
 import 'package:xcross/src/shared/apple/asset_catalog/asset_catalog.dart';
+import 'package:xml/xml.dart';
 
 /// What a launch storyboard shows, reduced to what `UILaunchScreen` can
 /// express: a background color and one centered image.
