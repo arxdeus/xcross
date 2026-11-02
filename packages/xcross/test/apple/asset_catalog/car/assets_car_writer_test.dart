@@ -70,7 +70,17 @@ const _idiomPos = 3;
 const _appearancePos = 0;
 const _dimension2Pos = 5;
 const _identifierPos = 6;
+const _subtypePos = 4;
 const _partPos = 8;
+
+/// `(point size, icon index)` pairs of a multi-sized image rendition.
+List<(int, int)> _sizes(Uint8List csi) {
+  final sism = csi.sublist(184 + _u32(csi, 168));
+  return [
+    for (var i = 0; i < _u32(sism, 8); i++)
+      (_u32(sism, 12 + i * 12), _u16(sism, 20 + i * 12)),
+  ];
+}
 
 Uint8List _png(int width, int height, List<int> rgba) {
   final image = img.Image(width: width, height: height, numChannels: 4);
@@ -133,7 +143,7 @@ void main() {
       const AssetsCarWriter().write(
         catalog,
         readFile: read,
-        deploymentTargetMajor: 15,
+        deploymentTarget: '15.0',
         appIconName: appIconName,
       );
 
@@ -261,6 +271,158 @@ void main() {
     expect(ids, hasLength(1));
   });
 
+  test('lays out a legacy icon set like actool', () {
+    const slots = [
+      (AssetIdiom.iphone, 20.0, 2),
+      (AssetIdiom.iphone, 60.0, 2),
+      (AssetIdiom.iphone, 60.0, 3),
+      (AssetIdiom.ipad, 76.0, 2),
+      (AssetIdiom.ipad, 83.5, 2),
+      (AssetIdiom.iosMarketing, 1024.0, 1),
+    ];
+    final legacyFiles = <String, Uint8List>{
+      for (final (idiom, size, scale) in slots)
+        '/l/${idiom.json}-$size@$scale.png': _png(
+          (size * scale).round(),
+          (size * scale).round(),
+          [0, 0, 0, 255],
+        ),
+    };
+    final car = const AssetsCarWriter().write(
+      AssetCatalog(
+        path: '/l',
+        appIconSets: [
+          AppIconSetAsset(
+            name: 'AppIcon',
+            images: [
+              for (final (idiom, size, scale) in slots)
+                AppIconEntry(
+                  filePath: '/l/${idiom.json}-$size@$scale.png',
+                  size: size,
+                  scale: scale,
+                  idiom: idiom,
+                ),
+            ],
+          ),
+        ],
+      ),
+      readFile: (path) => legacyFiles[path]!,
+      deploymentTarget: '13.0',
+      appIconName: 'AppIcon',
+    );
+    final renditions = BomTestReader(car).tree('RENDITIONS');
+    // (idiom, scale, subtype, icon index, pixel width)
+    final icons = {
+      for (final (key, csi) in renditions)
+        if (_token(key, _partPos) == 220)
+          (
+            _token(key, _idiomPos),
+            _token(key, _scalePos),
+            _token(key, _subtypePos),
+            _token(key, _dimension2Pos),
+            _u32(csi, 12),
+          ),
+    };
+    // Point sizes ranked: 20, 60, 76, 83.5, 90 (synthesized), 1024.
+    expect(icons, {
+      (1, 2, 0, 1, 40),
+      (1, 2, 0, 2, 120),
+      (1, 3, 0, 2, 180),
+      (2, 2, 0, 3, 152),
+      (2, 2, 0, 4, 167),
+      (6, 1, 0, 6, 1024),
+      (1, 2, 1792, 5, 180),
+    });
+    final multiSized = {
+      for (final (key, csi) in renditions)
+        if (_token(key, _partPos) == 218)
+          (_token(key, _idiomPos), _token(key, _subtypePos)): _sizes(csi),
+    };
+    expect(multiSized, {
+      (1, 0): [(20, 1), (60, 2)],
+      (1, 1792): [(90, 5)],
+      (2, 0): [(76, 3), (83, 4)],
+      (6, 0): [(1024, 6)],
+    });
+  });
+
+  test('writes single-size appearances, iPad only when targeted, and '
+      'alternate icons', () {
+    final single = <String, Uint8List>{
+      for (final name in ['any', 'dark', 'tinted', 'red'])
+        '/s/$name.png': _png(4, 4, [9, 9, 9, 255]),
+    };
+    AppIconSetAsset set(String name, List<(String, AssetAppearance)> files) =>
+        AppIconSetAsset(
+          name: name,
+          images: [
+            for (final (file, appearance) in files)
+              AppIconEntry(
+                filePath: '/s/$file.png',
+                size: 1024,
+                platform: 'ios',
+                appearance: appearance,
+              ),
+          ],
+        );
+    final catalog = AssetCatalog(
+      path: '/s',
+      appIconSets: [
+        set('AppIcon', [
+          ('any', AssetAppearance.any),
+          ('dark', AssetAppearance.dark),
+          ('tinted', AssetAppearance.tinted),
+        ]),
+        set('AppIconRed', [('red', AssetAppearance.any)]),
+        set('Unused', [('red', AssetAppearance.any)]),
+      ],
+    );
+    Uint8List build(Set<AssetIdiom> devices) => const AssetsCarWriter().write(
+      catalog,
+      readFile: (path) => single[path]!,
+      deploymentTarget: '16.4',
+      appIconName: 'AppIcon',
+      alternateAppIconNames: ['AppIconRed'],
+      targetDevices: devices,
+    );
+
+    final both = BomTestReader(build({AssetIdiom.iphone, AssetIdiom.ipad}));
+    expect(
+      String.fromCharCodes(both.variable('EXTENDED_METADATA'), 260, 264),
+      '16.4',
+    );
+    final facets = [
+      for (final (key, _) in both.tree('FACETKEYS')) String.fromCharCodes(key),
+    ];
+    expect(facets, ['AppIcon', 'AppIconRed']);
+    expect(
+      {
+        for (final (key, value) in both.tree('APPEARANCEKEYS'))
+          String.fromCharCodes(key): _u16(value, 0),
+      },
+      {'ISAppearanceTintable': 10, 'UIAppearanceAny': 0, 'UIAppearanceDark': 1},
+    );
+    final icons = {
+      for (final (key, _) in both.tree('RENDITIONS'))
+        if (_token(key, _partPos) == 220)
+          (
+            _token(key, _identifierPos),
+            _token(key, _idiomPos),
+            _token(key, _appearancePos),
+            _token(key, _dimension2Pos),
+          ),
+    };
+    expect(icons, hasLength(8));
+    expect(icons.map((i) => i.$3).toSet(), {0, 1, 10});
+    expect(icons.map((i) => i.$4).toSet(), {1});
+
+    final phoneOnly = BomTestReader(build({AssetIdiom.iphone}));
+    expect(
+      phoneOnly.tree('RENDITIONS').where((r) => _token(r.$1, _idiomPos) == 2),
+      isEmpty,
+    );
+  });
+
   test('omits the app icon unless it is requested', () {
     final renditions = BomTestReader(
       write(appIconName: null),
@@ -284,7 +446,7 @@ void main() {
           ],
         ),
         readFile: read,
-        deploymentTargetMajor: 15,
+        deploymentTarget: '15.0',
       ),
       throwsA(isA<AssetsCarException>()),
     );

@@ -23,7 +23,9 @@ final class AssetsCarException implements Exception {
 /// Supported: color sets (all `Contents.json` color spaces, light/dark,
 /// idioms), image sets (any format `package:image` decodes, stored as
 /// uncompressed premultiplied BGRA bitmaps) and the app icon set named
-/// `appIconName` (icon images plus the multi-sized image index). Output is
+/// `appIconName` and alternate icon sets, laid out like `actool` (icon
+/// images per slot, scale and appearance plus the per-idiom multi-sized
+/// image index). Output is
 /// deterministic.
 @internal
 final class AssetsCarWriter {
@@ -33,18 +35,31 @@ final class AssetsCarWriter {
       '@(#)PROGRAM:CoreThemeDefinition  PROJECT:CoreThemeDefinition-653.4';
   static const _mainVersion = '@(#)PROGRAM:CoreUI  PROJECT:CoreUI-975';
   static const _versionString = 'xcross';
+  static const _xrSubtype = 1792;
 
   Uint8List write(
     AssetCatalog catalog, {
     required Uint8List Function(String path) readFile,
-    required int deploymentTargetMajor,
+    String? deploymentTarget,
+    int? deploymentTargetMajor,
     String? appIconName,
+    Iterable<String> alternateAppIconNames = const [],
+    Set<AssetIdiom> targetDevices = const {AssetIdiom.iphone, AssetIdiom.ipad},
   }) {
+    final platformVersion =
+        deploymentTarget ??
+        (deploymentTargetMajor == null ? null : '$deploymentTargetMajor.0');
+    if (platformVersion == null) {
+      throw ArgumentError('deploymentTarget is required');
+    }
+    final iconSets = <AppIconSetAsset>[
+      for (final name in {?appIconName, ...alternateAppIconNames})
+        ?catalog.appIconSet(name),
+    ];
     final names = <String>{
       for (final set in catalog.imageSets) set.name,
       for (final set in catalog.colorSets) set.name,
-      if (appIconName != null && catalog.appIconSet(appIconName) != null)
-        appIconName,
+      for (final set in iconSets) set.name,
     }.toList()..sort();
     final identifiers = {for (final (i, name) in names.indexed) name: i + 1};
     final facetParts = <String, int>{};
@@ -70,8 +85,8 @@ final class AssetsCarWriter {
           appearances['UIAppearanceLight'] = 4;
           return 4;
         case AssetAppearance.tinted:
-          appearances['ISAppearanceTintable'] = 6;
-          return 6;
+          appearances['ISAppearanceTintable'] = 10;
+          return 10;
       }
     }
 
@@ -116,50 +131,16 @@ final class AssetsCarWriter {
       }
     }
 
-    final iconSet = appIconName == null
-        ? null
-        : catalog.appIconSet(appIconName);
-    if (iconSet != null) {
+    for (final iconSet in iconSets) {
       facetParts[iconSet.name] = CarPart.iconImage;
-      final id = identifiers[iconSet.name]!;
-      // Per idiom: the pixel sizes it offers, for the multi-sized index.
-      final sizesByIdiom = <int, List<(int, int, int)>>{};
-      for (final entry in iconSet.images) {
-        if (entry.appearance != AssetAppearance.any) continue;
-        if (entry.idiom == AssetIdiom.iosMarketing) continue;
-        final idioms = entry.idiom == AssetIdiom.universal
-            ? [CarIdiom.phone, CarIdiom.pad]
-            : [_idiom(entry.idiom)];
-        final bitmap = _bitmap(
-          iconSet.name,
-          entry.filePath,
-          1,
-          readFile,
-          icon: true,
-        );
-        for (final idiom in idioms) {
-          final sizes = sizesByIdiom.putIfAbsent(idiom, () => []);
-          final index = sizes.length + 1;
-          sizes.add((entry.pixelSize, entry.pixelSize, index));
-          add({
-            CarAttribute.scale: 1,
-            CarAttribute.idiom: idiom,
-            CarAttribute.dimension2: index,
-            CarAttribute.identifier: id,
-            CarAttribute.element: CarPart.element,
-            CarAttribute.part: CarPart.iconImage,
-          }, bitmap);
-        }
-      }
-      for (final MapEntry(key: idiom, value: sizes) in sizesByIdiom.entries) {
-        add({
-          CarAttribute.scale: 1,
-          CarAttribute.idiom: idiom,
-          CarAttribute.identifier: id,
-          CarAttribute.element: CarPart.element,
-          CarAttribute.part: CarPart.multisizedImage,
-        }, CsiWriter.multisizedImage(name: iconSet.name, sizes: sizes));
-      }
+      _addIconSet(
+        iconSet,
+        identifier: identifiers[iconSet.name]!,
+        targetDevices: targetDevices,
+        readFile: readFile,
+        appearanceId: appearanceId,
+        add: add,
+      );
     }
 
     renditions.sort((a, b) => _compareBytes(a.$1, b.$1));
@@ -185,9 +166,117 @@ final class AssetsCarWriter {
       ..addVariable('KEYFORMAT', bom.addBlock(_keyFormat()))
       ..addVariable(
         'EXTENDED_METADATA',
-        bom.addBlock(_extendedMetadata(deploymentTargetMajor)),
+        bom.addBlock(_extendedMetadata(platformVersion)),
       );
     return bom.build();
+  }
+
+  /// Adds the renditions `actool` writes for an app icon set: one icon image
+  /// per slot (keyed by idiom, scale, appearance and the slot's icon index)
+  /// and, per idiom, a multi-sized image listing the point sizes it offers.
+  ///
+  /// The icon index of a slot is the rank of its point size among all point
+  /// sizes of the set. Universal (single-size) slots go to iPhone, and to
+  /// iPad when it is a target device.
+  static void _addIconSet(
+    AppIconSetAsset set, {
+    required int identifier,
+    required Set<AssetIdiom> targetDevices,
+    required Uint8List Function(String path) readFile,
+    required int Function(AssetAppearance) appearanceId,
+    required void Function(Map<int, int>, Uint8List) add,
+  }) {
+    // actool reuses the iPhone 60pt@3x icon as a 90pt@2x icon of subtype
+    // 1792 (the iPhone XR class display) and ranks 90 among the sizes.
+    final xrSource = set.images
+        .where(
+          (e) =>
+              e.idiom == AssetIdiom.iphone &&
+              e.size == 60 &&
+              e.scale == 3 &&
+              e.appearance == AssetAppearance.any,
+        )
+        .firstOrNull;
+    final pointSizes = {
+      for (final entry in set.images) entry.size,
+      if (xrSource != null) 90.0,
+    }.toList()..sort();
+    int indexOf(double size) => pointSizes.indexOf(size) + 1;
+    final sizesByIdiom = <int, Map<double, int>>{};
+    final bitmaps = <String, Uint8List>{};
+    for (final entry in set.images) {
+      final idioms = switch (entry.idiom) {
+        AssetIdiom.universal => [
+          CarIdiom.phone,
+          if (targetDevices.contains(AssetIdiom.ipad)) CarIdiom.pad,
+        ],
+        final idiom => [_idiom(idiom)],
+      };
+      final bitmap = bitmaps[entry.filePath] ??= _bitmap(
+        set.name,
+        entry.filePath,
+        entry.scale,
+        readFile,
+        icon: true,
+      );
+      for (final idiom in idioms) {
+        if (entry.appearance == AssetAppearance.any) {
+          sizesByIdiom.putIfAbsent(idiom, () => {})[entry.size] = indexOf(
+            entry.size,
+          );
+        }
+        add({
+          CarAttribute.appearance: appearanceId(entry.appearance),
+          CarAttribute.scale: entry.scale,
+          CarAttribute.idiom: idiom,
+          CarAttribute.dimension2: indexOf(entry.size),
+          CarAttribute.identifier: identifier,
+          CarAttribute.element: CarPart.element,
+          CarAttribute.part: CarPart.iconImage,
+        }, bitmap);
+      }
+    }
+    if (xrSource != null) {
+      final index = indexOf(90);
+      add({
+        CarAttribute.scale: 2,
+        CarAttribute.idiom: CarIdiom.phone,
+        CarAttribute.subtype: _xrSubtype,
+        CarAttribute.dimension2: index,
+        CarAttribute.identifier: identifier,
+        CarAttribute.element: CarPart.element,
+        CarAttribute.part: CarPart.iconImage,
+      }, bitmaps[xrSource.filePath]!);
+      add({
+        CarAttribute.scale: 1,
+        CarAttribute.idiom: CarIdiom.phone,
+        CarAttribute.subtype: _xrSubtype,
+        CarAttribute.identifier: identifier,
+        CarAttribute.element: CarPart.element,
+        CarAttribute.part: CarPart.multisizedImage,
+      }, CsiWriter.multisizedImage(name: set.name, sizes: [(90, 90, index)]));
+    }
+    for (final MapEntry(key: idiom, value: sizes) in sizesByIdiom.entries) {
+      final sorted = sizes.entries.toList()
+        ..sort((a, b) => a.key.compareTo(b.key));
+      add(
+        {
+          CarAttribute.scale: 1,
+          CarAttribute.idiom: idiom,
+          CarAttribute.identifier: identifier,
+          CarAttribute.element: CarPart.element,
+          CarAttribute.part: CarPart.multisizedImage,
+        },
+        CsiWriter.multisizedImage(
+          name: set.name,
+          sizes: [
+            // actool truncates fractional point sizes (83.5 -> 83).
+            for (final MapEntry(key: size, value: index) in sorted)
+              (size.truncate(), size.truncate(), index),
+          ],
+        ),
+      );
+    }
   }
 
   static Uint8List _bitmap(
@@ -291,10 +380,9 @@ final class AssetsCarWriter {
     return data.buffer.asUint8List();
   }
 
-  static Uint8List _extendedMetadata(int deploymentTargetMajor) {
+  static Uint8List _extendedMetadata(String version) {
     final meta = Uint8List(1028);
     meta.setRange(0, 4, 'META'.codeUnits);
-    final version = '$deploymentTargetMajor.0';
     meta
       ..setRange(260, 260 + version.length, version.codeUnits)
       ..setRange(516, 519, 'ios'.codeUnits)
