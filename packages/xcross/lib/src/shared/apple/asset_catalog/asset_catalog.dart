@@ -51,7 +51,7 @@ final class AssetCatalog {
   /// Merges several catalogs of one target, the way `actool` compiles every
   /// catalog of a target into a single `Assets.car`. Earlier catalogs win on
   /// a name clash.
-  static AssetCatalog merge(String path, Iterable<AssetCatalog> catalogs) {
+  factory AssetCatalog.merge(String path, Iterable<AssetCatalog> catalogs) {
     final images = <String, ImageSetAsset>{};
     final colors = <String, ColorSetAsset>{};
     final icons = <String, AppIconSetAsset>{};
