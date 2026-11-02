@@ -1,8 +1,10 @@
 import 'package:cli_kit/shared/platform/platform_host.dart';
 import 'package:meta/meta.dart';
+import 'package:xcross/src/shared/apple/app_resource_compiler.dart';
 import 'package:xcross/src/shared/artifact/plist_mutations.dart';
 import 'package:xcross/src/shared/flutter/build/app_extension_builder.dart';
 import 'package:xcross/src/shared/flutter/build/info_plist.dart';
+import 'package:xcross/src/shared/flutter/build/ios_bundle_resources.dart';
 import 'package:xcross/src/shared/flutter/build/ios_bundle_versions.dart';
 import 'package:xcross/src/shared/flutter/build/ios_deployment_target.dart';
 import 'package:xcross/src/shared/flutter/constants.dart';
@@ -177,7 +179,7 @@ final class FlutterBundleAssembler<T extends PlatformHostInterface>
     );
 
     await _embedAppExtensions(bundleDir, extensions);
-    await runtime.resources.stage(
+    final staged = await runtime.resources.stage(
       projectRoot: projectRoot,
       bundleDir: bundleDir,
     );
@@ -185,6 +187,7 @@ final class FlutterBundleAssembler<T extends PlatformHostInterface>
       bundleDir,
       deploymentTarget: deploymentTarget,
       sdkName: sdkName,
+      resources: staged,
     );
     for (final binary in await runtime.signatures.refresh(bundleDir)) {
       runtime.runner.log.logTrace('refreshed ad-hoc signature of $binary');
@@ -212,12 +215,13 @@ final class FlutterBundleAssembler<T extends PlatformHostInterface>
   }
 
   /// Generate and write `Info.plist` into [bundleDir] with `$(VAR)`
-  /// substitution, mandatory iOS keys, storyboard stripping, and ObjC class
-  /// name normalization.
+  /// substitution, mandatory iOS keys, compiled app icon and launch screen,
+  /// storyboard stripping, and ObjC class name normalization.
   Future<void> _writeInfoPlist(
     String bundleDir, {
     required IosDeploymentTarget deploymentTarget,
     required String sdkName,
+    required StagedIosResources resources,
   }) async {
     var plistXml = await _loadPlistTemplate();
 
@@ -254,6 +258,15 @@ final class FlutterBundleAssembler<T extends PlatformHostInterface>
     if (options.buildMode != FlutterBuildMode.release) {
       plistXml = InfoPlist.applyDebugVmServiceDiscovery(plistXml);
     }
+    // Before storyboard stripping: a launch storyboard that cannot be
+    // compiled is translated into `UILaunchScreen` here, and stripping then
+    // only removes what could not be translated.
+    plistXml = await _compileAppResources(
+      plistXml,
+      bundleDir: bundleDir,
+      deploymentTarget: deploymentTarget,
+      resources: resources,
+    );
     plistXml = runtime.storyboards.stripUnsatisfiableStoryboards(
       plistXml,
       bundleDir,
@@ -267,6 +280,30 @@ final class FlutterBundleAssembler<T extends PlatformHostInterface>
     await runtime.host.fileSystem
         .file(runtime.host.paths.context.join(bundleDir, 'Info.plist'))
         .writeAsString(plistXml);
+  }
+
+  /// Compiles the target's asset catalogs into `Assets.car` and loose app
+  /// icons, and translates an uncompiled launch storyboard into
+  /// `UILaunchScreen`, returning [plistXml] with the matching keys.
+  Future<String> _compileAppResources(
+    String plistXml, {
+    required String bundleDir,
+    required IosDeploymentTarget deploymentTarget,
+    required StagedIosResources resources,
+  }) {
+    final paths = runtime.host.paths.context;
+    final launchName = AppResourceCompiler.launchStoryboardNameOf(plistXml);
+    return runtime.resourceCompiler.compile(
+      bundleDir: bundleDir,
+      infoPlistXml: plistXml,
+      catalogs: resources.assetCatalogs,
+      deploymentTarget: deploymentTarget.version,
+      appIconName: resources.appIconName,
+      launchStoryboard: launchName == null
+          ? null
+          : resources.storyboard(launchName, paths),
+      deviceFamilies: AppResourceCompiler.deviceFamiliesOf(plistXml),
+    );
   }
 
   /// App Groups declared by the application target's entitlements file.

@@ -66,6 +66,41 @@ void main() {
     );
   });
 
+  test(
+    'hands asset catalogs and uncompiled storyboards to the compiler',
+    () async {
+      _file(runner, 'Assets.xcassets/Contents.json', '{}');
+      _file(runner, 'Base.lproj/Main.storyboard', 'source');
+      _writeProject(project, appRefs: ['ASSETS', 'STORYBOARD']);
+
+      final staged = await _stage(project, bundle);
+
+      expect(staged.assetCatalogs, [p.join(runner.path, 'Assets.xcassets')]);
+      expect(staged.storyboards, [
+        p.join(runner.path, 'Base.lproj', 'Main.storyboard'),
+      ]);
+      expect(
+        staged.storyboard('Main', p.context),
+        p.join(runner.path, 'Base.lproj', 'Main.storyboard'),
+      );
+      expect(staged.storyboard('LaunchScreen', p.context), isNull);
+      expect(Directory(bundle.path).listSync(), isEmpty);
+    },
+  );
+
+  test('falls back to the Flutter template layout without a project', () async {
+    _file(runner, 'Assets.xcassets/Contents.json', '{}');
+    _file(runner, 'Base.lproj/LaunchScreen.storyboard', 'source');
+
+    final staged = await _stage(project, bundle);
+
+    expect(staged.assetCatalogs, [p.join(runner.path, 'Assets.xcassets')]);
+    expect(
+      staged.storyboard('LaunchScreen', p.context),
+      p.join(runner.path, 'Base.lproj', 'LaunchScreen.storyboard'),
+    );
+  });
+
   test('expands localized variant groups and preserves localization', () async {
     _file(runner, 'Base.lproj/Labels.strings', 'base');
     _file(runner, 'fr.lproj/Labels.strings', 'fr');
@@ -331,9 +366,11 @@ void main() {
   );
 }
 
-Future<void> _stage(Directory project, Directory bundle) => testIPhoneRuntime()
-    .resources
-    .stage(projectRoot: project.path, bundleDir: bundle.path);
+Future<StagedIosResources> _stage(Directory project, Directory bundle) =>
+    testIPhoneRuntime().resources.stage(
+      projectRoot: project.path,
+      bundleDir: bundle.path,
+    );
 
 File _bundleFile(Directory bundle, String relative) =>
     File(p.join(bundle.path, relative));

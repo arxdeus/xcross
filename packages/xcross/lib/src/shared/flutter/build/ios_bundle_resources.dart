@@ -7,6 +7,33 @@ import 'package:xcross/src/shared/flutter/build/internal/recursive_directory_cop
 import 'package:xcross/src/shared/flutter/build/pbxproj.dart';
 import 'package:xcross/src/shared/flutter/project/pbx_project_reader.dart';
 
+/// What [IosBundleResources.stage] could not copy as-is and left for the
+/// resource compiler: Xcode compiles these rather than copying them.
+@internal
+@immutable
+final class StagedIosResources {
+  const StagedIosResources({
+    this.assetCatalogs = const [],
+    this.storyboards = const [],
+    this.appIconName,
+  });
+
+  /// Absolute paths of the target's `.xcassets`, in build phase order.
+  final List<String> assetCatalogs;
+
+  /// Absolute paths of `.storyboard` sources with no precompiled
+  /// `.storyboardc` beside them.
+  final List<String> storyboards;
+
+  /// The target's `ASSETCATALOG_COMPILER_APPICON_NAME`, when set literally.
+  final String? appIconName;
+
+  /// The uncompiled storyboard named [name] (`LaunchScreen`), or null.
+  String? storyboard(String name, p.Context paths) => storyboards
+      .where((path) => paths.basenameWithoutExtension(path) == name)
+      .firstOrNull;
+}
+
 /// Stages the application target's Xcode resources into an app bundle.
 @internal
 final class IosBundleResources {
@@ -22,7 +49,9 @@ final class IosBundleResources {
   final p.Context paths;
   final PbxProjectReader projects;
 
-  Future<void> stage({
+  /// Copies the target's resources into [bundleDir] and returns the asset
+  /// catalogs and storyboards that need compiling instead.
+  Future<StagedIosResources> stage({
     required String projectRoot,
     required String bundleDir,
   }) async {
@@ -31,7 +60,11 @@ final class IosBundleResources {
         ? null
         : projects.parseFile(pbxprojPath);
     final target = project?.applicationTarget;
-    if (project == null || target == null) return;
+    if (project == null || target == null) {
+      return _conventionalResources(projectRoot);
+    }
+    final catalogs = <String>[];
+    final storyboards = <String>[];
 
     final infoPlist = _resolveBuildSettingPath(
       project,
@@ -44,12 +77,23 @@ final class IosBundleResources {
           .where(PbxProject.isTargetResource),
     };
     for (var source in resources) {
-      if (paths.extension(source) == '.xcassets') continue;
+      if (paths.extension(source) == '.xcassets') {
+        final catalog = _existingOrRelocated(projectRoot, source);
+        if (catalog != null) catalogs.add(catalog);
+        continue;
+      }
       if (paths.basename(source) == 'AppFrameworkInfo.plist') continue;
       if (infoPlist != null && paths.equals(source, infoPlist)) continue;
 
       if (paths.extension(source) == '.storyboard') {
-        source = paths.setExtension(source, '.storyboardc');
+        final compiled = paths.setExtension(source, '.storyboardc');
+        if (_sourceType(compiled) == FileSystemEntityType.notFound &&
+            _findRelocatedResource(projectRoot, compiled) == null) {
+          final storyboard = _existingOrRelocated(projectRoot, source);
+          if (storyboard != null) storyboards.add(storyboard);
+          continue;
+        }
+        source = compiled;
       }
 
       var sourceType = _sourceType(source);
@@ -82,7 +126,39 @@ final class IosBundleResources {
         await fileSystem.file(source).copy(fileSystem.file(destination).path);
       }
     }
+    final appIcon = project.buildSetting(
+      target,
+      'ASSETCATALOG_COMPILER_APPICON_NAME',
+    );
+    return StagedIosResources(
+      assetCatalogs: catalogs,
+      storyboards: storyboards,
+      appIconName: appIcon == null || appIcon.contains(r'$') ? null : appIcon,
+    );
   }
+
+  /// The Flutter template's layout, for a project whose Xcode project cannot
+  /// be read: `ios/Runner/Assets.xcassets` and `ios/Runner/Base.lproj`.
+  StagedIosResources _conventionalResources(String projectRoot) {
+    final runner = paths.join(projectRoot, 'ios', 'Runner');
+    final catalog = paths.join(runner, 'Assets.xcassets');
+    final launch = paths.join(runner, 'Base.lproj', 'LaunchScreen.storyboard');
+    return StagedIosResources(
+      assetCatalogs: [if (fileSystem.directory(catalog).existsSync()) catalog],
+      storyboards: [
+        if (fileSystem.file(launch).existsSync() &&
+            !fileSystem
+                .directory(paths.setExtension(launch, '.storyboardc'))
+                .existsSync())
+          launch,
+      ],
+    );
+  }
+
+  String? _existingOrRelocated(String projectRoot, String source) =>
+      _sourceType(source) != FileSystemEntityType.notFound
+      ? source
+      : _findRelocatedResource(projectRoot, source);
 
   FileSystemEntityType _sourceType(String source) {
     if (fileSystem.link(source).existsSync()) return FileSystemEntityType.link;
