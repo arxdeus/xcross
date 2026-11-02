@@ -14,6 +14,7 @@ import 'package:xcross/src/shared/flutter/flutter_build_runtime.dart';
 import 'package:xcross/src/shared/flutter/flutter_build_steps.dart';
 import 'package:xcross/src/shared/flutter/models/flutter/flutter_build_mode.dart';
 import 'package:xcross/src/shared/flutter/models/flutter/flutter_build_options.dart';
+import 'package:xcross/src/target/shared/flutter/xcode_build_metadata.dart';
 
 @internal
 final class FlutterBundleAssembler<T extends PlatformHostInterface>
@@ -34,8 +35,11 @@ final class FlutterBundleAssembler<T extends PlatformHostInterface>
         xcframework: linked.runner.xcframework,
         runnerBinary: linked.runner.runnerBinary,
         sdkName: linked.runner.sdkName,
+        sdkPath: linked.runner.sdkPath,
         pluginLibraries: linked.compiled.plugins?.dylibPaths ?? const [],
         pluginFrameworks: linked.compiled.plugins?.frameworkPaths ?? const [],
+        resourceBundles:
+            linked.compiled.plugins?.resourceBundlePaths ?? const [],
         nativeAssetFrameworks: linked.compiled.nativeAssets.frameworks,
         deploymentTarget: context.deploymentTarget,
         extensions: linked.extensions,
@@ -46,8 +50,10 @@ final class FlutterBundleAssembler<T extends PlatformHostInterface>
     required String xcframework,
     required String runnerBinary,
     required String sdkName,
+    required String? sdkPath,
     required List<String> pluginLibraries,
     required List<String> pluginFrameworks,
+    required List<String> resourceBundles,
     required List<String> nativeAssetFrameworks,
     required IosDeploymentTarget deploymentTarget,
     required List<BuiltAppExtension> extensions,
@@ -67,8 +73,10 @@ final class FlutterBundleAssembler<T extends PlatformHostInterface>
       ),
       runnerBinary: runnerBinary,
       sdkName: sdkName,
+      sdkPath: sdkPath,
       pluginLibraries: pluginLibraries,
       pluginFrameworks: pluginFrameworks,
+      resourceBundles: resourceBundles,
       nativeAssetFrameworks: nativeAssetFrameworks,
       deploymentTarget: deploymentTarget,
       extensions: extensions,
@@ -134,8 +142,10 @@ final class FlutterBundleAssembler<T extends PlatformHostInterface>
     required String flutterFramework,
     required String runnerBinary,
     required String sdkName,
+    required String? sdkPath,
     required List<String> pluginLibraries,
     required List<String> pluginFrameworks,
+    required List<String> resourceBundles,
     required List<String> nativeAssetFrameworks,
     required IosDeploymentTarget deploymentTarget,
     required List<BuiltAppExtension> extensions,
@@ -178,6 +188,9 @@ final class FlutterBundleAssembler<T extends PlatformHostInterface>
       embedded,
       lipo: () => runtime.nativeTools.locateLlvmTool('llvm-lipo'),
     );
+    // SwiftPM plugin resource bundles (privacy manifests and other
+    // resources) sit in the app root, as Xcode embeds them.
+    await runtime.frameworks.copyResourceBundles(resourceBundles, bundleDir);
 
     await _embedAppExtensions(bundleDir, extensions);
     final staged = await runtime.resources.stage(
@@ -189,6 +202,7 @@ final class FlutterBundleAssembler<T extends PlatformHostInterface>
       bundleDir,
       deploymentTarget: deploymentTarget,
       sdkName: sdkName,
+      sdkPath: sdkPath,
       resources: staged,
     );
     // After Info.plist is final: the ad-hoc signature hashes it, and carries
@@ -257,6 +271,7 @@ final class FlutterBundleAssembler<T extends PlatformHostInterface>
     String bundleDir, {
     required IosDeploymentTarget deploymentTarget,
     required String sdkName,
+    required String? sdkPath,
     required StagedIosResources resources,
   }) async {
     var plistXml = await _loadPlistTemplate();
@@ -291,7 +306,17 @@ final class FlutterBundleAssembler<T extends PlatformHostInterface>
       deploymentTarget: deploymentTarget,
       deviceFamily: resources.deviceFamily,
     );
-    plistXml = runtime.policy.transformPlist(plistXml, sdkName: sdkName);
+    plistXml = runtime.policy.transformPlist(
+      plistXml,
+      sdkName: sdkName,
+      build: sdkPath == null
+          ? null
+          : XcodeBuildMetadata.load(
+              runtime.host.fileSystem,
+              runtime.host.paths.context,
+              sdkPath,
+            ),
+    );
     if (options.buildMode != FlutterBuildMode.release) {
       plistXml = InfoPlist.applyDebugVmServiceDiscovery(plistXml);
     }

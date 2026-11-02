@@ -128,17 +128,15 @@ final class FlutterArtifactLinker<T extends PlatformHostInterface>
       verbose: verbose,
     );
 
+    final iosSdk = runtime.sdkRepository.iosSdk(
+      darwin,
+      target: deploymentTarget.platform,
+    );
     return RunnerBinary(
       xcframework: xcframework,
       runnerBinary: runnerBinary,
-      sdkName: p
-          .basenameWithoutExtension(
-            runtime.sdkRepository.iosSdk(
-              darwin,
-              target: deploymentTarget.platform,
-            ),
-          )
-          .toLowerCase(),
+      sdkName: p.basenameWithoutExtension(iosSdk).toLowerCase(),
+      sdkPath: iosSdk,
     );
   }
 }
