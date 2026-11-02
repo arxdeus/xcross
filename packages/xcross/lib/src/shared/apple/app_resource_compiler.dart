@@ -1,7 +1,9 @@
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:cli_kit/shared/logging/logging.dart';
 import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:crypto/crypto.dart';
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/shared/apple/asset_catalog/app_icon_stager.dart';
@@ -69,6 +71,7 @@ final class AppResourceCompiler {
     String? accentColorName,
     String? launchStoryboard,
     Set<AssetIdiom> deviceFamilies = const {AssetIdiom.iphone},
+    String? carCacheDirectory,
   }) async {
     var catalog = _readCatalogs(catalogs);
     var xml = infoPlistXml;
@@ -160,6 +163,7 @@ final class AppResourceCompiler {
         appIconName: icon == null ? null : iconName,
         alternateAppIconNames: [for (final a in alternates) a.name],
         targetDevices: deviceFamilies,
+        cacheDirectory: carCacheDirectory,
       );
     }
     return xml;
@@ -253,9 +257,91 @@ final class AppResourceCompiler {
     return plan;
   }
 
+  /// Bumped whenever [AssetsCarWriter] output changes for the same inputs,
+  /// so stale cached cars are never reused.
+  static const carCacheVersion = 1;
+
+  /// Cached cars kept per cache directory (the current one and the previous
+  /// one, so toggling between two states stays warm).
+  static const carCacheEntries = 2;
+
   void _writeCar(
     AssetCatalog catalog, {
     required String bundleDir,
+    required String deploymentTarget,
+    required String? appIconName,
+    required List<String> alternateAppIconNames,
+    required Set<AssetIdiom> targetDevices,
+    required String? cacheDirectory,
+  }) {
+    final destination = paths.join(bundleDir, 'Assets.car');
+    // Like actool's incremental builds: the car only depends on the catalog
+    // model, the source image bytes and the options below, so a rebuild
+    // with identical inputs reuses the previous output.
+    final String? cached;
+    try {
+      final key = cacheDirectory == null
+          ? null
+          : carCacheKey(
+              catalog,
+              deploymentTarget: deploymentTarget,
+              appIconName: appIconName,
+              alternateAppIconNames: alternateAppIconNames,
+              targetDevices: targetDevices,
+              readFile: (path) => fileSystem.file(path).readAsBytesSync(),
+            );
+      cached = key == null ? null : paths.join(cacheDirectory!, '$key.car');
+    } on Object catch (error) {
+      log.logTrace('Assets.car cache: cannot hash inputs: $error');
+      _compileCar(
+        catalog,
+        destination: destination,
+        deploymentTarget: deploymentTarget,
+        appIconName: appIconName,
+        alternateAppIconNames: alternateAppIconNames,
+        targetDevices: targetDevices,
+      );
+      return;
+    }
+    if (cached != null && fileSystem.file(cached).existsSync()) {
+      fileSystem
+          .file(destination)
+          .writeAsBytesSync(fileSystem.file(cached).readAsBytesSync());
+      log.logTrace('Assets.car: reused ${paths.basename(cached)}');
+      return;
+    }
+    final bytes = _compileCar(
+      catalog,
+      destination: destination,
+      deploymentTarget: deploymentTarget,
+      appIconName: appIconName,
+      alternateAppIconNames: alternateAppIconNames,
+      targetDevices: targetDevices,
+    );
+    if (bytes == null || cached == null) return;
+    try {
+      final directory = fileSystem.directory(cacheDirectory!)
+        ..createSync(recursive: true);
+      fileSystem.file(cached).writeAsBytesSync(bytes);
+      final entries =
+          directory
+              .listSync()
+              .where((e) => e.path.endsWith('.car') && e.path != cached)
+              .toList()
+            ..sort(
+              (a, b) => b.statSync().modified.compareTo(a.statSync().modified),
+            );
+      for (final stale in entries.skip(carCacheEntries - 1)) {
+        stale.deleteSync();
+      }
+    } on Object catch (error) {
+      log.logTrace('Assets.car cache: cannot store: $error');
+    }
+  }
+
+  Uint8List? _compileCar(
+    AssetCatalog catalog, {
+    required String destination,
     required String deploymentTarget,
     required String? appIconName,
     required List<String> alternateAppIconNames,
@@ -277,16 +363,86 @@ final class AppResourceCompiler {
         '${error.message}. Named images, colors and the launch screen image '
         'will be missing.',
       );
-      return;
+      return null;
     }
-    fileSystem
-        .file(paths.join(bundleDir, 'Assets.car'))
-        .writeAsBytesSync(bytes);
+    fileSystem.file(destination).writeAsBytesSync(bytes);
     log.logTrace(
       'Assets.car: ${catalog.imageSets.length} image sets, '
       '${catalog.colorSets.length} color sets'
       '${appIconName == null ? '' : ', app icon $appIconName'}',
     );
+    return bytes;
+  }
+
+  /// SHA-256 over everything [AssetsCarWriter.write] reads: the catalog
+  /// model in order, the content of every referenced image and the writer
+  /// options.
+  ///
+  /// Image files are hashed by content, not path + mtime: checkouts, copies
+  /// and Flutter's own asset tooling rewrite mtimes, and hashing a PNG costs
+  /// far less than the decode + LZFSE encode it lets us skip.
+  @visibleForTesting
+  static String carCacheKey(
+    AssetCatalog catalog, {
+    required String deploymentTarget,
+    required String? appIconName,
+    required List<String> alternateAppIconNames,
+    required Set<AssetIdiom> targetDevices,
+    required Uint8List Function(String path) readFile,
+  }) {
+    final hashes = <String, String>{};
+    String file(String path) =>
+        hashes[path] ??= sha256.convert(readFile(path)).toString();
+    String color(AssetColor c) =>
+        '${c.colorSpace.json} ${c.red} ${c.green} ${c.blue} ${c.alpha}';
+    final model = [
+      carCacheVersion,
+      deploymentTarget,
+      appIconName,
+      alternateAppIconNames,
+      [for (final idiom in AssetIdiom.values) targetDevices.contains(idiom)],
+      [
+        for (final set in catalog.imageSets)
+          [
+            set.name,
+            for (final e in set.images)
+              [file(e.filePath), e.scale, e.idiom.json, e.appearance.name],
+          ],
+      ],
+      [
+        for (final set in catalog.colorSets)
+          [
+            set.name,
+            for (final e in set.colors)
+              [color(e.color), e.idiom.json, e.appearance.name],
+          ],
+      ],
+      [
+        for (final set in catalog.appIconSets)
+          if (set.name == appIconName ||
+              alternateAppIconNames.contains(set.name))
+            [
+              set.name,
+              for (final e in set.images)
+                [
+                  file(e.filePath),
+                  // Rendition names are file base names.
+                  e.filePath.split(RegExp(r'[/\\]')).last,
+                  e.size,
+                  e.scale,
+                  e.idiom.json,
+                  e.platform,
+                  e.appearance.name,
+                ],
+            ],
+      ],
+      // Rendition names of image sets are file base names too.
+      [
+        for (final set in catalog.imageSets)
+          for (final e in set.images) e.filePath.split(RegExp(r'[/\\]')).last,
+      ],
+    ];
+    return sha256.convert(utf8.encode(jsonEncode(model))).toString();
   }
 
   static bool _hasIconFiles(AppIconPlist icons) {

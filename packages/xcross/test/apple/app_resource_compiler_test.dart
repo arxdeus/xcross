@@ -1,10 +1,14 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:image/image.dart' as img;
+import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 import 'package:xcross/src/shared/apple/app_resource_compiler.dart';
+import 'package:xcross/src/shared/apple/asset_catalog/asset_catalog.dart';
+import 'package:xcross/src/shared/apple/asset_catalog/assets_car_writer.dart';
 
 import '../flutter/flutter_test_log.dart';
 import 'support/native_test_file_system.dart';
@@ -198,4 +202,117 @@ void main() {
     expect(xml, _plist);
     expect(File(p.join(bundle.path, 'Assets.car')).existsSync(), isFalse);
   });
+
+  group('Assets.car cache', () {
+    late CountingCarWriter writer;
+    late String cache;
+    late String bundle;
+    const cat = 'Cached.xcassets';
+
+    setUp(() {
+      writer = CountingCarWriter();
+      cache = p.join(tmp.path, 'build', 'xcross-asset-catalog');
+      bundle = (Directory(p.join(tmp.path, 'Runner.app'))..createSync()).path;
+      write(
+        p.join(cat, 'Logo.imageset', 'Contents.json'),
+        jsonEncode({
+          'images': [
+            {'idiom': 'universal', 'filename': 'logo.png', 'scale': '1x'},
+          ],
+        }),
+      );
+      write(p.join(cat, 'Logo.imageset', 'logo.png'), png(8));
+    });
+
+    Future<Uint8List> build({String deploymentTarget = '13.0'}) async {
+      await AppResourceCompiler(
+        fileSystem: fs,
+        paths: p.context,
+        log: testFlutterLog(),
+        carWriter: writer,
+      ).compile(
+        bundleDir: bundle,
+        infoPlistXml: _plist,
+        catalogs: [p.join(tmp.path, cat)],
+        deploymentTarget: deploymentTarget,
+        carCacheDirectory: cache,
+      );
+      return File(p.join(bundle, 'Assets.car')).readAsBytesSync();
+    }
+
+    List<String> cached() => [
+      for (final f in Directory(cache).listSync()) p.basename(f.path),
+    ];
+
+    test('reuses the car when nothing changed', () async {
+      final first = await build();
+      File(p.join(bundle, 'Assets.car')).deleteSync();
+      final second = await build();
+      expect(writer.calls, 1);
+      expect(second, first);
+      expect(cached(), hasLength(1));
+    });
+
+    test('recompiles when image bytes or options change', () async {
+      await build();
+      write(p.join(cat, 'Logo.imageset', 'logo.png'), png(9));
+      await build();
+      expect(writer.calls, 2);
+      await build(deploymentTarget: '15.0');
+      expect(writer.calls, 3);
+      expect(cached(), hasLength(AppResourceCompiler.carCacheEntries));
+      // Back to an input set still in the cache.
+      await build(deploymentTarget: '15.0');
+      expect(writer.calls, 3);
+    });
+
+    test('cache key ignores image paths that moved but not their bytes', () {
+      String key(String path) => AppResourceCompiler.carCacheKey(
+        AssetCatalog(
+          path: '/c',
+          imageSets: [
+            ImageSetAsset(
+              name: 'Logo',
+              images: [ImageSetEntry(filePath: path)],
+            ),
+          ],
+        ),
+        deploymentTarget: '13.0',
+        appIconName: null,
+        alternateAppIconNames: const [],
+        targetDevices: const {AssetIdiom.iphone},
+        readFile: (_) => Uint8List.fromList([1, 2, 3]),
+      );
+      expect(key(p.join('a', 'logo.png')), key(p.join('b', 'logo.png')));
+      expect(key(p.join('a', 'logo.png')), isNot(key(p.join('a', 'x.png'))));
+    });
+  });
+}
+
+/// An [AssetsCarWriter] that counts how often it compiles.
+@internal
+final class CountingCarWriter extends AssetsCarWriter {
+  CountingCarWriter();
+
+  int calls = 0;
+
+  @override
+  Uint8List write(
+    AssetCatalog catalog, {
+    required Uint8List Function(String path) readFile,
+    required String deploymentTarget,
+    String? appIconName,
+    Iterable<String> alternateAppIconNames = const [],
+    Set<AssetIdiom> targetDevices = const {AssetIdiom.iphone, AssetIdiom.ipad},
+  }) {
+    calls++;
+    return super.write(
+      catalog,
+      readFile: readFile,
+      deploymentTarget: deploymentTarget,
+      appIconName: appIconName,
+      alternateAppIconNames: alternateAppIconNames,
+      targetDevices: targetDevices,
+    );
+  }
 }

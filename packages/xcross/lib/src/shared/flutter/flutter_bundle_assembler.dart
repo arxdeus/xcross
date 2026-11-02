@@ -373,6 +373,10 @@ final class FlutterBundleAssembler<T extends PlatformHostInterface>
           ? null
           : resources.storyboard(launchName, paths),
       deviceFamilies: AppResourceCompiler.deviceFamiliesOf(plistXml),
+      carCacheDirectory: runtime.policy.buildDirectory(
+        projectRoot,
+        'xcross-asset-catalog',
+      ),
     );
   }
 

@@ -28,7 +28,7 @@ final class AssetsCarException implements Exception {
 /// image index). Output is
 /// deterministic.
 @internal
-final class AssetsCarWriter {
+base class AssetsCarWriter {
   const AssetsCarWriter();
 
   static const _authoringTool =
