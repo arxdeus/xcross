@@ -376,6 +376,121 @@ commands:
       );
     });
 
+    test('package and target of a bundle from manifest names', () {
+      const state = '''
+{"object":{"dependencies":[
+ {"packageRef":{"identity":"googleutilities","kind":"remoteSourceControl","location":"https://github.com/google/GoogleUtilities.git","name":"GoogleUtilities"},"subpath":"GoogleUtilities"},
+ {"packageRef":{"identity":"googlesignin-ios","kind":"remoteSourceControl","location":"https://github.com/google/GoogleSignIn-iOS.git","name":"GoogleSignIn"},"subpath":"GoogleSignIn-iOS"},
+ {"packageRef":{"identity":"purchases-ios-spm","kind":"remoteSourceControl","location":"https://github.com/RevenueCat/purchases-ios-spm","name":"RevenueCat"},"subpath":"purchases-ios-spm"},
+ {"packageRef":{"identity":"legacy","kind":"remoteSourceControl","location":"https://e/legacy"},"subpath":"legacy"},
+ {"packageRef":{"identity":"file_picker_darwin","kind":"fileSystem","location":"/x/file_picker_darwin","name":"file_picker_darwin"},"subpath":"file_picker_darwin"}
+]}}''';
+      final packages = parseSwiftPmPackageReferences(state, '/s', posix);
+      expect(packages.map((package) => package.identity), [
+        'googleutilities',
+        'googlesignin-ios',
+        'purchases-ios-spm',
+        'file_picker_darwin',
+      ]);
+      expect(packages.first.directory, '/s/checkouts/GoogleUtilities');
+      expect(packages.last.directory, '/x/file_picker_darwin');
+
+      final logger = packageOfBundle(
+        'GoogleUtilities_GoogleUtilities-Logger.bundle',
+        packages,
+      )!;
+      expect(logger.package.identity, 'googleutilities');
+      expect(logger.target, 'GoogleUtilities-Logger');
+      expect(
+        SwiftPmResourceBundle(
+          bundlePath: '/d/GoogleUtilities_GoogleUtilities-Logger.bundle',
+          packageIdentity: logger.package.identity,
+          targetName: logger.target,
+        ).bundleIdentifier,
+        'googleutilities.GoogleUtilities-Logger.resources',
+      );
+      final signIn = packageOfBundle(
+        'GoogleSignIn_GoogleSignIn.bundle',
+        packages,
+      )!;
+      expect(signIn.package.identity, 'googlesignin-ios');
+      expect(signIn.target, 'GoogleSignIn');
+      final revenueCat = packageOfBundle(
+        'RevenueCat_RevenueCat_CustomEntitlementComputation.bundle',
+        packages,
+      )!;
+      expect(revenueCat.package.identity, 'purchases-ios-spm');
+      expect(revenueCat.target, 'RevenueCat_CustomEntitlementComputation');
+      expect(packageOfBundle('Unknown_Target.bundle', packages), isNull);
+    });
+
+    test('package identity of a source reached through ..', () {
+      final locations = {'/s/checkouts/purchases-ios-spm': 'purchases-ios-spm'};
+      expect(
+        packageIdentityOf(
+          '/s/checkouts/purchases-ios-spm/Sources/../Sources/'
+          'PrivacyInfo.xcprivacy',
+          locations,
+          posix,
+        ),
+        'purchases-ios-spm',
+      );
+    });
+
+    test('Flutter plugin identities carry the pub package version', () {
+      expect(
+        flutterPluginSwiftPmIdentities({
+          'file_picker_darwin': (
+            basename: 'file_picker_darwin-1.0.4',
+            manifest: 'let package = Package(name: "file_picker_darwin")',
+          ),
+          'firebase_core': (
+            basename: 'firebase_core-4.15.0',
+            manifest: 'let package = Package(name: "firebase_core")',
+          ),
+          'firebase_auth': (
+            basename: 'firebase_auth-6.7.0',
+            manifest:
+                '.package(name: "firebase_core", path: "../firebase_core")',
+          ),
+          'flutter_chrome_cast': (
+            basename: 'flutter_chrome_cast',
+            manifest: '',
+          ),
+          'forked': (basename: 'other_fork', manifest: ''),
+        }),
+        {
+          'file_picker_darwin': 'file_picker_darwin-1.0.4',
+          'firebase_core': 'firebase_core',
+          'firebase_auth': 'firebase_auth-6.7.0',
+          'flutter_chrome_cast': 'flutter_chrome_cast',
+          'forked': 'forked',
+        },
+      );
+    });
+
+    test('MinimumOSVersion from the declared iOS platform', () {
+      expect(
+        swiftPmPackageMinimumOsVersion(
+          'platforms: [.macOS(.v10_12), .iOS(.v12), .tvOS(.v9)]',
+        ),
+        '12.0',
+      );
+      expect(
+        swiftPmPackageMinimumOsVersion('platforms: [.iOS("14.0")]'),
+        '14.0',
+      );
+      expect(
+        swiftPmPackageMinimumOsVersion(
+          'platforms: [.macOS(.v10_15), .watchOS("6.2"), .iOS(.v13)]',
+        ),
+        '13.0',
+      );
+      // SDWebImage declares iOS 9 and leveldb none: Xcode 26.6 writes 12.0.
+      expect(swiftPmPackageMinimumOsVersion('platforms: [.iOS(.v9)]'), '12.0');
+      expect(swiftPmPackageMinimumOsVersion('let package = Package()'), '12.0');
+    });
+
     test('target of a bundle and Xcode identifier', () {
       expect(
         targetOfBundle('GoogleUtilities_GoogleUtilities-Logger.bundle', [

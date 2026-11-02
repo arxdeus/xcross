@@ -25,9 +25,14 @@ final class SwiftPmAssembly<T extends PlatformHostInterface> {
   final SwiftPmArtifactFileSystem fileSystem;
 
   /// Finds and fixes every dylib emitted into SwiftPM's target debug output.
+  ///
+  /// [pluginIdentities] maps the SwiftPM identity xcross stages a Flutter
+  /// plugin package under (its lowercased name) to the one Xcode gives it
+  /// (see [flutterPluginSwiftPmIdentities]), for resource bundle identifiers.
   Future<GeneratedPluginsBuildResult> discoverAndRewriteDylibs(
-    String targetDebugDir,
-  ) async {
+    String targetDebugDir, {
+    Map<String, String> pluginIdentities = const {},
+  }) async {
     final dylibPaths = <String>[];
     await for (final entity in fileSystem.directory(targetDebugDir).list()) {
       if (entity is File && p.extension(entity.path) == '.dylib') {
@@ -96,13 +101,12 @@ final class SwiftPmAssembly<T extends PlatformHostInterface> {
     final scratchPath = p.dirname(p.dirname(targetDebugDir));
     final state = fileSystem.file(p.join(scratchPath, 'workspace-state.json'));
     var locations = const <String, String>{};
+    var packages = const <SwiftPmPackageReference>[];
     if (state.existsSync()) {
       try {
-        locations = parseSwiftPmPackageLocations(
-          await state.readAsString(),
-          scratchPath,
-          p.context,
-        );
+        final text = await state.readAsString();
+        locations = parseSwiftPmPackageLocations(text, scratchPath, p.context);
+        packages = parseSwiftPmPackageReferences(text, scratchPath, p.context);
       } on FileSystemException {
         // Unreadable: bundle identifiers fall back to the package name.
       }
@@ -136,13 +140,29 @@ final class SwiftPmAssembly<T extends PlatformHostInterface> {
       );
     }
     resourceBundlePaths.sort();
+    final packageMinimums = <String, String?>{};
+    String? packageMinimum(SwiftPmPackageReference package) =>
+        packageMinimums.putIfAbsent(package.directory, () {
+          final manifest = fileSystem.file(
+            p.join(package.directory, 'Package.swift'),
+          );
+          try {
+            return manifest.existsSync()
+                ? swiftPmPackageMinimumOsVersion(manifest.readAsStringSync())
+                : null;
+          } on FileSystemException {
+            return null;
+          }
+        });
     SwiftPmResourceBundle describe(String path) {
       final name = p.basename(path);
       final resources = copies[name];
-      final target = targetOfBundle(name, targets);
+      final declared = packageOfBundle(name, packages);
+      final target = declared?.target ?? targetOfBundle(name, targets);
       final stem = p.basenameWithoutExtension(name);
       final source = resources?.firstOrNull?.source;
       final identity =
+          declared?.package.identity ??
           (source == null
               ? null
               : packageIdentityOf(source, locations, p.context)) ??
@@ -153,9 +173,11 @@ final class SwiftPmAssembly<T extends PlatformHostInterface> {
       return SwiftPmResourceBundle(
         bundlePath: path,
         resources: resources,
-        packageIdentity: identity,
+        packageIdentity: pluginIdentities[identity] ?? identity,
         targetName: target,
-        minimumOsVersion: target == null ? null : versions[target],
+        minimumOsVersion:
+            (declared == null ? null : packageMinimum(declared.package)) ??
+            (target == null ? null : versions[target]),
       );
     }
 

@@ -5250,6 +5250,80 @@ module FirebaseFirestore {
       expect(bundle.targetName, 'SDWebImage');
       expect(bundle.resources?.single.source, source);
     });
+
+    test('names bundle identity and minimum from workspace state', () async {
+      final scratch = Directory(p.join(tmp.path, 'scratch'))..createSync();
+      final output = Directory(p.join(scratch.path, 'arm64-apple-ios', 'debug'))
+        ..createSync(recursive: true);
+      File(
+        p.join(output.path, 'libFlutterPluginsGenerated.dylib'),
+      ).writeAsBytesSync(_emptyMachO());
+      final checkout = Directory(
+        p.join(scratch.path, 'checkouts', 'GoogleUtilities'),
+      )..createSync(recursive: true);
+      File(
+        p.join(checkout.path, 'Package.swift'),
+      ).writeAsStringSync('platforms: [.iOS(.v12), .macOS(.v10_15)]');
+      final plugin = Directory(p.join(tmp.path, 'Packages', 'file_picker'))
+        ..createSync(recursive: true);
+      File(
+        p.join(plugin.path, 'Package.swift'),
+      ).writeAsStringSync('platforms: [.iOS("14.0")]');
+      File(p.join(scratch.path, 'workspace-state.json')).writeAsStringSync(
+        jsonEncode({
+          'object': {
+            'dependencies': [
+              {
+                'packageRef': {
+                  'identity': 'googleutilities',
+                  'kind': 'remoteSourceControl',
+                  'location': 'https://github.com/google/GoogleUtilities.git',
+                  'name': 'GoogleUtilities',
+                },
+                'subpath': 'GoogleUtilities',
+              },
+              {
+                'packageRef': {
+                  'identity': 'file_picker',
+                  'kind': 'fileSystem',
+                  'location': plugin.path,
+                  'name': 'file_picker',
+                },
+                'subpath': 'file_picker',
+              },
+            ],
+          },
+        }),
+      );
+      for (final name in [
+        'GoogleUtilities_GoogleUtilities-Logger',
+        'file_picker_file_picker',
+      ]) {
+        Directory(p.join(output.path, '$name.bundle')).createSync();
+      }
+
+      final result = await _swiftPmRuntime.assembly.discoverAndRewriteDylibs(
+        output.path,
+        pluginIdentities: const {'file_picker': 'file_picker-1.0.4'},
+      );
+
+      final bundles = {
+        for (final bundle in result.resourceBundles)
+          p.basename(bundle.bundlePath): bundle,
+      };
+      final logger = bundles['GoogleUtilities_GoogleUtilities-Logger.bundle']!;
+      expect(
+        logger.bundleIdentifier,
+        'googleutilities.GoogleUtilities-Logger.resources',
+      );
+      expect(logger.minimumOsVersion, '12.0');
+      final picker = bundles['file_picker_file_picker.bundle']!;
+      expect(
+        picker.bundleIdentifier,
+        'file-picker-1.0.4.file-picker.resources',
+      );
+      expect(picker.minimumOsVersion, '14.0');
+    });
   });
 
   group('build', () {

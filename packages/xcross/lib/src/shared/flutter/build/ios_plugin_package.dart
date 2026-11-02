@@ -207,6 +207,18 @@ final class GeneratedPluginsPackage<T extends PlatformHostInterface> {
         deploymentTarget.swiftSdkTriple,
         'debug',
       );
+      final pluginIdentities = {
+        for (final MapEntry(:key, :value) in flutterPluginSwiftPmIdentities({
+          for (final plugin in spmPlugins)
+            plugin.name: (
+              basename: p.basename(plugin.packageRoot),
+              manifest: await runtime.artifactFileSystem
+                  .file(plugin.swiftPackageManifest)
+                  .readAsString(),
+            ),
+        }).entries)
+          key.toLowerCase(): value,
+      };
       final fingerprint = await runtime.discovery.incrementalBuildFingerprint(
         plugins: spmPlugins,
         flutterXcframework: flutterXcframework,
@@ -228,6 +240,7 @@ final class GeneratedPluginsPackage<T extends PlatformHostInterface> {
         runtime.runner.log.logTrace('reusing unchanged SwiftPM plugin build');
         final reused = await runtime.assembly.discoverAndRewriteDylibs(
           targetDebugDir,
+          pluginIdentities: pluginIdentities,
         );
         return reused;
       }
@@ -325,6 +338,7 @@ final class GeneratedPluginsPackage<T extends PlatformHostInterface> {
 
       final result = await runtime.assembly.discoverAndRewriteDylibs(
         targetDebugDir,
+        pluginIdentities: pluginIdentities,
       );
       await runtime.filesystem.writeStable(fingerprintFile.path, fingerprint);
       return result;
