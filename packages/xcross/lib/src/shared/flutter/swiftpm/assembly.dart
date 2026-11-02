@@ -111,6 +111,19 @@ final class SwiftPmAssembly<T extends PlatformHostInterface> {
         targets.add(p.basenameWithoutExtension(entity.path));
       }
     }
+    // A bundle whose every `copy-tool` output is a dangling link (SDWebImage
+    // copies a git symlink pointing outside its target) is never recreated
+    // once the products directory is wiped: llbuild recorded the dangling
+    // output as missing, so a missing output looks up to date. Its resources
+    // are copied from source anyway, as Xcode does, so a manifest bundle of
+    // a target that was built here is kept even without a directory.
+    final listed = {for (final path in resourceBundlePaths) p.basename(path)};
+    for (final name in missingSwiftPmResourceBundles(copies, listed, targets)) {
+      resourceBundlePaths.add(
+        p.absolute(fileSystem.processPath(p.join(targetDebugDir, name))),
+      );
+    }
+    resourceBundlePaths.sort();
     SwiftPmResourceBundle describe(String path) {
       final name = p.basename(path);
       final resources = copies[name];

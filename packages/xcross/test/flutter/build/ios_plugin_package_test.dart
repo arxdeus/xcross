@@ -5205,6 +5205,43 @@ module FirebaseFirestore {
 
       expect(result.resourceBundlePaths, [prefs, sqlite]);
     });
+
+    test('keeps manifest bundles swift build did not recreate', () async {
+      final scratch = Directory(p.join(tmp.path, 'scratch'))..createSync();
+      final output = Directory(p.join(scratch.path, 'arm64-apple-ios', 'debug'))
+        ..createSync(recursive: true);
+      File(
+        p.join(output.path, 'libFlutterPluginsGenerated.dylib'),
+      ).writeAsBytesSync(_emptyMachO());
+      Directory(p.join(output.path, 'SDWebImage.build')).createSync();
+      final source = p.join(
+        tmp.path,
+        'checkouts',
+        'SDWebImage',
+        'SDWebImage',
+        'Resources',
+        'PrivacyInfo.xcprivacy',
+      );
+      final missing = p.join(output.path, 'SDWebImage_SDWebImage.bundle');
+      final testOnly = p.join(output.path, 'SDWebImage_Tests.bundle');
+      String copy(String bundle) =>
+          '  "${p.join(bundle, 'PrivacyInfo.xcprivacy')}":\n'
+          '    tool: copy-tool\n'
+          '    inputs: ${jsonEncode([source])}\n'
+          '    outputs: ${jsonEncode([p.join(bundle, 'PrivacyInfo.xcprivacy')])}\n';
+      File(
+        p.join(scratch.path, 'debug.yaml'),
+      ).writeAsStringSync('commands:\n${copy(missing)}${copy(testOnly)}');
+
+      final result = await _swiftPmRuntime.assembly.discoverAndRewriteDylibs(
+        output.path,
+      );
+
+      expect(result.resourceBundlePaths, [p.absolute(missing)]);
+      final bundle = result.resourceBundles.single;
+      expect(bundle.targetName, 'SDWebImage');
+      expect(bundle.resources?.single.source, source);
+    });
   });
 
   group('build', () {

@@ -138,6 +138,40 @@ void main() {
     );
   });
 
+  test('builds a declared bundle swift build did not recreate', () async {
+    final source = p.join(tmp.path, 'src', 'PrivacyInfo.xcprivacy');
+    File(source)
+      ..createSync(recursive: true)
+      ..writeAsStringSync('privacy');
+    // No built directory: llbuild skipped the dangling copy after a wipe.
+    final built = p.join(tmp.path, 'debug', 'SDWebImage_SDWebImage.bundle');
+    final app = Directory(p.join(tmp.path, 'Runner.app'))..createSync();
+    await copierFor().copyResourceBundles(
+      [
+        SwiftPmResourceBundle(
+          bundlePath: built,
+          resources: [
+            SwiftPmBundleResource(
+              source: source,
+              relative: 'PrivacyInfo.xcprivacy',
+            ),
+          ],
+        ),
+      ],
+      app.path,
+      infoPlist: (_, region) => 'generated $region',
+    );
+    final bundle = p.join(app.path, 'SDWebImage_SDWebImage.bundle');
+    expect(
+      File(p.join(bundle, 'PrivacyInfo.xcprivacy')).readAsStringSync(),
+      'privacy',
+    );
+    expect(
+      File(p.join(bundle, 'Info.plist')).readAsStringSync(),
+      'generated en',
+    );
+  });
+
   test("replaces SwiftPM's partial Info.plist, keeping its region", () async {
     final built = p.join(tmp.path, 'debug', 'GoogleSignIn_GoogleSignIn.bundle');
     File(p.join(built, 'Info.plist'))
@@ -356,6 +390,31 @@ commands:
           targetName: 'file_picker_darwin',
         ).bundleIdentifier,
         'file-picker-darwin-1.0.4.file-picker-darwin.resources',
+      );
+    });
+
+    test('declared bundles swift build did not recreate', () {
+      const privacy = SwiftPmBundleResource(
+        source: '/c/SDWebImage/SDWebImage/Resources/PrivacyInfo.xcprivacy',
+        relative: 'PrivacyInfo.xcprivacy',
+      );
+      const prefs = SwiftPmBundleResource(
+        source: '/c/prefs/Resources/PrivacyInfo.xcprivacy',
+        relative: 'PrivacyInfo.xcprivacy',
+      );
+      expect(
+        missingSwiftPmResourceBundles(
+          {
+            'SDWebImage_SDWebImage.bundle': [privacy],
+            'prefs_prefs.bundle': [prefs],
+            // A test target the plugin build never compiled.
+            'Pkg_PkgTests.bundle': [prefs],
+            'Empty_Empty.bundle': [],
+          },
+          {'prefs_prefs.bundle'},
+          ['SDWebImage', 'prefs', 'Empty'],
+        ),
+        ['SDWebImage_SDWebImage.bundle'],
       );
     });
 

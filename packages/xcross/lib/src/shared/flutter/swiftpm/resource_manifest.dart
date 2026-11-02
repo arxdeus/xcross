@@ -264,6 +264,29 @@ String? targetOfBundle(String bundleName, Iterable<String> targets) {
   return best;
 }
 
+/// The bundles of [copies] (from [parseSwiftPmResourceCopies]) that
+/// `swift build` declared but did not leave in the products directory
+/// ([listed] holds the bundle names it did leave), for a target that was
+/// built there ([targets], the `<Target>.build` directory names), sorted.
+///
+/// llbuild records a `copy-tool` output that is a dangling link (SDWebImage
+/// copies `Resources/PrivacyInfo.xcprivacy`, a git symlink pointing outside
+/// the target) as missing, and a missing output looks up to date, so once
+/// the products directory is wiped (every plugin rebuild deletes it) such a
+/// bundle is never recreated. Xcode builds it from the sources regardless.
+@internal
+List<String> missingSwiftPmResourceBundles(
+  Map<String, List<SwiftPmBundleResource>> copies,
+  Set<String> listed,
+  Iterable<String> targets,
+) => [
+  for (final entry in copies.entries)
+    if (!listed.contains(entry.key) &&
+        entry.value.isNotEmpty &&
+        targetOfBundle(entry.key, targets) != null)
+      entry.key,
+]..sort();
+
 /// The `Info.plist` Xcode generates for a SwiftPM resource bundle, before
 /// the platform and toolchain (`DT*`) keys are stamped in, measured against
 /// Xcode 26.6: development region `en`, `<identity>.<target>.resources`
