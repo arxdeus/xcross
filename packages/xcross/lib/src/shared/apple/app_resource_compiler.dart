@@ -91,14 +91,21 @@ final class AppResourceCompiler {
       }
     }
     if (icon != null) {
-      final icons = await AppIconStager(fileSystem, paths).stage(
-        icon,
-        bundleDir: bundleDir,
-        deviceFamilies: deviceFamilies,
-        deploymentTarget: deploymentTarget,
-        alternates: alternates,
-      );
-      if (_hasIconFiles(icons)) {
+      AppIconPlist? icons;
+      try {
+        icons = await AppIconStager(fileSystem, paths).stage(
+          icon,
+          bundleDir: bundleDir,
+          deviceFamilies: deviceFamilies,
+          deploymentTarget: deploymentTarget,
+          alternates: alternates,
+        );
+      } on Object catch (error) {
+        log.logWarn('Could not stage app icon "$iconName": $error');
+      }
+      if (icons == null) {
+        // Warned above.
+      } else if (_hasIconFiles(icons)) {
         xml = AppIconPlist.applyToInfoPlist(xml, icons);
         log.logTrace('app icon: staged loose "$iconName" icons');
       } else {

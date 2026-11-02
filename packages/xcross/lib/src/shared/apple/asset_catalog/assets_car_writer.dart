@@ -280,7 +280,14 @@ final class AssetsCarWriter {
     Uint8List Function(String path) readFile, {
     bool icon = false,
   }) {
-    final decoded = img.decodeImage(readFile(path));
+    img.Image? decoded;
+    try {
+      decoded = img.decodeImage(readFile(path));
+    } on Object catch (error) {
+      throw AssetsCarException(
+        'cannot read image $path of asset $name: $error',
+      );
+    }
     if (decoded == null) {
       throw AssetsCarException('cannot decode image $path of asset $name');
     }
