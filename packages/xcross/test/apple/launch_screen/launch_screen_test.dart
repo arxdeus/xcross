@@ -20,7 +20,8 @@ class _Fs implements HostFileSystemInterface {
 }
 
 String _sb(String view, {String resources = ''}) =>
-    '''<?xml version="1.0" encoding="UTF-8"?>
+    '''
+<?xml version="1.0" encoding="UTF-8"?>
 <document initialViewController="VC">
 <scenes><scene sceneID="s"><objects>
 <viewController id="VC"><view key="view" id="V">$view</view></viewController>
@@ -76,7 +77,7 @@ void main() {
   test('unsupported elements reported', () {
     final s = LaunchStoryboardReader.read(
       _sb(
-        '<subviews><label text="Hi" id="L"/>'
+        '<subviews><label text="Hi" id="L"/> '
         '<imageView contentMode="scaleAspectFill" image="X" id="I"/></subviews>',
       ),
     )!;

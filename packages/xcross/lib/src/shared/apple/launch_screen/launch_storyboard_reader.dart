@@ -1,7 +1,7 @@
 import 'package:meta/meta.dart';
 import 'package:xml/xml.dart';
 
-import '../asset_catalog/asset_catalog.dart';
+import 'package:xcross/src/shared/apple/asset_catalog/asset_catalog.dart';
 
 /// What a launch storyboard shows, reduced to what `UILaunchScreen` can
 /// express: a background color and one centered image.
@@ -189,7 +189,9 @@ final class LaunchStoryboardReader {
     if (white != null) {
       return AssetColor.gray(white, alpha: alpha);
     }
-    final r = n('red'), g = n('green'), b = n('blue');
+    final r = n('red');
+    final g = n('green');
+    final b = n('blue');
     if (r == null || g == null || b == null) return null;
     final isGray = custom == 'genericGamma22GrayColorSpace';
     final cs = switch ((space, custom)) {

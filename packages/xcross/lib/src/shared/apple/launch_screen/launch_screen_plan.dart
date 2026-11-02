@@ -2,8 +2,8 @@ import 'package:cli_kit/shared/platform/platform_host.dart';
 import 'package:image/image.dart' as img;
 import 'package:meta/meta.dart';
 
-import '../asset_catalog/asset_catalog.dart';
-import 'launch_storyboard_reader.dart';
+import 'package:xcross/src/shared/apple/asset_catalog/asset_catalog.dart';
+import 'package:xcross/src/shared/apple/launch_screen/launch_storyboard_reader.dart';
 
 @internal
 @immutable
