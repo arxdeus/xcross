@@ -1,13 +1,15 @@
 import 'dart:typed_data';
 
 import 'package:image/image.dart' as img;
+import 'package:meta/meta.dart';
 import 'package:test/test.dart';
 import 'package:xcross/src/shared/apple/asset_catalog/asset_catalog.dart';
 import 'package:xcross/src/shared/apple/asset_catalog/assets_car_writer.dart';
 
 /// Minimal BOM reader used only to check the writer's output.
-final class _Bom {
-  _Bom(this.bytes) : data = ByteData.sublistView(bytes) {
+@internal
+final class BomTestReader {
+  BomTestReader(this.bytes) : data = ByteData.sublistView(bytes) {
     expect(String.fromCharCodes(bytes, 0, 8), 'BOMStore');
     final indexOffset = data.getUint32(16);
     final count = data.getUint32(indexOffset);
@@ -136,7 +138,7 @@ void main() {
       );
 
   test('writes a BOM store with the CoreUI variables', () {
-    final bom = _Bom(write());
+    final bom = BomTestReader(write());
     expect(bom.variables.keys, [
       'CARHEADER',
       'RENDITIONS',
@@ -162,7 +164,7 @@ void main() {
   });
 
   test('names every asset in FACETKEYS with its identifier', () {
-    final bom = _Bom(write());
+    final bom = BomTestReader(write());
     final facets = {
       for (final (key, value) in bom.tree('FACETKEYS'))
         String.fromCharCodes(key): value,
@@ -180,7 +182,7 @@ void main() {
   });
 
   test('encodes renditions in sorted key order with CSI headers', () {
-    final bom = _Bom(write());
+    final bom = BomTestReader(write());
     final renditions = bom.tree('RENDITIONS');
     final keys = [for (final (key, _) in renditions) key];
     for (var i = 1; i < keys.length; i++) {
@@ -212,7 +214,7 @@ void main() {
   });
 
   test('stores image set bitmaps as premultiplied BGRA', () {
-    final renditions = _Bom(write()).tree('RENDITIONS');
+    final renditions = BomTestReader(write()).tree('RENDITIONS');
     final images = [
       for (final (key, csi) in renditions)
         if (_token(key, _partPos) == 181) (key, csi),
@@ -240,7 +242,7 @@ void main() {
   });
 
   test('writes the app icon for iPhone and iPad plus a size index', () {
-    final renditions = _Bom(write()).tree('RENDITIONS');
+    final renditions = BomTestReader(write()).tree('RENDITIONS');
     final icons = [
       for (final (key, csi) in renditions)
         if (_token(key, _partPos) == 220) (key, csi),
@@ -260,7 +262,9 @@ void main() {
   });
 
   test('omits the app icon unless it is requested', () {
-    final renditions = _Bom(write(appIconName: null)).tree('RENDITIONS');
+    final renditions = BomTestReader(
+      write(appIconName: null),
+    ).tree('RENDITIONS');
     expect(
       renditions.where((r) => {218, 220}.contains(_token(r.$1, _partPos))),
       isEmpty,
