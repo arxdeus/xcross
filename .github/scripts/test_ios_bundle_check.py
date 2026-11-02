@@ -97,6 +97,23 @@ class T(unittest.TestCase):
         for s in ("UIColorName", "UIImageName"):
             self.assertIn(s, text)
 
+    def test_resource_bundles(self):
+        fs = files()
+        fs["Pkg_T.bundle/Info.plist"] = plistlib.dumps(
+            {"CFBundlePackageType": "BNDL", "CFBundleIdentifier": "pkg.T.resources"})
+        fs["Pkg_T.bundle/PrivacyInfo.xcprivacy"] = b"<plist/>"
+        fs["Bare.bundle/PrivacyInfo.xcprivacy"] = b"<plist/>"
+        d = self.app(fs)
+        os.symlink("../../WebImage/PrivacyInfo.xcprivacy",
+                   os.path.join(d, "Pkg_T.bundle", "Escaping.xcprivacy"))
+        errors, _ = c.check(d, expect_bundle_files=[
+            "Pkg_T.bundle/PrivacyInfo.xcprivacy", "Gone_T.bundle/PrivacyInfo.xcprivacy"])
+        text = "\n".join(errors)
+        self.assertIn("Bare.bundle has no Info.plist", text)
+        self.assertIn("links outside its bundle", text)
+        self.assertIn("missing Gone_T.bundle/PrivacyInfo.xcprivacy", text)
+        self.assertNotIn("Pkg_T.bundle has no Info.plist", text)
+
     def test_add_entitlements(self):
         d = tempfile.mkdtemp()
         os.makedirs(os.path.join(d, "Runner"))

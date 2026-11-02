@@ -44,6 +44,23 @@ class Bundle:
     def has(self, name):
         return name in self.names
 
+    def exists(self, name):
+        return (name in self.names or
+                any(n.startswith(name + "/") for n in self.names))
+
+    def links(self):
+        """(relative path, target) of every symlink; zips store none."""
+        if self.zip:
+            return []
+        found = []
+        for d, dirs, fs in os.walk(self.root):
+            for f in dirs + fs:
+                full = os.path.join(d, f)
+                if os.path.islink(full):
+                    rel = os.path.relpath(full, self.root).replace(os.sep, "/")
+                    found.append((rel, os.readlink(full)))
+        return found
+
     def read(self, name):
         if self.zip:
             return self.zip.read(self.root + "/" + name)
@@ -93,7 +110,7 @@ def entitlements_from_superblob(blob):
 
 
 def check(path, entitlements=(), launch_image=None, icon=None,
-          private_keys_absent=False):
+          private_keys_absent=False, expect_bundle_files=()):
     errors, notes = [], []
     b = Bundle(path)
     try:
@@ -172,7 +189,47 @@ def check(path, entitlements=(), launch_image=None, icon=None,
             notes.append(f"entitlements: {sorted(ents)}")
         except Exception as e:
             errors.append(f"entitlements unreadable in {exe}: {e}")
+
+    errors.extend(check_resource_bundles(b, expect_bundle_files, notes))
     return errors, notes
+
+
+def check_resource_bundles(b, expect_bundle_files, notes):
+    """Top-level `*.bundle` resource bundles must look like Xcode's: a BNDL
+    Info.plist and no symlink that leaves the bundle or dangles."""
+    errors = []
+    bundles = sorted({n.split("/", 1)[0] for n in b.names
+                      if "/" in n and n.split("/", 1)[0].endswith(".bundle")})
+    for bundle in bundles:
+        if not b.has(f"{bundle}/Info.plist"):
+            errors.append(f"{bundle} has no Info.plist")
+            continue
+        try:
+            info = plistlib.loads(b.read(f"{bundle}/Info.plist"))
+        except Exception as e:
+            errors.append(f"{bundle}/Info.plist unreadable: {e}")
+            continue
+        if info.get("CFBundlePackageType") != "BNDL":
+            errors.append(f"{bundle} Info.plist is not a BNDL")
+        if not info.get("CFBundleIdentifier"):
+            errors.append(f"{bundle} Info.plist has no CFBundleIdentifier")
+    for link, target in b.links():
+        top = link.split("/", 1)[0]
+        resolved = os.path.normpath(os.path.join(os.path.dirname(link), target))
+        resolved = resolved.replace(os.sep, "/")
+        inside = (not os.path.isabs(target) and
+                  (resolved == top or resolved.startswith(top + "/")))
+        if top.endswith(".bundle") and not inside:
+            errors.append(f"{link} links outside its bundle: {target}")
+        elif not b.exists(resolved):
+            errors.append(f"{link} is a dangling link: {target}")
+    for name in expect_bundle_files:
+        if not b.has(name):
+            errors.append(f"missing {name}")
+        elif not b.read(name):
+            errors.append(f"{name} is empty")
+    notes.append(f"resource bundles: {len(bundles)}")
+    return errors
 
 
 FIXTURE = """<?xml version="1.0" encoding="UTF-8"?>
@@ -220,9 +277,11 @@ def main(argv):
     p.add_argument("--expect-launch-image")
     p.add_argument("--expect-icon")
     p.add_argument("--no-private-keys", action="store_true")
+    p.add_argument("--expect-bundle-file", nargs="*", default=[])
     a = p.parse_args(argv)
     errors, notes = check(a.path, a.expect_entitlements, a.expect_launch_image,
-                          a.expect_icon, a.no_private_keys)
+                          a.expect_icon, a.no_private_keys,
+                          a.expect_bundle_file)
     for n in notes:
         print(n)
     for e in errors:
