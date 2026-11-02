@@ -134,11 +134,22 @@ def check(path, entitlements=(), launch_image=None, icon=None,
 
     if launch_image:
         sb = info.get("UILaunchStoryboardName")
-        if sb and not any(n.startswith(sb + ".storyboardc/") for n in b.names):
-            errors.append(f"UILaunchStoryboardName={sb} without compiled storyboard")
         ls = info.get("UILaunchScreen")
-        if not isinstance(ls, dict):
-            errors.append("missing UILaunchScreen dict")
+        if sb:
+            # Native (ibtool) layout: the compiled storyboard lives in the
+            # bundle root or a localization directory, as Xcode places it.
+            compiled = [n for n in b.names
+                        if re.match(rf"(?:[^/]+\.lproj/)?{re.escape(sb)}"
+                                    rf"\.storyboardc/", n)]
+            needed = {"Info.plist"}
+            have = {n.split(".storyboardc/", 1)[1] for n in compiled}
+            if not compiled:
+                errors.append(f"UILaunchStoryboardName={sb} without compiled storyboard")
+            elif not needed <= have or not any(h.endswith(".nib") for h in have):
+                errors.append(f"{sb}.storyboardc is incomplete: {sorted(have)}")
+            notes.append(f"launch storyboard compiled: {sorted(set(compiled))}")
+        elif not isinstance(ls, dict):
+            errors.append("missing UILaunchStoryboardName and UILaunchScreen")
         else:
             if ls.get("UIImageName") != launch_image:
                 errors.append(f"UILaunchScreen.UIImageName != {launch_image}: {ls}")

@@ -51,7 +51,9 @@ class T(unittest.TestCase):
     def app(self, fs):
         d = tempfile.mkdtemp()
         for n, v in fs.items():
-            with open(os.path.join(d, n), "wb") as f:
+            path = os.path.join(d, *n.split("/"))
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, "wb") as f:
                 f.write(v)
         return d
 
@@ -68,14 +70,31 @@ class T(unittest.TestCase):
                 zf.writestr("Payload/Runner.app/" + n, v)
         self.assertEqual(self.run_check(z), [])
 
+    def test_native_compiled_launch_storyboard(self):
+        info = {k: v for k, v in INFO.items() if k != "UILaunchScreen"}
+        info["UILaunchStoryboardName"] = "LaunchScreen"
+        fs = files(info)
+        sbc = "Base.lproj/LaunchScreen.storyboardc/"
+        fs[sbc + "Info.plist"] = b"bplist00"
+        fs[sbc + "UIViewController-01J-lp-oVM.nib"] = b"NIBArchive"
+        self.assertEqual(self.run_check(self.app(fs)), [])
+        del fs[sbc + "UIViewController-01J-lp-oVM.nib"]
+        text = "\n".join(self.run_check(self.app(fs)))
+        self.assertIn("incomplete", text)
+
     def test_failures(self):
         info = dict(INFO, XCrossEntitlements={}, UILaunchStoryboardName="LaunchScreen")
-        info["UILaunchScreen"] = {"UIImageName": "Other"}
         fs = files(info, car=b"nope", ents={"aps-environment": "x"})
         del fs["AppIcon76x76@2x~ipad.png"]
         text = "\n".join(self.run_check(self.app(fs)))
-        for s in ("BOM", "~ipad", "UIColorName", "UIImageName", "XCrossEntitlements",
+        for s in ("BOM", "~ipad", "XCrossEntitlements",
                   "UILaunchStoryboardName", "associated-domains"):
+            self.assertIn(s, text)
+
+    def test_launch_screen_fallback_failures(self):
+        info = dict(INFO, UILaunchScreen={"UIImageName": "Other"})
+        text = "\n".join(self.run_check(self.app(files(info))))
+        for s in ("UIColorName", "UIImageName"):
             self.assertIn(s, text)
 
     def test_add_entitlements(self):

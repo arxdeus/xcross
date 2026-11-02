@@ -1205,9 +1205,13 @@ jobs:
           import json, sys
           items = json.load(open(sys.argv[1]))
           names = {i.get("Name") for i in items}
-          types = {i.get("AssetType") for i in items}
+          kinds = {(i.get("AssetType"), i.get("Idiom")) for i in items}
           assert "LaunchImage" in names, names
-          assert "Color" in types, types
+          # The app icon renditions actool writes for a per-size icon set.
+          for kind in [("Icon Image", "phone"), ("Icon Image", "pad"),
+                       ("Icon Image", "marketing"), ("MultiSized Image", "phone"),
+                       ("MultiSized Image", "pad")]:
+              assert kind in kinds, (kind, sorted(map(str, kinds)))
           print("assetutil ok:", sorted(n for n in names if n))
           PY
 
