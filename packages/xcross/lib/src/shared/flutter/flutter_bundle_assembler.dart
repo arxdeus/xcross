@@ -196,18 +196,15 @@ final class FlutterBundleAssembler<T extends PlatformHostInterface>
     // whose signature carries restricted entitlements (aps-environment,
     // associated domains), exactly as with Apple's `codesign -s -`. Xcode
     // keeps simulator entitlements out of the signature for that reason.
-    final simulator = sdkName.startsWith('iphonesimulator');
-    for (final binary
-        in simulator
-            ? const <String>[]
-            : await runtime.entitlements.embed(
-                runtime.entitlements.resolve(
-                  projectRoot: projectRoot,
-                  bundleDir: bundleDir,
-                  configuration: _xcodeConfiguration,
-                ),
-              )) {
-      runtime.runner.log.logTrace('signed ad-hoc with entitlements: $binary');
+    if (!sdkName.startsWith('iphonesimulator')) {
+      final entitled = runtime.entitlements.resolve(
+        projectRoot: projectRoot,
+        bundleDir: bundleDir,
+        configuration: _xcodeConfiguration,
+      );
+      for (final binary in await runtime.entitlements.embed(entitled)) {
+        runtime.runner.log.logTrace('signed ad-hoc with entitlements: $binary');
+      }
     }
     for (final binary in await runtime.signatures.refresh(bundleDir)) {
       runtime.runner.log.logTrace('refreshed ad-hoc signature of $binary');
