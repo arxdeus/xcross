@@ -12,6 +12,7 @@ import 'package:xcross/src/shared/apple/app_resource_compiler.dart';
 import 'package:xcross/src/shared/artifact/plist_storyboard_policy.dart';
 import 'package:xcross/src/shared/flutter/build/adhoc_signature_refresher.dart';
 import 'package:xcross/src/shared/flutter/build/apple_debug_symbols.dart';
+import 'package:xcross/src/shared/flutter/build/bundle_entitlements.dart';
 import 'package:xcross/src/shared/flutter/build/flutter_aot_snapshotter.dart';
 import 'package:xcross/src/shared/flutter/build/flutter_notice_artifact.dart';
 import 'package:xcross/src/shared/flutter/build/internal/apple_tool_shims.dart';
@@ -143,6 +144,12 @@ final class FlutterBuildRuntime<T extends PlatformHostInterface> {
   late final AppResourceCompiler resourceCompiler = AppResourceCompiler(
     fileSystem: host.fileSystem,
     paths: host.paths.context,
+    log: runner.log,
+  );
+  late final BundleEntitlements entitlements = BundleEntitlements(
+    fileSystem: host.fileSystem,
+    paths: host.paths.context,
+    projects: projects,
     log: runner.log,
   );
   late final PbxProjectReader projects = PbxProjectReader(

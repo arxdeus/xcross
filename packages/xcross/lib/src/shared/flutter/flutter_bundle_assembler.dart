@@ -189,9 +189,42 @@ final class FlutterBundleAssembler<T extends PlatformHostInterface>
       sdkName: sdkName,
       resources: staged,
     );
+    // After Info.plist is final: the ad-hoc signature hashes it, and carries
+    // the target's entitlements for re-signers and `xcross flutter run`.
+    for (final binary in await runtime.entitlements.embed(
+      runtime.entitlements.resolve(
+        projectRoot: projectRoot,
+        bundleDir: bundleDir,
+        configuration: _xcodeConfiguration,
+      ),
+    )) {
+      runtime.runner.log.logTrace('signed ad-hoc with entitlements: $binary');
+    }
     for (final binary in await runtime.signatures.refresh(bundleDir)) {
       runtime.runner.log.logTrace('refreshed ad-hoc signature of $binary');
     }
+  }
+
+  /// The Xcode build configuration this build corresponds to, as
+  /// `flutter build ios` picks it: `Release-<flavor>` when the project
+  /// declares one for the flavor, otherwise `Debug`/`Profile`/`Release`.
+  String get _xcodeConfiguration {
+    final base = switch (options.buildMode) {
+      FlutterBuildMode.debug => 'Debug',
+      FlutterBuildMode.profile => 'Profile',
+      FlutterBuildMode.release => 'Release',
+    };
+    final flavor = options.flavor;
+    if (flavor == null || flavor.isEmpty) return base;
+    final flavored = '$base-$flavor';
+    final pbxproj = runtime.projects.findPbxproj(projectRoot);
+    final project = pbxproj == null
+        ? null
+        : runtime.projects.parseFile(pbxproj);
+    final declared = project
+        ?.byIsa('XCBuildConfiguration')
+        .any((configuration) => configuration.string('name') == flavored);
+    return declared ?? false ? flavored : base;
   }
 
   /// Copy each built `.appex` into the app's `PlugIns` directory, the only
