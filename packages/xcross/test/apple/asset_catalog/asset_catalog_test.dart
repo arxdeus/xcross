@@ -90,6 +90,8 @@ void main() {
     write('plain/c.colorset/Contents.json', '{"colors":[]}');
     write('s.symbolset/Contents.json', '{}');
     write('bad.imageset/Contents.json', '{nope');
+    // Windows editors may save Contents.json with a UTF-8 BOM and CRLF.
+    write('bom.colorset/Contents.json', '\uFEFF{"colors":[]}\r\n');
 
     final r = AssetCatalogReader(fs, paths).read(xc);
     expect(r.skipped, ['s.symbolset']);
@@ -98,6 +100,7 @@ void main() {
     expect(a.images.map((e) => e.scale), [2, 1]);
     expect(a.images.last.appearance, AssetAppearance.dark);
     expect(r.catalog.imageSet('bad'), isNull);
+    expect(r.catalog.colorSets.map((c) => c.name), contains('bom'));
     final b = r.catalog.colorSet('NS/b')!;
     expect(b.colors.first.color.red, closeTo(0.2, 1e-9));
     expect(b.colors.first.color.green, closeTo(0.2, 1e-9));

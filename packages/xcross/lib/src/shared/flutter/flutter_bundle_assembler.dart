@@ -182,6 +182,7 @@ final class FlutterBundleAssembler<T extends PlatformHostInterface>
     final staged = await runtime.resources.stage(
       projectRoot: projectRoot,
       bundleDir: bundleDir,
+      configuration: _xcodeConfiguration,
     );
     await _writeInfoPlist(
       bundleDir,
@@ -191,13 +192,21 @@ final class FlutterBundleAssembler<T extends PlatformHostInterface>
     );
     // After Info.plist is final: the ad-hoc signature hashes it, and carries
     // the target's entitlements for re-signers and `xcross flutter run`.
-    for (final binary in await runtime.entitlements.embed(
-      runtime.entitlements.resolve(
-        projectRoot: projectRoot,
-        bundleDir: bundleDir,
-        configuration: _xcodeConfiguration,
-      ),
-    )) {
+    // Device builds only: the simulator refuses to launch an ad-hoc binary
+    // whose signature carries restricted entitlements (aps-environment,
+    // associated domains), exactly as with Apple's `codesign -s -`. Xcode
+    // keeps simulator entitlements out of the signature for that reason.
+    final simulator = sdkName.startsWith('iphonesimulator');
+    for (final binary
+        in simulator
+            ? const <String>[]
+            : await runtime.entitlements.embed(
+                runtime.entitlements.resolve(
+                  projectRoot: projectRoot,
+                  bundleDir: bundleDir,
+                  configuration: _xcodeConfiguration,
+                ),
+              )) {
       runtime.runner.log.logTrace('signed ad-hoc with entitlements: $binary');
     }
     for (final binary in await runtime.signatures.refresh(bundleDir)) {

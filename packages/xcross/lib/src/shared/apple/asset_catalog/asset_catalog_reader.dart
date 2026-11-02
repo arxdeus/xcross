@@ -137,7 +137,9 @@ final class AssetCatalogReader {
     final file = fileSystem.file(paths.join(dir, 'Contents.json'));
     if (!file.existsSync()) return null;
     try {
-      final decoded = jsonDecode(file.readAsStringSync());
+      final decoded = jsonDecode(
+        file.readAsStringSync().replaceFirst('\uFEFF', ''),
+      );
       if (decoded is Map<String, Object?>) return decoded;
       diagnostics.add('${file.path}: not a JSON object');
     } on Object catch (e) {

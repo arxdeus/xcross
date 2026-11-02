@@ -54,6 +54,7 @@ final class IosBundleResources {
   Future<StagedIosResources> stage({
     required String projectRoot,
     required String bundleDir,
+    String configuration = 'Debug',
   }) async {
     final pbxprojPath = projects.findPbxproj(projectRoot);
     final project = pbxprojPath == null
@@ -126,10 +127,11 @@ final class IosBundleResources {
         await fileSystem.file(source).copy(fileSystem.file(destination).path);
       }
     }
-    final appIcon = project.buildSetting(
+    final appIconSetting = project.buildSettings(
       target,
-      'ASSETCATALOG_COMPILER_APPICON_NAME',
-    );
+      preferredConfiguration: configuration,
+    )['ASSETCATALOG_COMPILER_APPICON_NAME'];
+    final appIcon = appIconSetting is String ? appIconSetting : null;
     return StagedIosResources(
       assetCatalogs: catalogs,
       storyboards: storyboards,

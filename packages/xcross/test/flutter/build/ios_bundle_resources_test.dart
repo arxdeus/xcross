@@ -66,6 +66,20 @@ void main() {
     );
   });
 
+  test('reads the app icon name from the build configuration', () async {
+    _writeProject(project, appRefs: const [], flavorAppIcon: 'AppIcon-prod');
+
+    expect((await _stage(project, bundle)).appIconName, 'AppIcon');
+    expect(
+      (await _stage(
+        project,
+        bundle,
+        configuration: 'Release-prod',
+      )).appIconName,
+      'AppIcon-prod',
+    );
+  });
+
   test(
     'hands asset catalogs and uncompiled storyboards to the compiler',
     () async {
@@ -366,11 +380,15 @@ void main() {
   );
 }
 
-Future<StagedIosResources> _stage(Directory project, Directory bundle) =>
-    testIPhoneRuntime().resources.stage(
-      projectRoot: project.path,
-      bundleDir: bundle.path,
-    );
+Future<StagedIosResources> _stage(
+  Directory project,
+  Directory bundle, {
+  String configuration = 'Debug',
+}) => testIPhoneRuntime().resources.stage(
+  projectRoot: project.path,
+  bundleDir: bundle.path,
+  configuration: configuration,
+);
 
 File _bundleFile(Directory bundle, String relative) =>
     File(p.join(bundle.path, relative));
@@ -388,6 +406,7 @@ void _writeProject(
   bool synchronized = false,
   List<String> exceptions = const [],
   String productType = 'com.apple.product-type.application',
+  String flavorAppIcon = '',
 }) {
   final xcodeproj = Directory(
     p.join(project.path, 'ios', '$projectName.xcodeproj'),
@@ -422,8 +441,9 @@ void _writeProject(
     VARIANT = { isa = PBXVariantGroup; path = Labels.strings; children = (BASE_LABELS, FR_LABELS); };
     BASE_LABELS = { isa = PBXFileReference; path = Base.lproj/Labels.strings; sourceTree = "<group>"; };
     FR_LABELS = { isa = PBXFileReference; path = fr.lproj/Labels.strings; sourceTree = "<group>"; };
-    APP_CONFIG_LIST = { isa = XCConfigurationList; buildConfigurations = (APP_CONFIG); };
-    APP_CONFIG = { isa = XCBuildConfiguration; name = Debug; buildSettings = { INFOPLIST_FILE = Runner/Info.plist; }; };
+    APP_CONFIG_LIST = { isa = XCConfigurationList; buildConfigurations = (APP_CONFIG${flavorAppIcon.isEmpty ? '' : ', PROD_CONFIG'}); };
+    APP_CONFIG = { isa = XCBuildConfiguration; name = Debug; buildSettings = { INFOPLIST_FILE = Runner/Info.plist; ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon; }; };
+    ${flavorAppIcon.isEmpty ? '' : 'PROD_CONFIG = { isa = XCBuildConfiguration; name = Release-prod; buildSettings = { INFOPLIST_FILE = Runner/Info.plist; ASSETCATALOG_COMPILER_APPICON_NAME = $flavorAppIcon; }; };'}
     APP_TARGET = { isa = PBXNativeTarget; productType = $productType; buildConfigurationList = APP_CONFIG_LIST; buildPhases = (APP_RESOURCES); ${synchronized ? 'fileSystemSynchronizedGroups = (SYNC_GROUP);' : ''} };
     ${synchronized ? 'SYNC_GROUP = { isa = PBXFileSystemSynchronizedRootGroup; path = Runner; sourceTree = SOURCE_ROOT; exceptions = (SYNC_EXCEPTIONS); };\n    SYNC_EXCEPTIONS = { isa = PBXFileSystemSynchronizedBuildFileExceptionSet; target = APP_TARGET; membershipExceptions = (${exceptions.join(', ')}); };' : ''}
     APP_RESOURCES = { isa = PBXResourcesBuildPhase; files = (
