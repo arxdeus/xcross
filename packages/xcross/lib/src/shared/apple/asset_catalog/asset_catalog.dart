@@ -17,6 +17,32 @@ final class AssetCatalog {
     this.appIconSets = const [],
   });
 
+  /// Merges several catalogs of one target, the way `actool` compiles every
+  /// catalog of a target into a single `Assets.car`. Earlier catalogs win on
+  /// a name clash.
+  factory AssetCatalog.merge(String path, Iterable<AssetCatalog> catalogs) {
+    final images = <String, ImageSetAsset>{};
+    final colors = <String, ColorSetAsset>{};
+    final icons = <String, AppIconSetAsset>{};
+    for (final catalog in catalogs) {
+      for (final set in catalog.imageSets) {
+        images.putIfAbsent(set.name, () => set);
+      }
+      for (final set in catalog.colorSets) {
+        colors.putIfAbsent(set.name, () => set);
+      }
+      for (final set in catalog.appIconSets) {
+        icons.putIfAbsent(set.name, () => set);
+      }
+    }
+    return AssetCatalog(
+      path: path,
+      imageSets: images.values.toList(),
+      colorSets: colors.values.toList(),
+      appIconSets: icons.values.toList(),
+    );
+  }
+
   /// Absolute path of the `.xcassets` directory this was read from.
   final String path;
   final List<ImageSetAsset> imageSets;
@@ -47,32 +73,6 @@ final class AssetCatalog {
     ],
     appIconSets: appIconSets,
   );
-
-  /// Merges several catalogs of one target, the way `actool` compiles every
-  /// catalog of a target into a single `Assets.car`. Earlier catalogs win on
-  /// a name clash.
-  factory AssetCatalog.merge(String path, Iterable<AssetCatalog> catalogs) {
-    final images = <String, ImageSetAsset>{};
-    final colors = <String, ColorSetAsset>{};
-    final icons = <String, AppIconSetAsset>{};
-    for (final catalog in catalogs) {
-      for (final set in catalog.imageSets) {
-        images.putIfAbsent(set.name, () => set);
-      }
-      for (final set in catalog.colorSets) {
-        colors.putIfAbsent(set.name, () => set);
-      }
-      for (final set in catalog.appIconSets) {
-        icons.putIfAbsent(set.name, () => set);
-      }
-    }
-    return AssetCatalog(
-      path: path,
-      imageSets: images.values.toList(),
-      colorSets: colors.values.toList(),
-      appIconSets: icons.values.toList(),
-    );
-  }
 }
 
 /// Device idiom an asset entry targets (`Contents.json` `idiom`).
