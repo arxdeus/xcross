@@ -40,18 +40,12 @@ final class AssetsCarWriter {
   Uint8List write(
     AssetCatalog catalog, {
     required Uint8List Function(String path) readFile,
-    String? deploymentTarget,
-    int? deploymentTargetMajor,
+    required String deploymentTarget,
     String? appIconName,
     Iterable<String> alternateAppIconNames = const [],
     Set<AssetIdiom> targetDevices = const {AssetIdiom.iphone, AssetIdiom.ipad},
   }) {
-    final platformVersion =
-        deploymentTarget ??
-        (deploymentTargetMajor == null ? null : '$deploymentTargetMajor.0');
-    if (platformVersion == null) {
-      throw ArgumentError('deploymentTarget is required');
-    }
+    final platformVersion = deploymentTarget;
     final iconSets = <AppIconSetAsset>[
       for (final name in {?appIconName, ...alternateAppIconNames})
         ?catalog.appIconSet(name),
