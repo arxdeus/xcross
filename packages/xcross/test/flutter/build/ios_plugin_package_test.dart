@@ -5178,6 +5178,33 @@ module FirebaseFirestore {
 
       expect(result.frameworkPaths, [thinDynamic, universalDynamic]);
     });
+
+    test('returns SwiftPM resource bundles for the app root', () async {
+      final output = Directory(p.join(tmp.path, 'debug'))..createSync();
+      File(
+        p.join(output.path, 'libFlutterPluginsGenerated.dylib'),
+      ).writeAsBytesSync(_emptyMachO());
+      String bundle(String name) {
+        final directory = Directory(p.join(output.path, '$name.bundle'))
+          ..createSync();
+        File(
+          p.join(directory.path, 'PrivacyInfo.xcprivacy'),
+        ).writeAsStringSync('<plist/>');
+        return p.absolute(directory.path);
+      }
+
+      final sqlite = bundle('sqlite3_flutter_libs_sqlite3_flutter_libs');
+      final prefs = bundle(
+        'shared_preferences_foundation_shared_preferences_foundation',
+      );
+      File(p.join(output.path, 'stray.bundle')).writeAsStringSync('file');
+
+      final result = await _swiftPmRuntime.assembly.discoverAndRewriteDylibs(
+        output.path,
+      );
+
+      expect(result.resourceBundlePaths, [prefs, sqlite]);
+    });
   });
 
   group('build', () {

@@ -53,4 +53,22 @@ final class FlutterFrameworkCopier {
     }
     return copied;
   }
+
+  /// Copies SwiftPM resource bundles (`<Package>_<Target>.bundle`) into the
+  /// application root, where Xcode places them and where SwiftPM's generated
+  /// `Bundle.module` accessor looks (`Bundle.main.bundleURL`). Must run
+  /// before signing so the bundles are sealed into the app's resources.
+  Future<List<String>> copyResourceBundles(
+    Iterable<String> bundles,
+    String bundleDir,
+  ) async {
+    final copied = <String>[];
+    for (final bundle in bundles) {
+      final destination = paths.join(bundleDir, paths.basename(bundle));
+      if (fileSystem.directory(destination).existsSync()) continue;
+      await copier.copy(bundle, destination);
+      copied.add(destination);
+    }
+    return copied;
+  }
 }

@@ -54,7 +54,14 @@ final class SwiftPmAssembly<T extends PlatformHostInterface> {
     // app-extension targets importing a plugin need it on their include path.
     final modulesPath = p.join(targetDebugDir, 'Modules');
     final frameworkPaths = <String>[];
+    final resourceBundlePaths = <String>[];
     await for (final entity in fileSystem.directory(targetDebugDir).list()) {
+      if (entity is Directory && p.extension(entity.path) == '.bundle') {
+        resourceBundlePaths.add(
+          p.absolute(fileSystem.processPath(entity.path)),
+        );
+        continue;
+      }
       if (entity is! Directory || p.extension(entity.path) != '.framework') {
         continue;
       }
@@ -66,10 +73,12 @@ final class SwiftPmAssembly<T extends PlatformHostInterface> {
       }
     }
     frameworkPaths.sort();
+    resourceBundlePaths.sort();
     return GeneratedPluginsBuildResult(
       libraryPath: aggregatePath,
       dylibPaths: List.unmodifiable(dylibPaths),
       frameworkPaths: List.unmodifiable(frameworkPaths),
+      resourceBundlePaths: List.unmodifiable(resourceBundlePaths),
       modulesDir: fileSystem.directory(modulesPath).existsSync()
           ? p.absolute(modulesPath)
           : null,

@@ -90,10 +90,15 @@ final class GeneratedPluginsBuildResult {
     required this.dylibPaths,
     required this.modulesDir,
     this.frameworkPaths = const [],
+    this.resourceBundlePaths = const [],
   });
   final String libraryPath;
   final List<String> dylibPaths;
   final List<String> frameworkPaths;
+
+  /// SwiftPM resource bundles (`<Package>_<Target>.bundle`, e.g. plugin
+  /// privacy manifests) that Xcode copies into the application root.
+  final List<String> resourceBundlePaths;
   final String? modulesDir;
 }
 
