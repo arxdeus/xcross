@@ -130,7 +130,13 @@ final class AssetsCarWriter {
         final idioms = entry.idiom == AssetIdiom.universal
             ? [CarIdiom.phone, CarIdiom.pad]
             : [_idiom(entry.idiom)];
-        final bitmap = _bitmap(iconSet.name, entry.filePath, 1, readFile);
+        final bitmap = _bitmap(
+          iconSet.name,
+          entry.filePath,
+          1,
+          readFile,
+          icon: true,
+        );
         for (final idiom in idioms) {
           final sizes = sizesByIdiom.putIfAbsent(idiom, () => []);
           final index = sizes.length + 1;
@@ -188,8 +194,9 @@ final class AssetsCarWriter {
     String name,
     String path,
     int scale,
-    Uint8List Function(String path) readFile,
-  ) {
+    Uint8List Function(String path) readFile, {
+    bool icon = false,
+  }) {
     final decoded = img.decodeImage(readFile(path));
     if (decoded == null) {
       throw AssetsCarException('cannot decode image $path of asset $name');
@@ -214,6 +221,7 @@ final class AssetsCarWriter {
       scale: scale,
       opaque: opaque,
       bgra: bytes,
+      icon: icon,
     );
   }
 

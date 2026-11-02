@@ -39,9 +39,12 @@ final class BomWriter {
     // Paths block is added before the entry blocks, but its pair table
     // needs their indices, so reserve it first and patch it in place.
     final pathsIndex = addBlock(paths);
+    // The same value object (e.g. one icon bitmap used for iPhone and iPad)
+    // is stored once and referenced by every key that maps to it.
+    final shared = Map<Uint8List, int>.identity();
     for (final (i, (key, value)) in entries.indexed) {
       final keyIndex = addBlock(key);
-      final valueIndex = addBlock(value);
+      final valueIndex = shared[value] ??= addBlock(value);
       pathsData
         ..setUint32(12 + i * 8, valueIndex)
         ..setUint32(16 + i * 8, keyIndex);

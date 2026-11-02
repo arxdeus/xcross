@@ -78,8 +78,9 @@ abstract final class CsiWriter {
     required int scale,
     required bool opaque,
     required Uint8List bgra,
+    bool icon = false,
   }) {
-    final tlv = _Le()
+    final tlv = CarByteSink()
       // Slices: one slice covering the whole image.
       ..u32(0x3E9)
       ..u32(20)
@@ -107,20 +108,20 @@ abstract final class CsiWriter {
       ..u32(0x3EE)
       ..u32(4)
       ..u32(1)
-      // Bitmap info flags as written by actool.
+      // Bytes per row of the pixel data.
       ..u32(0x3EF)
       ..u32(4)
-      ..u32(0x20);
-    final payload = _Le()
+      ..u32(width * 4);
+    final payload = CarByteSink()
       ..ascii('MLEC')
-      ..u32(0) // flags
-      ..u32(0) // compression: uncompressed
+      ..u32(opaque ? 2 : 0) // flags: bit 1 marks an opaque bitmap
+      ..u32(0) // compression: none
       ..u32(bgra.length)
       ..bytes(bgra);
     return _rendition(
       name: name,
-      // Bit 4 is set by actool for bitmap images, bit 3 marks opaque.
-      flags: 0x10 | (opaque ? 0x08 : 0),
+      // actool sets bit 4 (template mode "automatic") on image set bitmaps.
+      flags: icon ? 0 : 0x10,
       width: width,
       height: height,
       scale: scale * 100,
@@ -139,7 +140,7 @@ abstract final class CsiWriter {
     required int colorSpaceId,
     required List<double> components,
   }) {
-    final payload = _Le()
+    final payload = CarByteSink()
       ..ascii('RLOC')
       ..u32(1) // version
       ..u32(colorSpaceId)
@@ -165,7 +166,7 @@ abstract final class CsiWriter {
     required String name,
     required List<(int, int, int)> sizes,
   }) {
-    final payload = _Le()
+    final payload = CarByteSink()
       ..ascii('SISM')
       ..u32(1)
       ..u32(sizes.length);
@@ -191,7 +192,7 @@ abstract final class CsiWriter {
   }
 
   static Uint8List _plainTlv() =>
-      (_Le()
+      (CarByteSink()
             ..u32(0x3EC)
             ..u32(8)
             ..u32(0)
@@ -216,7 +217,7 @@ abstract final class CsiWriter {
     final nameBytes = Uint8List(128);
     final encoded = _utf8(name);
     nameBytes.setRange(0, encoded.length.clamp(0, 127), encoded);
-    final out = _Le()
+    final out = CarByteSink()
       ..ascii('ISTC')
       ..u32(1) // version
       ..u32(flags)
@@ -267,7 +268,8 @@ abstract final class CsiWriter {
 }
 
 /// Little-endian byte sink.
-final class _Le {
+@internal
+final class CarByteSink {
   final BytesBuilder _builder = BytesBuilder();
   final ByteData _scratch = ByteData(8);
 
