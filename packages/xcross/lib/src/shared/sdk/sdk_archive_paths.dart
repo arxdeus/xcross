@@ -8,6 +8,11 @@ import 'package:xcross/src/shared/sdk/sdk_install_constants.dart';
 final class SdkArchivePaths {
   const SdkArchivePaths(this._paths);
   final p.Context _paths;
+
+  /// `Xcode.app/Contents/version.plist` (any app name, optional `./`).
+  static final _xcodeVersionEntry = RegExp(
+    r'^(?:\./)?[^/]+\.app/Contents/version\.plist$',
+  );
   static String? sdkRelativePath(String name) {
     final archiveName = name.replaceAll(r'\', '/');
     if (_includedFileFor(archiveName) case final file?) return file;
@@ -31,6 +36,10 @@ final class SdkArchivePaths {
   }
 
   static String? _includedFileFor(String archiveName) {
+    if (archiveName == sdkXcodeVersionFile ||
+        _xcodeVersionEntry.hasMatch(archiveName)) {
+      return sdkXcodeVersionFile;
+    }
     final firstDeveloper = archiveName.indexOf('/Developer/');
     for (final file in sdkIncludedFiles) {
       if (archiveName == file) return file;
