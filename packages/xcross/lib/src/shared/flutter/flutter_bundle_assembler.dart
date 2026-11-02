@@ -194,9 +194,10 @@ final class FlutterBundleAssembler<T extends PlatformHostInterface>
       resourceBundles,
       bundleDir,
       warn: runtime.runner.log.logWarn,
-      infoPlist: (bundle) => runtime.policy.transformPlist(
+      infoPlist: (bundle, region) => runtime.policy.transformPlist(
         swiftPmResourceBundleInfoPlist(
           bundle,
+          developmentRegion: region,
           deploymentTarget: deploymentTarget.version,
           device: sdkName.startsWith('iphoneos'),
           paths: runtime.host.paths.context,

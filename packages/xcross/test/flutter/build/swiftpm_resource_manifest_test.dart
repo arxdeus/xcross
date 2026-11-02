@@ -77,15 +77,18 @@ void main() {
         ],
         app.path,
         warn: warnings.add,
-        infoPlist: (_) => 'generated',
+        infoPlist: (_, region) => 'generated $region',
       );
 
       final bundle = p.join(app.path, 'SDWebImage_SDWebImage.bundle');
       final privacy = p.join(bundle, 'PrivacyInfo.xcprivacy');
       expect(FileSystemEntity.isLinkSync(privacy), isFalse);
       expect(File(privacy).readAsStringSync(), 'privacy');
-      // SwiftPM's own Info.plist wins over a generated one.
-      expect(File(p.join(bundle, 'Info.plist')).readAsStringSync(), 'info');
+      // Xcode's Info.plist always replaces whatever SwiftPM wrote.
+      expect(
+        File(p.join(bundle, 'Info.plist')).readAsStringSync(),
+        'generated en',
+      );
       expect(
         Link(p.join(bundle, 'Dir', 'internal.txt')).targetSync(),
         'own.txt',
@@ -122,7 +125,7 @@ void main() {
         ),
       ],
       app.path,
-      infoPlist: (bundle) => p.basename(bundle.bundlePath),
+      infoPlist: (bundle, _) => p.basename(bundle.bundlePath),
     );
     final bundle = p.join(app.path, 'Pkg_T.bundle');
     expect(
@@ -132,6 +135,102 @@ void main() {
     expect(
       File(p.join(bundle, 'Info.plist')).readAsStringSync(),
       'Pkg_T.bundle',
+    );
+  });
+
+  test("replaces SwiftPM's partial Info.plist, keeping its region", () async {
+    final built = p.join(tmp.path, 'debug', 'GoogleSignIn_GoogleSignIn.bundle');
+    File(p.join(built, 'Info.plist'))
+      ..createSync(recursive: true)
+      ..writeAsStringSync(
+        '<?xml version="1.0" encoding="UTF-8"?>\n<plist version="1.0">\n'
+        '<dict>\n<key>CFBundleDevelopmentRegion</key>\n<string>fr</string>\n'
+        '</dict>\n</plist>\n',
+      );
+    final app = Directory(p.join(tmp.path, 'Runner.app'))..createSync();
+    await copierFor().copyResourceBundles(
+      [
+        SwiftPmResourceBundle(
+          bundlePath: built,
+          resources: const [],
+          packageIdentity: 'googlesignin-ios',
+          targetName: 'GoogleSignIn',
+        ),
+      ],
+      app.path,
+      infoPlist: (bundle, region) => swiftPmResourceBundleInfoPlist(
+        bundle,
+        deploymentTarget: '13.0',
+        device: true,
+        paths: p.context,
+        developmentRegion: region,
+      ),
+    );
+    final xml = File(
+      p.join(app.path, 'GoogleSignIn_GoogleSignIn.bundle', 'Info.plist'),
+    ).readAsStringSync();
+    expect(xml, contains('<string>BNDL</string>'));
+    expect(
+      xml,
+      contains('<string>googlesignin-ios.GoogleSignIn.resources</string>'),
+    );
+    expect(swiftPmDevelopmentRegion(xml), 'fr');
+  });
+
+  test('a source resource replaces a generated copy of it', () async {
+    // On Windows the coverage check once missed, so the built copy landed
+    // first and File.copy (which never overwrites there) threw.
+    final source = p.join(tmp.path, 'src', 'PrivacyInfo.xcprivacy');
+    File(source)
+      ..createSync(recursive: true)
+      ..writeAsStringSync('source');
+    final stale = p.join(tmp.path, 'stale', 'PrivacyInfo.xcprivacy');
+    File(stale)
+      ..createSync(recursive: true)
+      ..writeAsStringSync('built');
+    final built = p.join(tmp.path, 'debug', 'Pkg_T.bundle');
+    Directory(built).createSync(recursive: true);
+    final app = Directory(p.join(tmp.path, 'Runner.app'))..createSync();
+    await copierFor().copyResourceBundles([
+      SwiftPmResourceBundle(
+        bundlePath: built,
+        resources: [
+          SwiftPmBundleResource(
+            source: stale,
+            relative: 'PrivacyInfo.xcprivacy',
+          ),
+          SwiftPmBundleResource(
+            source: source,
+            relative: 'PrivacyInfo.xcprivacy',
+          ),
+        ],
+      ),
+    ], app.path);
+    expect(
+      File(
+        p.join(app.path, 'Pkg_T.bundle', 'PrivacyInfo.xcprivacy'),
+      ).readAsStringSync(),
+      'source',
+    );
+  });
+
+  test('resource coverage ignores Windows separator and case', () {
+    final windows = p.Context(style: p.Style.windows);
+    expect(
+      resourceCoverage(windows, r'Resources\PrivacyInfo.xcprivacy', {
+        'resources/privacyinfo.xcprivacy',
+      }),
+      ResourceCoverage.covered,
+    );
+    expect(
+      resourceCoverage(windows, 'Resources', {
+        'Resources/PrivacyInfo.xcprivacy',
+      }),
+      ResourceCoverage.holdsResource,
+    );
+    expect(
+      resourceCoverage(windows, 'Info.plist', {'PrivacyInfo.xcprivacy'}),
+      ResourceCoverage.none,
     );
   });
 

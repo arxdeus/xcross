@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
+import 'package:xml/xml.dart';
 
 /// One resource SwiftPM copies into a resource bundle with its `copy-tool`.
 @internal
@@ -267,7 +268,8 @@ String? targetOfBundle(String bundleName, Iterable<String> targets) {
 /// the platform and toolchain (`DT*`) keys are stamped in, measured against
 /// Xcode 26.6: development region `en`, `<identity>.<target>.resources`
 /// identifier, `BNDL` package type, the target's own `MinimumOSVersion`
-/// (falling back to [deploymentTarget]), `UIDeviceFamily` 1 and 2, and
+/// (falling back to [deploymentTarget]), [developmentRegion] (the
+/// package's `defaultLocalization`, else `en`), `UIDeviceFamily` 1 and 2, and
 /// `UIRequiredDeviceCapabilities` `arm64` for device builds only.
 @internal
 String swiftPmResourceBundleInfoPlist(
@@ -275,6 +277,7 @@ String swiftPmResourceBundleInfoPlist(
   required String deploymentTarget,
   required bool device,
   required p.Context paths,
+  String developmentRegion = 'en',
 }) {
   final name = paths.basenameWithoutExtension(bundle.bundlePath);
   final identifier = bundle.bundleIdentifier ?? '$name.resources';
@@ -288,7 +291,7 @@ String swiftPmResourceBundleInfoPlist(
       '<plist version="1.0">\n'
       '<dict>\n'
       '\t<key>CFBundleDevelopmentRegion</key>\n'
-      '\t<string>en</string>\n'
+      '\t<string>${escape(developmentRegion)}</string>\n'
       '\t<key>CFBundleIdentifier</key>\n'
       '\t<string>${escape(identifier)}</string>\n'
       '\t<key>CFBundleInfoDictionaryVersion</key>\n'
@@ -310,4 +313,29 @@ String swiftPmResourceBundleInfoPlist(
                 '\t</array>\n' : ''}'
       '</dict>\n'
       '</plist>\n';
+}
+
+/// `CFBundleDevelopmentRegion` from the partial `Info.plist` SwiftPM writes
+/// into a resource bundle of a package declaring `defaultLocalization`, or
+/// null when [xml] is not a plist or has none.
+@internal
+String? swiftPmDevelopmentRegion(String xml) {
+  final XmlDocument document;
+  try {
+    document = XmlDocument.parse(xml);
+  } on XmlException {
+    return null;
+  }
+  final dict = document.rootElement.getElement('dict');
+  if (dict == null) return null;
+  final children = dict.childElements.toList();
+  for (var i = 0; i + 1 < children.length; i++) {
+    if (children[i].name.local == 'key' &&
+        children[i].innerText == 'CFBundleDevelopmentRegion' &&
+        children[i + 1].name.local == 'string') {
+      final value = children[i + 1].innerText.trim();
+      return value.isEmpty ? null : value;
+    }
+  }
+  return null;
 }

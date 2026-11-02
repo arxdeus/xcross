@@ -89,12 +89,17 @@ final class FlutterFrameworkCopier {
   /// Xcode also writes an `Info.plist` into every SwiftPM resource bundle
   /// (`ProcessInfoPlistFile` with product type
   /// `com.apple.product-type.bundle`); `swift build` on Linux and Windows
-  /// does not. A bundle that has none after copying gets [infoPlist]'s.
+  /// does not, except for a package that declares `defaultLocalization`,
+  /// where SwiftPM writes a partial one holding only
+  /// `CFBundleDevelopmentRegion`. Every bundle gets [infoPlist]'s, given that
+  /// region (from SwiftPM's partial plist when present, else `en`), so the
+  /// partial plist never ships.
   Future<List<String>> copyResourceBundles(
     Iterable<SwiftPmResourceBundle> bundles,
     String bundleDir, {
     void Function(String message)? warn,
-    String Function(SwiftPmResourceBundle bundle)? infoPlist,
+    String Function(SwiftPmResourceBundle bundle, String developmentRegion)?
+    infoPlist,
   }) async {
     final copied = <String>[];
     for (final resourceBundle in bundles) {
@@ -108,7 +113,7 @@ final class FlutterFrameworkCopier {
         for (final resource in resources) paths.normalize(resource.relative),
       };
       if (fileSystem.directory(bundle).existsSync()) {
-        await _copyGenerated(bundle, destination, bundle, covered, warn);
+        await _copyGenerated(bundle, destination, null, covered, warn);
       }
       for (final resource in resources) {
         await _copyFromSource(
@@ -119,8 +124,11 @@ final class FlutterFrameworkCopier {
         );
       }
       final plist = fileSystem.file(paths.join(destination, 'Info.plist'));
-      if (infoPlist != null && !plist.existsSync()) {
-        await plist.writeAsString(infoPlist(resourceBundle));
+      if (infoPlist != null) {
+        final region = plist.existsSync()
+            ? swiftPmDevelopmentRegion(plist.readAsStringSync())
+            : null;
+        await plist.writeAsString(infoPlist(resourceBundle, region ?? 'en'));
       }
       copied.add(destination);
     }
@@ -129,27 +137,39 @@ final class FlutterFrameworkCopier {
 
   static const _excluded = {'.DS_Store', 'CVS', '.svn', '.git', '.hg'};
 
-  /// Copies what the built [bundle] holds outside the [covered] resources.
+  /// Copies what the built bundle holds outside the [covered] resources.
+  /// [prefix] is the bundle-relative path of [directory] (null at the root).
+  /// It is built from listed names rather than `paths.relative`, which on
+  /// Windows misses when the listing carries the `\\?\` long-path prefix
+  /// and the bundle path does not.
   Future<void> _copyGenerated(
     String directory,
     String destination,
-    String bundle,
+    String? prefix,
     Set<String> covered,
-    void Function(String message)? warn,
-  ) async {
+    void Function(String message)? warn, {
+    String? bundle,
+  }) async {
+    bundle ??= directory;
     await for (final entity
         in fileSystem.directory(directory).list(followLinks: false)) {
-      final relative = paths.relative(entity.path, from: bundle);
-      if (covered.contains(relative)) continue;
-      final target = paths.join(destination, paths.basename(entity.path));
-      final holdsResource = covered.any(
-        (resource) => paths.isWithin(relative, resource),
-      );
-      if (holdsResource &&
+      final name = paths.basename(entity.path);
+      final relative = prefix == null ? name : paths.join(prefix, name);
+      final coverage = resourceCoverage(paths, relative, covered);
+      if (coverage == ResourceCoverage.covered) continue;
+      final target = paths.join(destination, name);
+      if (coverage == ResourceCoverage.holdsResource &&
           !fileSystem.link(entity.path).existsSync() &&
           fileSystem.directory(entity.path).existsSync()) {
         await fileSystem.directory(target).create(recursive: true);
-        await _copyGenerated(entity.path, target, bundle, covered, warn);
+        await _copyGenerated(
+          entity.path,
+          target,
+          relative,
+          covered,
+          warn,
+          bundle: bundle,
+        );
         continue;
       }
       await _copyResource(
@@ -195,7 +215,7 @@ final class FlutterFrameworkCopier {
       await fileSystem
           .directory(paths.dirname(destination))
           .create(recursive: true);
-      await fileSystem.file(path).copy(fileSystem.file(destination).path);
+      await _copyFile(path, destination);
     } else {
       warn?.call(
         'Skipping ${paths.basename(source)} in '
@@ -265,7 +285,7 @@ final class FlutterFrameworkCopier {
         );
         visited.remove(canonical);
       } else if (fileSystem.file(path).existsSync()) {
-        await fileSystem.file(path).copy(fileSystem.file(target).path);
+        await _copyFile(path, target);
       }
     }
   }
@@ -335,7 +355,43 @@ final class FlutterFrameworkCopier {
       }
       visited.remove(canonical);
     } else if (fileSystem.file(path).existsSync()) {
-      await fileSystem.file(path).copy(fileSystem.file(destination).path);
+      await _copyFile(path, destination);
     }
   }
+
+  /// Copies a file over whatever [destination] holds. `File.copy` replaces
+  /// an existing file on POSIX but throws `PathExistsException` on Windows;
+  /// a resource copied from source must replace a generated copy (the
+  /// source wins, as in Xcode).
+  Future<void> _copyFile(String source, String destination) async {
+    final existing = fileSystem.file(destination);
+    if (fileSystem.link(destination).existsSync()) {
+      await fileSystem.link(destination).delete();
+    } else if (existing.existsSync()) {
+      await existing.delete();
+    }
+    await fileSystem.file(source).copy(existing.path);
+  }
+}
+
+/// How a bundle-relative path relates to the resources a manifest declares.
+@internal
+enum ResourceCoverage { covered, holdsResource, none }
+
+/// Classifies the bundle-relative [relative] path against the [covered]
+/// resource paths, with [paths]' separator and case rules (Windows compares
+/// case-insensitively and accepts both separators).
+@internal
+ResourceCoverage resourceCoverage(
+  p.Context paths,
+  String relative,
+  Iterable<String> covered,
+) {
+  if (covered.any((resource) => paths.equals(relative, resource))) {
+    return ResourceCoverage.covered;
+  }
+  if (covered.any((resource) => paths.isWithin(relative, resource))) {
+    return ResourceCoverage.holdsResource;
+  }
+  return ResourceCoverage.none;
 }
