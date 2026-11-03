@@ -587,4 +587,56 @@ commands:
       expect(xml, contains('UIRequiredDeviceCapabilities'));
     });
   });
+
+  test('reads the copy rules of one target', () {
+    const manifest = '''
+let package = Package(name: "Pkg", targets: [
+  .target(name: "P", resources: [.process("Res"), .copy("Other.xib")]),
+  // .target(name: "C", resources: [.copy("Commented.xib")]),
+  .target(name: "C", resources: [.copy("Copied.xib"), .copy("Dir/X.xib")]),
+])
+''';
+    expect(swiftPmTargetCopyRules(manifest, 'C'), ['Copied.xib', 'Dir/X.xib']);
+    expect(swiftPmTargetCopyRules(manifest, 'P'), ['Other.xib']);
+    final bundle = SwiftPmResourceBundle(
+      bundlePath: 'Pkg_C.bundle',
+      targetName: 'C',
+      copyRules: swiftPmTargetCopyRules(manifest, 'C'),
+    );
+    final copy = p.join('pkg', 'Sources', 'C', 'Copied.xib');
+    expect(
+      bundle.isCopiedVerbatim(
+        SwiftPmBundleResource(source: copy, relative: 'Copied.xib'),
+        p.context,
+      ),
+      isTrue,
+    );
+    expect(
+      bundle.isCopiedVerbatim(
+        SwiftPmBundleResource(
+          source: p.join('pkg', 'Sources', 'C', 'Res', 'Copied.xib'),
+          relative: p.join('Res', 'Copied.xib'),
+        ),
+        p.context,
+      ),
+      isFalse,
+    );
+    expect(
+      bundle.isCopiedVerbatim(
+        SwiftPmBundleResource(
+          source: p.join('pkg', 'Sources', 'C', 'Dir', 'X.xib'),
+          relative: 'X.xib',
+        ),
+        p.context,
+      ),
+      isTrue,
+    );
+    expect(
+      const SwiftPmResourceBundle(
+        bundlePath: 'x',
+        targetName: 'a-b',
+      ).moduleName,
+      'a_b',
+    );
+  });
 }

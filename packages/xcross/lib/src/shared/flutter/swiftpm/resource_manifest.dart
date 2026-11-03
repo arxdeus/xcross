@@ -40,6 +40,7 @@ final class SwiftPmResourceBundle {
     this.packageIdentity,
     this.targetName,
     this.minimumOsVersion,
+    this.copyRules,
   });
 
   final String bundlePath;
@@ -54,6 +55,46 @@ final class SwiftPmResourceBundle {
   /// The iOS version the target was compiled for, Xcode's
   /// `MinimumOSVersion` of the bundle, when the manifest names it.
   final String? minimumOsVersion;
+
+  /// The paths the target declares with `.copy(...)` in its `Package.swift`
+  /// (as written, relative to the target directory), or null when the
+  /// manifest could not be read. See [isCopiedVerbatim].
+  final List<String>? copyRules;
+
+  /// The Swift module name of [targetName] (its c99 identifier), which
+  /// Xcode passes to `ibtool --module`.
+  String? get moduleName {
+    final target = targetName;
+    if (target == null) return null;
+    final name = target.replaceAll(RegExp('[^A-Za-z0-9_]'), '_');
+    return RegExp('^[0-9]').hasMatch(name) ? '_$name' : name;
+  }
+
+  /// Whether [resource] is a `.copy(...)` resource, which Xcode ships as-is,
+  /// rather than one processed by rule (`.process(...)` or a default rule),
+  /// which Xcode compiles (`.xib` to `.nib`).
+  ///
+  /// SwiftPM's build manifest cannot tell: both are a `copy-tool` command
+  /// from the source file (measured with `.process("Res")` and
+  /// `.copy("Copied.xib")`). The package manifest can: a `.copy` resource
+  /// lands at the basename of its declared path, and its source ends with
+  /// that path. Without a readable manifest, a resource counts as processed.
+  bool isCopiedVerbatim(SwiftPmBundleResource resource, p.Context paths) {
+    final rules = copyRules;
+    if (rules == null) return false;
+    final source = paths.normalize(resource.source);
+    for (final rule in rules) {
+      final declared = paths.normalize(rule);
+      if (!paths.equals(resource.relative, paths.basename(declared))) {
+        continue;
+      }
+      if (paths.equals(source, declared) ||
+          source.endsWith('${paths.separator}$declared')) {
+        return true;
+      }
+    }
+    return false;
+  }
 
   /// Xcode's `CFBundleIdentifier` for the bundle,
   /// `<package identity>.<target>.resources`, with every character outside
@@ -391,6 +432,29 @@ List<SwiftPmPackageReference> parseSwiftPmPackageReferences(
   }
   if (best == null) return null;
   return (package: best, target: stem.substring(best.name.length + 1));
+}
+
+/// The paths [target]'s `.target(...)` declaration in [manifest] (a
+/// `Package.swift`) copies verbatim with `.copy("...")`.
+@internal
+List<String> swiftPmTargetCopyRules(String manifest, String target) {
+  final code = SwiftPmManifestLexer.swiftCodeMask(manifest);
+  final result = <String>[];
+  for (final kind in const ['.target', '.executableTarget']) {
+    for (final call in SwiftPmManifestLexer.swiftCalls(manifest, kind)) {
+      if (!code[call.start]) continue;
+      if (SwiftPmManifestLexer.namedString(call.text, 'name') != target) {
+        continue;
+      }
+      for (final copy in SwiftPmManifestLexer.swiftCalls(call.text, '.copy')) {
+        final literal = RegExp(
+          r'^\.copy\s*\(\s*"([^"]+)"',
+        ).firstMatch(copy.text);
+        if (literal != null) result.add(literal[1]!);
+      }
+    }
+  }
+  return result;
 }
 
 /// The oldest iOS Xcode 26.6 deploys a SwiftPM package to: the default of

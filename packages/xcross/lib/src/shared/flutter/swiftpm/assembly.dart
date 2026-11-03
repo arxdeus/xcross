@@ -154,6 +154,20 @@ final class SwiftPmAssembly<T extends PlatformHostInterface> {
             return null;
           }
         });
+    final packageCopyRules = <String, List<String>?>{};
+    List<String>? copyRules(SwiftPmPackageReference package, String target) =>
+        packageCopyRules.putIfAbsent('${package.directory}\u0000$target', () {
+          final manifest = fileSystem.file(
+            p.join(package.directory, 'Package.swift'),
+          );
+          try {
+            return manifest.existsSync()
+                ? swiftPmTargetCopyRules(manifest.readAsStringSync(), target)
+                : null;
+          } on FileSystemException {
+            return null;
+          }
+        });
     SwiftPmResourceBundle describe(String path) {
       final name = p.basename(path);
       final resources = copies[name];
@@ -178,6 +192,9 @@ final class SwiftPmAssembly<T extends PlatformHostInterface> {
         minimumOsVersion:
             (declared == null ? null : packageMinimum(declared.package)) ??
             (target == null ? null : versions[target]),
+        copyRules: declared == null || target == null
+            ? null
+            : copyRules(declared.package, target),
       );
     }
 

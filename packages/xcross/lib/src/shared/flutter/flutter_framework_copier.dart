@@ -3,13 +3,23 @@ import 'dart:io';
 import 'package:cli_kit/shared/platform/platform_host.dart';
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
+import 'package:xcross/src/shared/apple/interface_builder/xib_compiler.dart';
 import 'package:xcross/src/shared/flutter/build/internal/recursive_directory_copy.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/resource_manifest.dart';
 
 @internal
 final class FlutterFrameworkCopier {
-  FlutterFrameworkCopier(this.fileSystem, this.paths, {required this.copier});
+  FlutterFrameworkCopier(
+    this.fileSystem,
+    this.paths, {
+    required this.copier,
+    XibCompile? compileXib,
+  }) : compileXib = compileXib ?? const XibCompiler().compile;
   final RecursiveDirectoryCopier copier;
+
+  /// Compiles the `.xib` resources Xcode would compile into `.nib`
+  /// ([XibCompiler.compile] unless a test injects another).
+  final XibCompile compileXib;
 
   final HostFileSystemInterface fileSystem;
   final p.Context paths;
@@ -94,6 +104,15 @@ final class FlutterFrameworkCopier {
   /// `CFBundleDevelopmentRegion`. Every bundle gets [infoPlist]'s, given that
   /// region (from SwiftPM's partial plist when present, else `en`), so the
   /// partial plist never ships.
+  ///
+  /// Like Xcode, a `.xib` processed by rule (`.process(...)` or a default
+  /// rule) ships as the `.nib` [compileXib] makes of it, at the same
+  /// relative path; a `.copy(...)` one ships as-is
+  /// ([SwiftPmResourceBundle.isCopiedVerbatim], and a copied directory is
+  /// always verbatim). SwiftPM itself never compiles a `.xib`, so without a
+  /// manifest every `.xib` of the built bundle is compiled. A `.xib` the
+  /// compiler cannot reproduce ships unchanged with a warning, and a
+  /// `.storyboard` ships uncompiled with a warning.
   Future<List<String>> copyResourceBundles(
     Iterable<SwiftPmResourceBundle> bundles,
     String bundleDir, {
@@ -114,14 +133,23 @@ final class FlutterFrameworkCopier {
       };
       if (fileSystem.directory(bundle).existsSync()) {
         await _copyGenerated(bundle, destination, null, covered, warn);
+        if (resourceBundle.resources == null) {
+          await _compileInterfaceFiles(destination, resourceBundle, warn);
+        }
       }
       for (final resource in resources) {
+        final target = paths.join(destination, resource.relative);
         await _copyFromSource(
           resource.source,
-          paths.join(destination, resource.relative),
+          target,
           bundleRoot: destination,
           warn: warn,
         );
+        if (!resourceBundle.isCopiedVerbatim(resource, paths) &&
+            fileSystem.file(target).existsSync() &&
+            !fileSystem.link(target).existsSync()) {
+          await _compileInterfaceFile(target, resourceBundle, warn);
+        }
       }
       final plist = fileSystem.file(paths.join(destination, 'Info.plist'));
       if (infoPlist != null) {
@@ -133,6 +161,78 @@ final class FlutterFrameworkCopier {
       copied.add(destination);
     }
     return copied;
+  }
+
+  /// Compiles every interface file under [directory] (a bundle copied
+  /// without a manifest).
+  Future<void> _compileInterfaceFiles(
+    String directory,
+    SwiftPmResourceBundle bundle,
+    void Function(String message)? warn,
+  ) async {
+    final files = <String>[];
+    await for (final entity
+        in fileSystem.directory(directory).list(followLinks: false)) {
+      if (fileSystem.link(entity.path).existsSync()) continue;
+      if (fileSystem.directory(entity.path).existsSync()) {
+        await _compileInterfaceFiles(entity.path, bundle, warn);
+      } else {
+        files.add(entity.path);
+      }
+    }
+    for (final file in files) {
+      await _compileInterfaceFile(file, bundle, warn);
+    }
+  }
+
+  /// Replaces the `.xib` at [path] with its `.nib`, as Xcode's
+  /// `CompileXIB` does, or leaves it with a warning when it cannot.
+  Future<void> _compileInterfaceFile(
+    String path,
+    SwiftPmResourceBundle bundle,
+    void Function(String message)? warn,
+  ) async {
+    final extension = paths.extension(path).toLowerCase();
+    final name = paths.basename(bundle.bundlePath);
+    if (extension == '.storyboard') {
+      warn?.call(
+        'storyboard ${paths.basename(path)} in bundle $name is copied '
+        'uncompiled.',
+      );
+      return;
+    }
+    if (extension != '.xib') return;
+    final file = fileSystem.file(path);
+    final XibCompilation result;
+    try {
+      result = compileXib(
+        await file.readAsString(),
+        module:
+            bundle.moduleName ??
+            paths.basenameWithoutExtension(name).split('_').last,
+        deploymentTarget: bundle.minimumOsVersion ?? swiftPmOldestIosVersion,
+      );
+    } on Object catch (error) {
+      warn?.call('Copying ${paths.basename(path)} in $name uncompiled: $error');
+      return;
+    }
+    final nib = result.nib;
+    if (nib == null) {
+      warn?.call(
+        'Copying ${paths.basename(path)} in $name uncompiled: '
+        '${result.unsupported.join(', ')}.',
+      );
+      return;
+    }
+    final output = fileSystem.file(
+      paths.join(
+        paths.dirname(path),
+        '${paths.basenameWithoutExtension(path)}.nib',
+      ),
+    );
+    if (output.existsSync()) await output.delete();
+    await output.writeAsBytes(nib);
+    await file.delete();
   }
 
   static const _excluded = {'.DS_Store', 'CVS', '.svn', '.git', '.hg'};
@@ -373,6 +473,15 @@ final class FlutterFrameworkCopier {
     await fileSystem.file(source).copy(existing.path);
   }
 }
+
+/// The shape of [XibCompiler.compile].
+@internal
+typedef XibCompile =
+    XibCompilation Function(
+      String xml, {
+      required String module,
+      required String deploymentTarget,
+    });
 
 /// How a bundle-relative path relates to the resources a manifest declares.
 @internal

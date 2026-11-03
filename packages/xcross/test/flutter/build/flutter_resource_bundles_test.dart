@@ -1,7 +1,9 @@
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
+import 'package:xcross/src/shared/apple/interface_builder/xib_compiler.dart';
 import 'package:xcross/src/shared/flutter/build/internal/recursive_directory_copy.dart';
 import 'package:xcross/src/shared/flutter/flutter_framework_copier.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/resource_manifest.dart';
@@ -135,4 +137,124 @@ void main() {
       }
     },
   );
+
+  group('xib resources', () {
+    const fileSystem = NativeTestFileSystem();
+    final calls = <String>[];
+    late List<String> warnings;
+    setUp(() {
+      calls.clear();
+      warnings = [];
+    });
+
+    FlutterFrameworkCopier copierWith(XibCompilation Function(String) result) =>
+        FlutterFrameworkCopier(
+          fileSystem,
+          p.context,
+          copier: RecursiveDirectoryCopier(
+            fileSystem: fileSystem,
+            paths: p.context,
+          ),
+          compileXib: (xml, {required module, required deploymentTarget}) {
+            calls.add('$xml|$module|$deploymentTarget');
+            return result(xml);
+          },
+        );
+
+    String write(String path, String content) {
+      File(path)
+        ..createSync(recursive: true)
+        ..writeAsStringSync(content);
+      return path;
+    }
+
+    test('compiles processed xibs to nibs, top level and in lproj', () async {
+      final sources = p.join(tmp.path, 'pkg', 'Sources', 'gma', 'Res');
+      final top = write(p.join(sources, 'A.xib'), 'a');
+      final localized = write(p.join(sources, 'en.lproj', 'L.xib'), 'l');
+      final copied = write(
+        p.join(tmp.path, 'pkg', 'Sources', 'gma', 'C.xib'),
+        'c',
+      );
+      final app = Directory(p.join(tmp.path, 'Runner.app'))..createSync();
+      await copierWith(
+        (xml) => XibCompilation.compiled(Uint8List.fromList(xml.codeUnits)),
+      ).copyResourceBundles(
+        [
+          SwiftPmResourceBundle(
+            bundlePath: p.join(tmp.path, 'products', 'pkg_gma.bundle'),
+            targetName: 'gma',
+            minimumOsVersion: '13.0',
+            copyRules: const ['C.xib'],
+            resources: [
+              SwiftPmBundleResource(source: top, relative: 'A.xib'),
+              SwiftPmBundleResource(
+                source: localized,
+                relative: p.join('en.lproj', 'L.xib'),
+              ),
+              SwiftPmBundleResource(source: copied, relative: 'C.xib'),
+            ],
+          ),
+        ],
+        app.path,
+        warn: warnings.add,
+      );
+      final bundle = p.join(app.path, 'pkg_gma.bundle');
+      expect(File(p.join(bundle, 'A.nib')).readAsStringSync(), 'a');
+      expect(File(p.join(bundle, 'A.xib')).existsSync(), isFalse);
+      expect(File(p.join(bundle, 'en.lproj', 'L.nib')).readAsStringSync(), 'l');
+      expect(File(p.join(bundle, 'en.lproj', 'L.xib')).existsSync(), isFalse);
+      expect(File(p.join(bundle, 'C.xib')).readAsStringSync(), 'c');
+      expect(File(p.join(bundle, 'C.nib')).existsSync(), isFalse);
+      expect(calls, unorderedEquals(['a|gma|13.0', 'l|gma|13.0']));
+      expect(warnings, isEmpty);
+    });
+
+    test('keeps an unsupported xib and warns', () async {
+      final source = write(p.join(tmp.path, 'src', 'V.xib'), 'v');
+      final app = Directory(p.join(tmp.path, 'Runner.app'))..createSync();
+      await copierWith(
+        (_) => const XibCompilation.unsupported(['<tableView>']),
+      ).copyResourceBundles(
+        [
+          SwiftPmResourceBundle(
+            bundlePath: p.join(tmp.path, 'products', 'pkg_t.bundle'),
+            targetName: 't',
+            resources: [
+              SwiftPmBundleResource(source: source, relative: 'V.xib'),
+            ],
+          ),
+        ],
+        app.path,
+        warn: warnings.add,
+      );
+      final bundle = p.join(app.path, 'pkg_t.bundle');
+      expect(File(p.join(bundle, 'V.xib')).readAsStringSync(), 'v');
+      expect(File(p.join(bundle, 'V.nib')).existsSync(), isFalse);
+      expect(warnings.single, contains('V.xib'));
+      expect(warnings.single, contains('<tableView>'));
+      expect(calls.single, 'v|t|12.0');
+    });
+
+    test('compiles xibs of a built bundle without a manifest', () async {
+      final built = p.join(tmp.path, 'products', 'pkg_t.bundle');
+      write(p.join(built, 'G.xib'), 'g');
+      write(p.join(built, 'fr.lproj', 'H.xib'), 'h');
+      write(p.join(built, 'S.storyboard'), 's');
+      final app = Directory(p.join(tmp.path, 'Runner.app'))..createSync();
+      await copierWith(
+        (xml) => XibCompilation.compiled(Uint8List.fromList(xml.codeUnits)),
+      ).copyResourceBundles(
+        [SwiftPmResourceBundle(bundlePath: built, targetName: 't')],
+        app.path,
+        warn: warnings.add,
+      );
+      final bundle = p.join(app.path, 'pkg_t.bundle');
+      expect(File(p.join(bundle, 'G.nib')).readAsStringSync(), 'g');
+      expect(File(p.join(bundle, 'G.xib')).existsSync(), isFalse);
+      expect(File(p.join(bundle, 'fr.lproj', 'H.nib')).readAsStringSync(), 'h');
+      expect(File(p.join(bundle, 'S.storyboard')).existsSync(), isTrue);
+      expect(warnings.single, contains('storyboard S.storyboard'));
+    });
+  });
 }
