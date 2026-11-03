@@ -23,6 +23,7 @@ import 'package:xcross/src/shared/flutter/build/swiftpm_binary_target.dart';
 import 'package:xcross/src/shared/flutter/errors.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_destination_publisher.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/binary_provenance.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/checkout.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/discovery.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/filesystem.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/host_source_normalizer.dart';
@@ -1997,6 +1998,83 @@ framework module FallbackKit {
         expect(aliases, isEmpty);
         expect(manifestFile.readAsStringSync(), original);
         expect(writes, 0);
+      },
+    );
+  });
+
+  group('checkout line endings', () {
+    test('selects only autocrlf-converted paths', () {
+      expect(
+        SwiftPmCheckout.crlfConvertedPaths(
+          [
+            'i/lf    w/crlf  attr/                 \tconverted.strings',
+            'i/lf    w/crlf  attr/text eol=crlf    \trequested.bat',
+            'i/crlf  w/crlf  attr/                 \tstored-crlf.txt',
+            'i/lf    w/lf    attr/                 \tclean.txt',
+            'i/      w/      attr/                 \tlink',
+            'i/lf    w/crlf  attr/                 \tdir/with space.txt',
+            '',
+          ].join('\u0000'),
+        ),
+        ['converted.strings', 'dir/with space.txt'],
+      );
+    });
+
+    test(
+      'restores repository bytes in a checkout made with core.autocrlf',
+      () async {
+        final source = p.join(tmp.path, 'source');
+        final scratch = p.join(tmp.path, 'scratch');
+        final repo = p.join(scratch, 'checkouts', 'dependency');
+        Directory(source).createSync(recursive: true);
+
+        ProcessResult git(List<String> arguments, {String? directory}) {
+          final result = Process.runSync('git', [
+            '-c',
+            'core.autocrlf=true',
+            '-C',
+            directory ?? source,
+            ...arguments,
+          ]);
+          expect(
+            result.exitCode,
+            0,
+            reason: '${result.stdout}${result.stderr}',
+          );
+          return result;
+        }
+
+        git(['init', '-q']);
+        File(p.join(source, 'a.strings')).writeAsStringSync('"a" = "b";\n');
+        File(
+          p.join(source, '.gitattributes'),
+        ).writeAsStringSync('*.bat text eol=crlf\n');
+        File(p.join(source, 'run.bat')).writeAsStringSync('echo\n');
+        git(['add', '.']);
+        git([
+          '-c',
+          'user.email=x@example.com',
+          '-c',
+          'user.name=x',
+          'commit',
+          '-qm',
+          'init',
+        ]);
+        git(['clone', '-q', source, repo], directory: tmp.path);
+        final strings = File(p.join(repo, 'a.strings'));
+        expect(strings.readAsStringSync(), '"a" = "b";\r\n');
+
+        expect(
+          await _swiftPmRuntime.checkout.materializeCheckoutSymlinks(scratch),
+          isTrue,
+        );
+        expect(strings.readAsStringSync(), '"a" = "b";\n');
+        // Attributes asking for CRLF win, exactly as on macOS.
+        expect(File(p.join(repo, 'run.bat')).readAsStringSync(), 'echo\r\n');
+        expect(
+          await _swiftPmRuntime.checkout.materializeCheckoutSymlinks(scratch),
+          isFalse,
+        );
       },
     );
   });
@@ -4941,7 +5019,7 @@ module FirebaseFirestore {
         );
         expect(await _windowsRuntime.processPolicy.swiftProcessEnvironment(), {
           ...SwiftPmProcessPolicy.nonInteractiveGitEnvironment,
-          'GIT_CONFIG_COUNT': '6',
+          'GIT_CONFIG_COUNT': '8',
           'GIT_CONFIG_KEY_0': 'credential.helper',
           // Two quotes, not the empty string: git rejects a genuinely empty
           // GIT_CONFIG_VALUE_* and would then fail every command.
@@ -4953,10 +5031,16 @@ module FirebaseFirestore {
           'GIT_CONFIG_VALUE_2': '1024',
           'GIT_CONFIG_KEY_3': 'http.lowSpeedTime',
           'GIT_CONFIG_VALUE_3': '60',
-          'GIT_CONFIG_KEY_4': 'core.symlinks',
+          // A checkout keeps repository bytes whatever core.autocrlf the
+          // user configured, as a macOS clone does.
+          'GIT_CONFIG_KEY_4': 'core.autocrlf',
           'GIT_CONFIG_VALUE_4': 'false',
-          'GIT_CONFIG_KEY_5': 'core.longpaths',
-          'GIT_CONFIG_VALUE_5': 'true',
+          'GIT_CONFIG_KEY_5': 'core.eol',
+          'GIT_CONFIG_VALUE_5': 'lf',
+          'GIT_CONFIG_KEY_6': 'core.symlinks',
+          'GIT_CONFIG_VALUE_6': 'false',
+          'GIT_CONFIG_KEY_7': 'core.longpaths',
+          'GIT_CONFIG_VALUE_7': 'true',
           'EXPERIMENTAL_SPM_BUILDS': '1',
         });
       },
@@ -4983,12 +5067,20 @@ module FirebaseFirestore {
       final posix = await _swiftPmRuntime.processPolicy
           .swiftProcessEnvironment();
       expect(posix.containsKey('EXPERIMENTAL_SPM_BUILDS'), isFalse);
-      // Only the credential settings, never the Windows symlink lane.
-      expect(posix['GIT_CONFIG_COUNT'], '4');
+      // Credential and line-ending settings, never the Windows symlink lane.
+      expect(posix['GIT_CONFIG_COUNT'], '6');
       expect(posix['GIT_CONFIG_KEY_0'], 'credential.helper');
       expect(posix['GIT_CONFIG_VALUE_0'], '""');
       expect(posix['GIT_CONFIG_KEY_1'], 'credential.interactive');
-      expect(posix.containsKey('GIT_CONFIG_KEY_4'), isFalse);
+      expect(
+        [posix['GIT_CONFIG_KEY_4'], posix['GIT_CONFIG_VALUE_4']],
+        ['core.autocrlf', 'false'],
+      );
+      expect(
+        [posix['GIT_CONFIG_KEY_5'], posix['GIT_CONFIG_VALUE_5']],
+        ['core.eol', 'lf'],
+      );
+      expect(posix.containsKey('GIT_CONFIG_KEY_6'), isFalse);
       expect(
         [posix['GIT_CONFIG_KEY_2'], posix['GIT_CONFIG_KEY_3']],
         ['http.lowSpeedLimit', 'http.lowSpeedTime'],
