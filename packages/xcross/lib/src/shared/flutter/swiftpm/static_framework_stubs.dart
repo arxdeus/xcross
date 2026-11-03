@@ -10,6 +10,28 @@ import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:propertylistserialization/propertylistserialization.dart';
 import 'package:xcross/src/shared/flutter/build/internal/recursive_directory_copy.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/resource_manifest.dart';
+
+/// A binary product SwiftPM built from source (a synthesized
+/// `_xcross_<name>` target) instead of linking its static xcframework.
+@internal
+@immutable
+final class StaticSourceFallback {
+  const StaticSourceFallback({
+    required this.name,
+    required this.packageDir,
+    this.version,
+  });
+
+  /// The product (and framework) name, e.g. `Sentry`.
+  final String name;
+
+  /// The package checkout holding the sources.
+  final String packageDir;
+
+  /// The resolved package version, or null.
+  final String? version;
+}
 
 /// Embeds the static binary frameworks of SwiftPM packages the way Xcode
 /// does.
@@ -91,7 +113,201 @@ final class StaticFrameworkStubs {
       simulator: simulator,
       sdkVersion: sdkVersion,
     );
+    for (final fallback in await discoverSourceFallbacks(pluginLibraries)) {
+      final destination = await embedSourceFallback(
+        fallback,
+        frameworksDir,
+        simulator: simulator,
+        sdkVersion: sdkVersion,
+      );
+      if (destination != null) embedded.add(destination);
+    }
     return embedded;
+  }
+
+  /// Prefix of the target xcross synthesizes when it builds a binary
+  /// product from source (see `SwiftPmSourceFallback`).
+  static const sourceFallbackPrefix = '_xcross_';
+
+  /// Checkout directories never holding a product's own resources.
+  static const nonProductDirectories = {
+    'Tests',
+    'Samples',
+    'Sample',
+    'Example',
+    'Examples',
+    'TestSamples',
+    'Plans',
+    'fastlane',
+    'scripts',
+    'docs',
+    'develop-docs',
+    '.git',
+    '.build',
+    '.xcross',
+  };
+
+  /// The binary products SwiftPM built from source instead of linking their
+  /// static xcframework. The Windows host resolves manifests with
+  /// `EXPERIMENTAL_SPM_BUILDS=1`, so sentry-cocoa's `Sentry` product becomes
+  /// its source targets plus a synthesized `_xcross_Sentry`; no
+  /// `Sentry.framework` reaches the products directory, yet Xcode (linking
+  /// the static binary) embeds one carrying the privacy manifest. Each has a
+  /// `_xcross_<Product>.build` next to [pluginLibraries] and a compatibility
+  /// directory `<scratch>/checkouts/<package>/.xcross/_xcross_<Product>`.
+  Future<List<StaticSourceFallback>> discoverSourceFallbacks(
+    Iterable<String> pluginLibraries,
+  ) async {
+    final found = <String, StaticSourceFallback>{};
+    for (final directory in {...pluginLibraries.map(paths.dirname)}) {
+      if (!fileSystem.directory(directory).existsSync()) continue;
+      final scratch = paths.dirname(paths.dirname(directory));
+      final checkouts = fileSystem.directory(paths.join(scratch, 'checkouts'));
+      if (!checkouts.existsSync()) continue;
+      final packages = [
+        for (final entity in checkouts.listSync(followLinks: false))
+          if (entity is Directory) entity.path,
+      ]..sort();
+      await for (final entity in fileSystem.directory(directory).list()) {
+        final base = paths.basename(entity.path);
+        if (entity is! Directory ||
+            !base.startsWith(sourceFallbackPrefix) ||
+            paths.extension(base) != '.build') {
+          continue;
+        }
+        final synthetic = paths.basenameWithoutExtension(base);
+        final name = synthetic.substring(sourceFallbackPrefix.length);
+        if (name.isEmpty || found.containsKey(name)) continue;
+        for (final package in packages) {
+          final marker = paths.join(package, '.xcross', synthetic);
+          if (!fileSystem.directory(marker).existsSync()) continue;
+          found[name] = StaticSourceFallback(
+            name: name,
+            packageDir: package,
+            version: checkoutVersion(scratch, paths.basename(package)),
+          );
+          break;
+        }
+      }
+    }
+    return found.values.toList()..sort((a, b) => a.name.compareTo(b.name));
+  }
+
+  /// Embeds a stub framework for [fallback] into [frameworksDir], as Xcode
+  /// embeds the static binary it replaces: an `Info.plist`, the package's
+  /// privacy manifest, and a stub binary. Returns null when the name is
+  /// already embedded or the package ships no single privacy manifest.
+  Future<String?> embedSourceFallback(
+    StaticSourceFallback fallback,
+    String frameworksDir, {
+    required bool simulator,
+    String? sdkVersion,
+  }) async {
+    final name = fallback.name;
+    final destination = paths.join(frameworksDir, '$name.framework');
+    if (fileSystem.directory(destination).existsSync()) return null;
+    final privacy = privacyManifestOf(fallback.packageDir);
+    if (privacy == null) return null;
+    final manifest = fileSystem.file(
+      paths.join(fallback.packageDir, 'Package.swift'),
+    );
+    final minimum = manifest.existsSync()
+        ? swiftPmPackageMinimumOsVersion(await manifest.readAsString())
+        : swiftPmOldestIosVersion;
+    final version = fallback.version ?? '1.0';
+    final identity = paths.basename(fallback.packageDir).toLowerCase();
+    final info = <String, Object>{
+      'CFBundleDevelopmentRegion': 'en',
+      'CFBundleExecutable': name,
+      'CFBundleIdentifier': '$identity.$name'.replaceAll(
+        RegExp('[^A-Za-z0-9.-]'),
+        '-',
+      ),
+      'CFBundleInfoDictionaryVersion': '6.0',
+      'CFBundleName': name,
+      'CFBundlePackageType': 'FMWK',
+      'CFBundleShortVersionString': version,
+      'CFBundleSupportedPlatforms': [
+        if (simulator) 'iPhoneSimulator' else 'iPhoneOS',
+      ],
+      'CFBundleVersion': version,
+      'MinimumOSVersion': minimum,
+    };
+    final staging = paths.join(
+      paths.dirname(frameworksDir),
+      '.xcross-stub-$name',
+    );
+    final source = paths.join(staging, '$name.framework');
+    await fileSystem.directory(source).create(recursive: true);
+    try {
+      await fileSystem
+          .file(paths.join(source, 'Info.plist'))
+          .writeAsString(
+            PropertyListSerialization.stringWithPropertyList(info),
+          );
+      await fileSystem
+          .file(privacy)
+          .copy(paths.join(source, 'PrivacyInfo.xcprivacy'));
+      final embedded = await embed(
+        [source],
+        frameworksDir,
+        simulator: simulator,
+        sdkVersion: sdkVersion,
+      );
+      return embedded.singleOrNull;
+    } finally {
+      await fileSystem.directory(staging).delete(recursive: true);
+    }
+  }
+
+  /// The one `PrivacyInfo.xcprivacy` of [packageDir] outside tests, samples
+  /// and tooling, or null when there is none or more than one.
+  String? privacyManifestOf(String packageDir) {
+    final found = <String>[];
+    void walk(String directory) {
+      for (final entity
+          in fileSystem.directory(directory).listSync(followLinks: false)) {
+        final base = paths.basename(entity.path);
+        if (entity is Directory) {
+          if (nonProductDirectories.contains(base) ||
+              paths.extension(base) == '.xcodeproj' ||
+              paths.extension(base) == '.xcworkspace') {
+            continue;
+          }
+          walk(entity.path);
+        } else if (entity is File && base == 'PrivacyInfo.xcprivacy') {
+          found.add(entity.path);
+        }
+      }
+    }
+
+    walk(packageDir);
+    return found.length == 1 ? found.single : null;
+  }
+
+  /// The resolved version of checkout [subpath] in
+  /// `<scratch>/workspace-state.json`, or null.
+  String? checkoutVersion(String scratch, String subpath) {
+    final state = fileSystem.file(paths.join(scratch, 'workspace-state.json'));
+    if (!state.existsSync()) return null;
+    try {
+      final decoded = jsonDecode(state.readAsStringSync());
+      final object = decoded is Map ? decoded['object'] : null;
+      final dependencies = object is Map ? object['dependencies'] : null;
+      if (dependencies is! List) return null;
+      for (final dependency in dependencies) {
+        if (dependency is! Map || dependency['subpath'] != subpath) continue;
+        final dependencyState = dependency['state'];
+        final checkout = dependencyState is Map
+            ? dependencyState['checkoutState']
+            : null;
+        final version = checkout is Map ? checkout['version'] : null;
+        return version is String && version.isNotEmpty ? version : null;
+      }
+    } on FormatException {
+      return null;
+    }
+    return null;
   }
 
   /// The trailing version of an SDK name (`26.5` of `iphoneos26.5`), or null.

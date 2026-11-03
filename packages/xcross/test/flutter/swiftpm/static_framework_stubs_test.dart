@@ -144,6 +144,61 @@ void main() {
     expect(embedded.map(p.basename), ['Fat.framework']);
   });
 
+  test('embeds a binary product built from source (Windows)', () async {
+    // The Windows host resolves sentry-cocoa with EXPERIMENTAL_SPM_BUILDS=1:
+    // `Sentry` is built from source through a synthesized `_xcross_Sentry`
+    // target, so no Sentry.framework sits in the products directory.
+    final scratch = p.join(tmp.path, 'scratch');
+    final debug = p.join(scratch, 'arm64-apple-ios', 'debug');
+    write(p.join(debug, 'libFlutterPluginsGenerated.dylib'), 'dylib');
+    Directory(
+      p.join(debug, '_xcross_Sentry.build'),
+    ).createSync(recursive: true);
+    final checkout = p.join(scratch, 'checkouts', 'sentry-cocoa');
+    write(
+      p.join(checkout, 'Package.swift'),
+      'let package = Package(name: "Sentry", platforms: [.iOS(.v15)])',
+    );
+    write(
+      p.join(checkout, '.xcross', '_xcross_Sentry', '_xcross_Sentry.m'),
+      '',
+    );
+    write(
+      p.join(checkout, 'Sources', 'Resources', 'PrivacyInfo.xcprivacy'),
+      'P',
+    );
+    write(p.join(checkout, 'Tests', 'PrivacyInfo.xcprivacy'), 'test');
+    write(p.join(scratch, 'workspace-state.json'), '''
+{"object": {"dependencies": [{"packageRef": {"identity": "sentry-cocoa",
+ "name": "Sentry"}, "subpath": "sentry-cocoa",
+ "state": {"checkoutState": {"version": "8.58.4"}}}]}}''');
+    final frameworks = p.join(tmp.path, 'App', 'Frameworks');
+    final embedded = await stubs.embedLinked(
+      [p.join(debug, 'libFlutterPluginsGenerated.dylib')],
+      frameworks,
+      simulator: false,
+      sdkVersion: '26.5',
+    );
+    expect(embedded.map(p.basename), ['Sentry.framework']);
+    final sentry = Directory(p.join(frameworks, 'Sentry.framework'));
+    expect(sentry.listSync().map((e) => p.basename(e.path)).toList()..sort(), [
+      'Info.plist',
+      'PrivacyInfo.xcprivacy',
+      'Sentry',
+    ]);
+    expect(
+      File(p.join(sentry.path, 'PrivacyInfo.xcprivacy')).readAsStringSync(),
+      'P',
+    );
+    final info = File(p.join(sentry.path, 'Info.plist')).readAsBytesSync();
+    expect(StaticFrameworkStubs.minimumOsVersion(info), '15.0');
+    expect(String.fromCharCodes(info), contains('8.58.4'));
+    final binary = File(p.join(sentry.path, 'Sentry')).readAsBytesSync();
+    final macho = MachOFile.parse(binary, invalid: (m) => throw StateError(m));
+    expect(macho.fileType, MachOConstants.mhDylib);
+    expect(Directory(p.join(tmp.path, 'App')).listSync(), hasLength(1));
+  });
+
   test('sdkVersionOf reads the SDK name suffix', () {
     expect(StaticFrameworkStubs.sdkVersionOf('iphoneos26.5'), '26.5');
     expect(StaticFrameworkStubs.sdkVersionOf('iphonesimulator'), isNull);
