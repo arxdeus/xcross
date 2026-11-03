@@ -101,6 +101,9 @@ class WorkflowSecurityTests(unittest.TestCase):
                     allowed = {smoke, *staged}
                     if name == "integration.yml":
                         allowed.add("examples/flutter_example/build/xcross-ios-simulator/*.app")
+                        # The release IPA of the same example app: built
+                        # output only, no Darwin SDK content.
+                        allowed.add("examples/flutter_example/build/xcross-ios/*.ipa")
                         allowed.add("${{ runner.temp }}/aot-reference")
                         allowed.add("${{ runner.temp }}/aot-digests")
                         allowed.add("${{ runner.temp }}/aot-apps")
