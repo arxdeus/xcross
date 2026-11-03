@@ -168,6 +168,46 @@ class T(unittest.TestCase):
         self.assertEqual([e for e in errors if "Interface Builder" in e],
                          ["P_T.bundle/B.xib is uncompiled Interface Builder source"])
 
+    def both(self, fs):
+        d = self.app(fs)
+        z = os.path.join(tempfile.mkdtemp(), "a.ipa")
+        with zipfile.ZipFile(z, "w") as zf:
+            for n, v in fs.items():
+                zf.writestr("Payload/Runner.app/" + n, v)
+        return d, z
+
+    def test_loose_dylib_family_and_framework_files(self):
+        fw = {"Frameworks/A.framework/Info.plist": plistlib.dumps(
+                  {"CFBundlePackageType": "FMWK", "CFBundleExecutable": "A"}),
+              "Frameworks/A.framework/A": b"\xcf\xfa\xed\xfe" + b"\0" * 8,
+              "Frameworks/A.framework/PrivacyInfo.xcprivacy": b"x"}
+        good = dict(files(dict(INFO, UIDeviceFamily=[1, 2])), **fw)
+        bad = dict(files(dict(INFO, UIDeviceFamily=[1])), **fw)
+        bad["Frameworks/libx.dylib"] = b"x"
+        bad["Frameworks/A.framework/PrivacyInfo.xcprivacy"] = b""
+        kw = dict(no_loose_dylibs=True, expect_device_family=[1, 2],
+                  expect_framework_file=["Frameworks/A.framework/PrivacyInfo.xcprivacy",
+                                         "Frameworks/B.framework/PrivacyInfo.xcprivacy"])
+        for g, b_ in zip(self.both(good), self.both(bad)):
+            ge = c.check(g, **kw)[0]
+            self.assertEqual(ge, ["missing Frameworks/B.framework/PrivacyInfo.xcprivacy"])
+            text = "\n".join(c.check(b_, **kw)[0])
+            self.assertIn("libx.dylib is a loose dylib", text)
+            self.assertIn("UIDeviceFamily [1] != [1, 2]", text)
+            self.assertIn("A.framework/PrivacyInfo.xcprivacy is empty", text)
+
+    def test_framework_structure(self):
+        fs = dict(files())
+        fs["Frameworks/A.framework/Info.plist"] = plistlib.dumps(
+            {"CFBundlePackageType": "APPL", "CFBundleExecutable": "A"})
+        fs["Frameworks/A.framework/A"] = b"notmacho"
+        fs["Frameworks/B.framework/B"] = b"\xca\xfe\xba\xbe"
+        for p in self.both(fs):
+            text = "\n".join(c.check(p)[0])
+            self.assertIn("A.framework Info.plist is not an FMWK", text)
+            self.assertIn("A.framework/A is not a Mach-O", text)
+            self.assertIn("B.framework/Info.plist unreadable", text)
+
     def test_add_entitlements(self):
         d = tempfile.mkdtemp()
         os.makedirs(os.path.join(d, "Runner"))

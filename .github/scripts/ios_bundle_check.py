@@ -4,6 +4,8 @@
 Usage:
   ios_bundle_check.py <app|ipa> [--expect-entitlements key ...]
       [--expect-launch-image NAME] [--expect-icon NAME] [--no-private-keys]
+      [--no-loose-dylibs] [--expect-device-family 1,2]
+      [--expect-framework-file PATH ...]
   ios_bundle_check.py add-entitlements <ios-dir>   (CI fixture helper)
 """
 import argparse
@@ -111,7 +113,8 @@ def entitlements_from_superblob(blob):
 
 def check(path, entitlements=(), launch_image=None, icon=None,
           private_keys_absent=False, expect_bundle_files=(), no_ib_sources=False,
-          expect_lf=()):
+          expect_lf=(), no_loose_dylibs=False, expect_device_family=None,
+          expect_framework_file=()):
     errors, notes = [], []
     b = Bundle(path)
     try:
@@ -175,6 +178,21 @@ def check(path, entitlements=(), launch_image=None, icon=None,
                 errors.append("UILaunchScreen.UIColorName missing")
         notes.append("launch screen checked")
 
+    if expect_device_family is not None:
+        got = info.get("UIDeviceFamily")
+        if got != list(expect_device_family):
+            errors.append(f"UIDeviceFamily {got} != {list(expect_device_family)}")
+    if no_loose_dylibs:
+        for n in b.names:
+            if n.endswith(".dylib"):
+                errors.append(f"{n} is a loose dylib (ITMS-90171)")
+    for name in expect_framework_file:
+        if not b.has(name):
+            errors.append(f"missing {name}")
+        elif not b.read(name):
+            errors.append(f"{name} is empty")
+    errors.extend(check_frameworks(b, notes))
+
     if private_keys_absent:
         for k in PRIVATE_KEYS:
             if k in info:
@@ -194,6 +212,32 @@ def check(path, entitlements=(), launch_image=None, icon=None,
     errors.extend(check_resource_bundles(b, expect_bundle_files, notes,
                                            no_ib_sources, expect_lf))
     return errors, notes
+
+
+MACHO_MAGICS = {b"\xcf\xfa\xed\xfe", b"\xfe\xed\xfa\xcf",
+                b"\xca\xfe\xba\xbe", b"\xbe\xba\xfe\xca"}
+
+
+def check_frameworks(b, notes):
+    """Every Frameworks/*.framework is a real FMWK with a Mach-O executable."""
+    errors = []
+    fws = sorted({m.group(1) for n in b.names
+                  if (m := re.match(r"(Frameworks/[^/]+\.framework)/", n))})
+    for fw in fws:
+        try:
+            info = plistlib.loads(b.read(f"{fw}/Info.plist"))
+        except Exception as e:
+            errors.append(f"{fw}/Info.plist unreadable: {e}")
+            continue
+        if info.get("CFBundlePackageType") != "FMWK":
+            errors.append(f"{fw} Info.plist is not an FMWK")
+        exe = info.get("CFBundleExecutable")
+        if not exe or not b.has(f"{fw}/{exe}"):
+            errors.append(f"{fw} executable {exe!r} missing")
+        elif b.read(f"{fw}/{exe}")[:4] not in MACHO_MAGICS:
+            errors.append(f"{fw}/{exe} is not a Mach-O")
+    notes.append(f"frameworks: {len(fws)}")
+    return errors
 
 
 def check_resource_bundles(b, expect_bundle_files, notes, no_ib_sources=False,
@@ -311,10 +355,16 @@ def main(argv):
     p.add_argument("--expect-bundle-file", nargs="*", default=[])
     p.add_argument("--no-ib-sources", action="store_true")
     p.add_argument("--expect-lf", nargs="*", default=[])
+    p.add_argument("--no-loose-dylibs", action="store_true")
+    p.add_argument("--expect-device-family",
+                   type=lambda v: [int(x) for x in v.split(",")])
+    p.add_argument("--expect-framework-file", nargs="*", default=[])
     a = p.parse_args(argv)
     errors, notes = check(a.path, a.expect_entitlements, a.expect_launch_image,
                           a.expect_icon, a.no_private_keys,
-                          a.expect_bundle_file, a.no_ib_sources, a.expect_lf)
+                          a.expect_bundle_file, a.no_ib_sources, a.expect_lf,
+                          a.no_loose_dylibs, a.expect_device_family,
+                          a.expect_framework_file)
     for n in notes:
         print(n)
     for e in errors:
