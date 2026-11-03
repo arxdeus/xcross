@@ -311,6 +311,44 @@ commands:
       );
     });
 
+    test('keeps the source casing of .lproj directories', () {
+      // swift build lowercases localization directories in its outputs;
+      // Xcode 26.6 ships GoogleSignIn_GoogleSignIn.bundle/en_GB.lproj.
+      const manifest = '''
+commands:
+  "/s/G_G.bundle/en_gb.lproj/GoogleSignIn.strings":
+    tool: copy-tool
+    inputs: ["/src/G/Strings/en_GB.lproj/GoogleSignIn.strings"]
+    outputs: ["/s/G_G.bundle/en_gb.lproj/GoogleSignIn.strings"]
+
+  "/s/G_G.bundle/zh_tw.lproj":
+    tool: copy-tool
+    inputs: ["/src/G/zh_TW.lproj/"]
+    outputs: ["/s/G_G.bundle/zh_tw.lproj/"]
+''';
+      expect(
+        parseSwiftPmResourceCopies(manifest, p.Context(style: p.Style.posix)),
+        {
+          'G_G.bundle': [
+            const SwiftPmBundleResource(
+              source: '/src/G/Strings/en_GB.lproj/GoogleSignIn.strings',
+              relative: 'en_GB.lproj/GoogleSignIn.strings',
+            ),
+            const SwiftPmBundleResource(
+              source: '/src/G/zh_TW.lproj',
+              relative: 'zh_TW.lproj',
+            ),
+          ],
+        },
+      );
+      expect(
+        resourceCoverage(p.Context(style: p.Style.posix), 'en_gb.lproj', {
+          'en_GB.lproj/GoogleSignIn.strings',
+        }),
+        ResourceCoverage.holdsResource,
+      );
+    });
+
     test('reads Windows paths', () {
       const manifest = r'''
 commands:

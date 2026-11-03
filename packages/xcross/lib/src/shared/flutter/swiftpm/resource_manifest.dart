@@ -116,6 +116,37 @@ final class SwiftPmResourceBundle {
   final List<SwiftPmBundleResource>? resources;
 }
 
+/// [output] (bundle-relative segments of a `copy-tool` output) with every
+/// `.lproj` segment given the casing of the same directory in [input] (the
+/// source path's segments).
+///
+/// `swift build` lowercases localization directories in its outputs
+/// (`Loc/en_GB.lproj/X.strings` lands at `en_gb.lproj/X.strings`); Xcode
+/// keeps the source name (`GoogleSignIn_GoogleSignIn.bundle/en_GB.lproj`),
+/// and bundle lookup is case-sensitive on device. A `.process` resource's
+/// localization directory may sit deeper in the source
+/// (`Strings/en_GB.lproj/...`) than in the bundle, so segments are matched
+/// case-insensitively by name rather than by position, nearest the file
+/// first.
+@internal
+List<String> restoreLprojCasing(Iterable<String> output, List<String> input) {
+  final sources = input.reversed
+      .where((segment) => segment.toLowerCase().endsWith('.lproj'))
+      .toList();
+  final segments = output.toList();
+  for (var i = segments.length - 1; i >= 0; i--) {
+    final segment = segments[i];
+    if (!segment.toLowerCase().endsWith('.lproj')) continue;
+    final match = sources.indexWhere(
+      (source) => source.toLowerCase() == segment.toLowerCase(),
+    );
+    if (match < 0) continue;
+    segments[i] = sources[match];
+    sources.removeAt(match);
+  }
+  return segments;
+}
+
 /// Reads the `copy-tool` commands of SwiftPM's llbuild manifest
 /// (`<scratch>/debug.yaml`) and groups them by the `*.bundle` directory
 /// their output lands in, keyed by bundle directory name.
@@ -148,7 +179,12 @@ Map<String, List<SwiftPmBundleResource>> parseSwiftPmResourceCopies(
             .add(
               SwiftPmBundleResource(
                 source: _trimSeparator(inputs!.single, paths),
-                relative: paths.joinAll(segments.skip(index + 1)),
+                relative: paths.joinAll(
+                  restoreLprojCasing(
+                    segments.skip(index + 1),
+                    paths.split(_trimSeparator(inputs!.single, paths)),
+                  ),
+                ),
               ),
             );
       }

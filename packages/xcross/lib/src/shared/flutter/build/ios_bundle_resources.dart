@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:cli_kit/shared/platform/platform_host.dart';
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
+import 'package:propertylistserialization/propertylistserialization.dart';
 import 'package:xcross/src/shared/flutter/build/internal/recursive_directory_copy.dart';
 import 'package:xcross/src/shared/flutter/build/pbxproj.dart';
 import 'package:xcross/src/shared/flutter/project/pbx_project_reader.dart';
@@ -102,7 +103,6 @@ final class IosBundleResources {
         if (catalog != null) catalogs.add(catalog);
         continue;
       }
-      if (paths.basename(source) == 'AppFrameworkInfo.plist') continue;
       if (infoPlist != null && paths.equals(source, infoPlist)) continue;
 
       if (paths.extension(source) == '.storyboard') {
@@ -142,6 +142,16 @@ final class IosBundleResources {
         final existing = fileSystem.directory(destination);
         if (existing.existsSync()) await existing.delete(recursive: true);
         await copier.copy(source, destination);
+      } else if (sourceType == FileSystemEntityType.file &&
+          paths.basename(source) == 'AppFrameworkInfo.plist') {
+        // Flutter's template lists it in Runner's Resources phase, and
+        // Xcode's CopyPlistFile ships it as a binary plist (byte-identical
+        // to this conversion, measured with Xcode 26.6).
+        await fileSystem
+            .file(destination)
+            .writeAsBytes(
+              binaryPlistResource(await fileSystem.file(source).readAsString()),
+            );
       } else if (sourceType == FileSystemEntityType.file) {
         await fileSystem.file(source).copy(fileSystem.file(destination).path);
       }
@@ -248,4 +258,15 @@ final class IosBundleResources {
     }
     return null;
   }
+}
+
+/// [xml] (a property list) re-encoded as `bplist00`, as Xcode's
+/// `CopyPlistFile` writes a `.plist` resource (`builtin-copyPlist
+/// --convert binary1`).
+@internal
+List<int> binaryPlistResource(String xml) {
+  final data = PropertyListSerialization.dataWithPropertyList(
+    PropertyListSerialization.propertyListWithString(xml),
+  );
+  return data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes);
 }

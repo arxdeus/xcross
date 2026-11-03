@@ -73,9 +73,36 @@ final class FlutterFrameworkCopier {
       final destination = paths.join(frameworksDir, paths.basename(framework));
       if (fileSystem.directory(destination).existsSync()) continue;
       await copier.copy(framework, destination);
+      await stripEmbeddedHeaders(destination);
       copied.add(destination);
     }
     return copied;
+  }
+
+  /// Directories Xcode's "Embed Frameworks" phase removes from an embedded
+  /// framework (`REMOVE_HEADERS_FROM_EMBEDDED_BUNDLES=YES`).
+  static const embeddedHeaderDirectories = {
+    'Headers',
+    'PrivateHeaders',
+    'Modules',
+  };
+
+  /// Removes [embeddedHeaderDirectories] from [framework], as Xcode 26.6
+  /// does for every SwiftPM binary framework it embeds (the native
+  /// `GoogleCast.framework` ships without `Headers/` and `Modules/`).
+  /// `Flutter.framework` is left alone: Flutter's own embed step copies it
+  /// whole, and the native app keeps its `Headers/` and `Modules/`.
+  /// `_CodeSignature` is not touched; it is resealed at signing.
+  Future<void> stripEmbeddedHeaders(String framework) async {
+    if (paths.basename(framework) == 'Flutter.framework') return;
+    for (final name in embeddedHeaderDirectories) {
+      final path = paths.join(framework, name);
+      if (fileSystem.link(path).existsSync()) {
+        await fileSystem.link(path).delete();
+      } else if (fileSystem.directory(path).existsSync()) {
+        await fileSystem.directory(path).delete(recursive: true);
+      }
+    }
   }
 
   /// Copies SwiftPM resource bundles (`<Package>_<Target>.bundle`) into the
@@ -253,6 +280,12 @@ final class FlutterFrameworkCopier {
   /// It is built from listed names rather than `paths.relative`, which on
   /// Windows misses when the listing carries the `\\?\` long-path prefix
   /// and the bundle path does not.
+  ///
+  /// Without a manifest (`covered` empty) the built bundle's `.lproj`
+  /// directories keep the lowercase names `swift build` gave them
+  /// (`en_gb.lproj` where Xcode ships `en_GB.lproj`): the source casing is
+  /// only recoverable from the manifest's `copy-tool` inputs (see
+  /// `restoreLprojCasing`).
   Future<void> _copyGenerated(
     String directory,
     String destination,
@@ -500,17 +533,23 @@ enum ResourceCoverage { covered, holdsResource, none }
 
 /// Classifies the bundle-relative [relative] path against the [covered]
 /// resource paths, with [paths]' separator and case rules (Windows compares
-/// case-insensitively and accepts both separators).
+/// case-insensitively and accepts both separators). Paths are always
+/// compared case-insensitively, because the built bundle's `.lproj`
+/// directories are lowercased by `swift build` while [covered] carries the
+/// source casing (see `restoreLprojCasing`).
 @internal
 ResourceCoverage resourceCoverage(
   p.Context paths,
   String relative,
   Iterable<String> covered,
 ) {
-  if (covered.any((resource) => paths.equals(relative, resource))) {
+  final folded = relative.toLowerCase();
+  if (covered.any((resource) => paths.equals(folded, resource.toLowerCase()))) {
     return ResourceCoverage.covered;
   }
-  if (covered.any((resource) => paths.isWithin(relative, resource))) {
+  if (covered.any(
+    (resource) => paths.isWithin(folded, resource.toLowerCase()),
+  )) {
     return ResourceCoverage.holdsResource;
   }
   return ResourceCoverage.none;

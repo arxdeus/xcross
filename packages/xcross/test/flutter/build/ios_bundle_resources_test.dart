@@ -1,6 +1,7 @@
 @TestOn('!windows')
 library;
 
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
@@ -248,15 +249,19 @@ void main() {
     () async {
       _file(runner, 'Info.plist', 'info');
       _file(runner, 'Settings.plist', 'settings');
-      _file(project, 'ios/Flutter/AppFrameworkInfo.plist', 'framework input');
+      _file(project, 'ios/Flutter/AppFrameworkInfo.plist', _appFrameworkInfo);
       _writeProject(project, appRefs: ['INFO', 'SETTINGS', 'FRAMEWORK_INFO']);
 
       await _stage(project, bundle);
 
       expect(_bundleFile(bundle, 'Info.plist').existsSync(), isFalse);
+      // Xcode 26.6 ships it at the app root as a binary plist; these are
+      // the native Runner.app/AppFrameworkInfo.plist's bytes.
       expect(
-        _bundleFile(bundle, 'AppFrameworkInfo.plist').existsSync(),
-        isFalse,
+        base64.encode(
+          _bundleFile(bundle, 'AppFrameworkInfo.plist').readAsBytesSync(),
+        ),
+        _nativeAppFrameworkInfoBinary,
       );
       expect(
         _bundleFile(bundle, 'Settings.plist').readAsStringSync(),
@@ -474,3 +479,34 @@ void _writeProject(
 ''');
   File(p.join(xcodeproj.path, 'project.pbxproj')).writeAsStringSync('$objects');
 }
+
+/// Flutter 3.47's template ios/Flutter/AppFrameworkInfo.plist.
+const _appFrameworkInfo = '''
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleDevelopmentRegion</key>
+  <string>en</string>
+  <key>CFBundleExecutable</key>
+  <string>App</string>
+  <key>CFBundleIdentifier</key>
+  <string>io.flutter.flutter.app</string>
+  <key>CFBundleInfoDictionaryVersion</key>
+  <string>6.0</string>
+  <key>CFBundleName</key>
+  <string>App</string>
+  <key>CFBundlePackageType</key>
+  <string>FMWK</string>
+  <key>CFBundleShortVersionString</key>
+  <string>1.0</string>
+  <key>CFBundleSignature</key>
+  <string>????</string>
+  <key>CFBundleVersion</key>
+  <string>1.0</string>
+</dict>
+</plist>
+''';
+
+const _nativeAppFrameworkInfoBinary =
+    'YnBsaXN0MDDZAQIDBAUGBwgJCgsMDQsODxAPXxAZQ0ZCdW5kbGVEZXZlbG9wbWVudFJlZ2lvbl8QEkNGQnVuZGxlRXhlY3V0YWJsZV8QEkNGQnVuZGxlSWRlbnRpZmllcl8QHUNGQnVuZGxlSW5mb0RpY3Rpb25hcnlWZXJzaW9uXENGQnVuZGxlTmFtZV8QE0NGQnVuZGxlUGFja2FnZVR5cGVfEBpDRkJ1bmRsZVNob3J0VmVyc2lvblN0cmluZ18QEUNGQnVuZGxlU2lnbmF0dXJlXxAPQ0ZCdW5kbGVWZXJzaW9uUmVuU0FwcF8QFmlvLmZsdXR0ZXIuZmx1dHRlci5hcHBTNi4wVEZNV0tTMS4wVD8/Pz8ACAAbADcATABhAIEAjgCkAMEA1QDnAOoA7gEHAQsBEAEUAAAAAAAAAgEAAAAAAAAAEQAAAAAAAAAAAAAAAAAAARk=';

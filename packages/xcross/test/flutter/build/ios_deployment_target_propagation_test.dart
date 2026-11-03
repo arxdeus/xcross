@@ -103,9 +103,13 @@ void main() {
         containsAllInOrder(['-platform_version', 'ios', '15.6', '18.0']),
       );
 
-      final plist = FlutterDebugBundler.appFrameworkInfoPlist(target);
+      // flutter_tools writes Flutter's own floor (the engine's
+      // MinimumOSVersion), not the app's deployment target; native Xcode
+      // 26.6 with IPHONEOS_DEPLOYMENT_TARGET 16.0 ships 15.0 here.
+      final plist = FlutterDebugBundler.appFrameworkInfoPlist('15.0');
       expect(plist, contains('<key>MinimumOSVersion</key>'));
-      expect(plist, contains('<string>15.6</string>'));
+      expect(plist, contains('<string>15.0</string>'));
+      expect(plist, isNot(contains('<string>15.6</string>')));
     },
   );
 }

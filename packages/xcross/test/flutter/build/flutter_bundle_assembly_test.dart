@@ -186,6 +186,16 @@ void main() {
       File(
         p.join(dynamicFramework.path, 'Dynamic'),
       ).writeAsStringSync('dynamic');
+      // Xcode strips these from embedded frameworks (native
+      // GoogleCast.framework ships without Headers/ and Modules/).
+      for (final dir in ['Headers', 'PrivateHeaders', 'Modules']) {
+        File(p.join(dynamicFramework.path, dir, 'x.h'))
+          ..createSync(recursive: true)
+          ..writeAsStringSync('h');
+      }
+      File(
+        p.join(dynamicFramework.path, 'Res.bundle', 'Headers', 'keep'),
+      ).createSync(recursive: true);
       final existing = Directory(
         p.join(project.path, 'products', 'Existing.framework'),
       )..createSync(recursive: true);
@@ -205,6 +215,26 @@ void main() {
           p.join(frameworks.path, 'Dynamic.framework', 'Dynamic'),
         ).readAsStringSync(),
         'dynamic',
+      );
+      for (final dir in ['Headers', 'PrivateHeaders', 'Modules']) {
+        expect(
+          Directory(
+            p.join(frameworks.path, 'Dynamic.framework', dir),
+          ).existsSync(),
+          isFalse,
+        );
+      }
+      expect(
+        File(
+          p.join(
+            frameworks.path,
+            'Dynamic.framework',
+            'Res.bundle',
+            'Headers',
+            'keep',
+          ),
+        ).existsSync(),
+        isTrue,
       );
       expect(
         File(
