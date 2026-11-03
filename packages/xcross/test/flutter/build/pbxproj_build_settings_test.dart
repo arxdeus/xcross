@@ -2,27 +2,26 @@ import 'package:test/test.dart';
 import 'package:xcross/src/shared/flutter/build/pbxproj.dart';
 import 'package:xcross/src/shared/flutter/models/flutter/flutter_build_mode.dart';
 
-const fixture = r'''
-// !$*UTF8*$!
-{
-  archiveVersion = 1;
-  objects = {
-    ROOT = { isa = PBXProject; buildConfigurationList = PLIST; targets = (APP); };
-    PLIST = { isa = XCConfigurationList; buildConfigurations = (PDEBUG, PRELEASE, PRELEASEPROD); };
-    PDEBUG = { isa = XCBuildConfiguration; name = Debug; buildSettings = { TARGETED_DEVICE_FAMILY = "1,2"; SWIFT_VERSION = 5.0; OTHER = "-a"; }; };
-    PRELEASE = { isa = XCBuildConfiguration; name = Release; buildSettings = { TARGETED_DEVICE_FAMILY = "1,2"; SWIFT_VERSION = 5.0; OTHER = "-r"; }; };
-    PRELEASEPROD = { isa = XCBuildConfiguration; name = "Release-prod"; buildSettings = { TARGETED_DEVICE_FAMILY = 1; }; };
-    APP = { isa = PBXNativeTarget; name = Runner; productType = "com.apple.product-type.application"; buildConfigurationList = TLIST; };
-    TLIST = { isa = XCConfigurationList; buildConfigurations = (TDEBUG, TRELEASE, TRELEASEPROD); };
-    TDEBUG = { isa = XCBuildConfiguration; name = Debug; buildSettings = { PRODUCT_BUNDLE_IDENTIFIER = dev.debug; SWIFT_VERSION = 6.0; OTHER = "$(inherited) -t"; }; };
-    TRELEASE = { isa = XCBuildConfiguration; name = Release; buildSettings = { PRODUCT_BUNDLE_IDENTIFIER = dev.release; CODE_SIGN_ENTITLEMENTS = Runner/Runner.entitlements; }; };
-    TRELEASEPROD = { isa = XCBuildConfiguration; name = "Release-prod"; buildSettings = { PRODUCT_BUNDLE_IDENTIFIER = dev.prod; }; };
-  };
-  rootObject = ROOT;
-}
-''';
-
 void main() {
+  const fixture = r'''
+  // !$*UTF8*$!
+  {
+    archiveVersion = 1;
+    objects = {
+      ROOT = { isa = PBXProject; buildConfigurationList = PLIST; targets = (APP); };
+      PLIST = { isa = XCConfigurationList; buildConfigurations = (PDEBUG, PRELEASE, PRELEASEPROD); };
+      PDEBUG = { isa = XCBuildConfiguration; name = Debug; buildSettings = { TARGETED_DEVICE_FAMILY = "1,2"; SWIFT_VERSION = 5.0; OTHER = "-a"; }; };
+      PRELEASE = { isa = XCBuildConfiguration; name = Release; buildSettings = { TARGETED_DEVICE_FAMILY = "1,2"; SWIFT_VERSION = 5.0; OTHER = "-r"; }; };
+      PRELEASEPROD = { isa = XCBuildConfiguration; name = "Release-prod"; buildSettings = { TARGETED_DEVICE_FAMILY = 1; }; };
+      APP = { isa = PBXNativeTarget; name = Runner; productType = "com.apple.product-type.application"; buildConfigurationList = TLIST; };
+      TLIST = { isa = XCConfigurationList; buildConfigurations = (TDEBUG, TRELEASE, TRELEASEPROD); };
+      TDEBUG = { isa = XCBuildConfiguration; name = Debug; buildSettings = { PRODUCT_BUNDLE_IDENTIFIER = dev.debug; SWIFT_VERSION = 6.0; OTHER = "$(inherited) -t"; }; };
+      TRELEASE = { isa = XCBuildConfiguration; name = Release; buildSettings = { PRODUCT_BUNDLE_IDENTIFIER = dev.release; CODE_SIGN_ENTITLEMENTS = Runner/Runner.entitlements; }; };
+      TRELEASEPROD = { isa = XCBuildConfiguration; name = "Release-prod"; buildSettings = { PRODUCT_BUNDLE_IDENTIFIER = dev.prod; }; };
+    };
+    rootObject = ROOT;
+  }
+  ''';
   final project = PbxProject.parse(fixture, projectDirectory: 'ios');
   final target = project.applicationTarget!;
 
