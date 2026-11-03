@@ -28,25 +28,50 @@ final class IpaPackager {
     final ipaFile = host.fileSystem.file(ipaPath);
     if (ipaFile.existsSync()) ipaFile.deleteSync();
 
-    final archive = Archive();
-    // list() follows symlinks by default → they resolve to real files/dirs.
-    await for (final entity in appDir.list(recursive: true)) {
-      if (entity is! File) continue; // dirs are implicit from entry paths
-      final rel = paths.relative(entity.path, from: appDir.path);
-      final entryName = p.posix.joinAll([
-        'Payload',
-        appName,
-        ...paths.split(rel),
-      ]);
-      final bytes = await entity.readAsBytes();
-      final file = ArchiveFile.bytes(entryName, bytes);
-      file.mode = entryMode(entity.statSync().mode, bytes);
-      archive.addFile(file);
-    }
+    // Entries are streamed from disk one at a time, so peak memory stays at
+    // one compression buffer instead of the whole app plus the zip. Sorted
+    // for a deterministic entry order. `list()` follows symlinks by default,
+    // so they resolve to real files.
+    final files = <File>[
+      await for (final entity in appDir.list(recursive: true))
+        if (entity is File) entity,
+    ]..sort((a, b) => a.path.compareTo(b.path));
 
-    final zipBytes = ZipEncoder().encode(archive);
-    await ipaFile.writeAsBytes(zipBytes);
+    final output = OutputFileStream(ipaPath);
+    final encoder = ZipEncoder()..startEncode(output);
+    try {
+      for (final file in files) {
+        final rel = paths.relative(file.path, from: appDir.path);
+        final entryName = p.posix.joinAll([
+          'Payload',
+          appName,
+          ...paths.split(rel),
+        ]);
+        final stat = file.statSync();
+        final input = InputFileStream(file.path);
+        try {
+          final entry = ArchiveFile.stream(entryName, input)
+            ..mode = entryMode(stat.mode, await _header(file))
+            ..lastModTime = stat.modified.millisecondsSinceEpoch ~/ 1000;
+          encoder.add(entry);
+        } finally {
+          await input.close();
+        }
+      }
+    } finally {
+      encoder.endEncode();
+      await output.close();
+    }
     return ipaPath;
+  }
+
+  static Future<List<int>> _header(File file) async {
+    final raf = await file.open();
+    try {
+      return await raf.read(4);
+    } finally {
+      await raf.close();
+    }
   }
 
   /// Unix mode recorded for an IPA entry.

@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:cli_kit/shared/platform/platform_host.dart';
 import 'package:meta/meta.dart';
 import 'package:xcross/src/shared/apple/app_resource_compiler.dart';
@@ -5,6 +7,7 @@ import 'package:xcross/src/shared/artifact/plist_mutations.dart';
 import 'package:xcross/src/shared/flutter/build/app_extension_builder.dart';
 import 'package:xcross/src/shared/flutter/build/bundle_pkg_info.dart';
 import 'package:xcross/src/shared/flutter/build/info_plist.dart';
+import 'package:xcross/src/shared/flutter/build/internal/staged_directory_swap.dart';
 import 'package:xcross/src/shared/flutter/build/ios_bundle_resources.dart';
 import 'package:xcross/src/shared/flutter/build/ios_bundle_versions.dart';
 import 'package:xcross/src/shared/flutter/build/ios_deployment_target.dart';
@@ -62,44 +65,45 @@ final class FlutterBundleAssembler<T extends PlatformHostInterface>
     required IosDeploymentTarget deploymentTarget,
     required List<BuiltAppExtension> extensions,
   }) async {
-    // Stage in a temp dir so the destination is only touched once everything
-    // is in place.
-    final tmp = await runtime.host.fileSystem
-        .directory(runtime.host.paths.temporaryRoot)
-        .createTemp('${appName}_app_bundle-');
-
-    await _stageBundle(
-      bundleDir: tmp.path,
-      appFramework: appFramework,
-      flutterFramework: runtime.host.paths.context.join(
-        runtime.policy.selectEngineSlice(xcframework),
-        'Flutter.framework',
-      ),
-      runnerBinary: runnerBinary,
-      sdkName: sdkName,
-      sdkPath: sdkPath,
-      pluginLibraries: pluginLibraries,
-      pluginProducts: pluginProducts,
-      pluginFrameworks: pluginFrameworks,
-      resourceBundles: resourceBundles,
-      nativeAssetFrameworks: nativeAssetFrameworks,
-      deploymentTarget: deploymentTarget,
-      extensions: extensions,
-    );
-
     final dest = runtime.host.paths.context.join(
       outputDirectory,
       '$appName.app',
     );
-    final destDir = runtime.host.fileSystem.directory(dest);
-    if (destDir.existsSync()) {
-      await destDir.delete(recursive: true);
+    // Stage beside the destination (same volume) and rename into place, so
+    // the destination only changes once everything is in place and the
+    // finished app is never copied a second time.
+    final swap = StagedDirectorySwap(
+      fileSystem: runtime.host.fileSystem,
+      paths: runtime.host.paths.context,
+      copier: runtime.directoryCopier,
+    );
+    final tmp = await swap.createStaging(dest);
+
+    try {
+      await _stageBundle(
+        bundleDir: tmp.path,
+        appFramework: appFramework,
+        flutterFramework: runtime.host.paths.context.join(
+          runtime.policy.selectEngineSlice(xcframework),
+          'Flutter.framework',
+        ),
+        runnerBinary: runnerBinary,
+        sdkName: sdkName,
+        sdkPath: sdkPath,
+        pluginLibraries: pluginLibraries,
+        pluginProducts: pluginProducts,
+        pluginFrameworks: pluginFrameworks,
+        resourceBundles: resourceBundles,
+        nativeAssetFrameworks: nativeAssetFrameworks,
+        deploymentTarget: deploymentTarget,
+        extensions: extensions,
+      );
+
+      await swap.swap(tmp, dest);
+    } catch (_) {
+      await swap.discard(tmp);
+      rethrow;
     }
-    await runtime.host.fileSystem
-        .directory(runtime.host.paths.context.dirname(dest))
-        .create(recursive: true);
-    await runtime.directoryCopier.copy(tmp.path, dest);
-    await tmp.delete(recursive: true);
     await _publishDebugSymbols(
       appFramework: appFramework,
       engineSlice: runtime.policy.selectEngineSlice(xcframework),
@@ -119,24 +123,62 @@ final class FlutterBundleAssembler<T extends PlatformHostInterface>
     required List<String> nativeAssetFrameworks,
   }) async {
     final paths = runtime.host.paths.context;
-    final output = runtime.host.fileSystem.directory(outputDirectory);
+    final fs = runtime.host.fileSystem;
+    final wanted = <String, String>{
+      if (options.buildMode.isPrecompiled)
+        for (final dsym in [
+          '$appFramework.dSYM',
+          paths.join(engineSlice, 'dSYMs', 'Flutter.framework.dSYM'),
+          for (final framework in nativeAssetFrameworks) '$framework.dSYM',
+        ])
+          if (fs.directory(dsym).existsSync()) paths.basename(dsym): dsym,
+    };
+    final output = fs.directory(outputDirectory);
     await for (final entity in output.list(followLinks: false)) {
-      if (entity.path.endsWith('.framework.dSYM')) {
+      final name = paths.basename(entity.path);
+      if (name.endsWith('.framework.dSYM') && !wanted.containsKey(name)) {
         await entity.delete(recursive: true);
+        await _deleteIfExists(fs.file(_dsymStamp(name)));
       }
     }
-    if (!options.buildMode.isPrecompiled) return;
-    for (final dsym in [
-      '$appFramework.dSYM',
-      paths.join(engineSlice, 'dSYMs', 'Flutter.framework.dSYM'),
-      for (final framework in nativeAssetFrameworks) '$framework.dSYM',
-    ]) {
-      if (!runtime.host.fileSystem.directory(dsym).existsSync()) continue;
-      await runtime.directoryCopier.copy(
-        dsym,
-        paths.join(outputDirectory, paths.basename(dsym)),
+    for (final MapEntry(key: name, value: source) in wanted.entries) {
+      final dest = fs.directory(paths.join(outputDirectory, name));
+      final stamp = fs.file(_dsymStamp(name));
+      final signature = await _treeSignature(source);
+      if (dest.existsSync() &&
+          stamp.existsSync() &&
+          await stamp.readAsString() == signature) {
+        continue;
+      }
+      if (dest.existsSync()) await dest.delete(recursive: true);
+      await runtime.directoryCopier.copy(source, dest.path);
+      await stamp.writeAsString(signature);
+    }
+  }
+
+  String _dsymStamp(String name) =>
+      runtime.host.paths.context.join(outputDirectory, '.$name.stamp');
+
+  static Future<void> _deleteIfExists(File file) async {
+    if (file.existsSync()) await file.delete();
+  }
+
+  /// Cheap change detector for a dSYM: its source path plus every file's
+  /// relative path, size, and mtime (no content reads).
+  Future<String> _treeSignature(String root) async {
+    final paths = runtime.host.paths.context;
+    final lines = <String>[root];
+    await for (final entity
+        in runtime.host.fileSystem.directory(root).list(recursive: true)) {
+      if (entity is! File) continue;
+      final stat = entity.statSync();
+      lines.add(
+        '${paths.relative(entity.path, from: root)}\t${stat.size}\t'
+        '${stat.modified.microsecondsSinceEpoch}',
       );
     }
+    lines.sort();
+    return lines.join('\n');
   }
 
   /// Lay out the `.app` contents under [bundleDir]: the Runner executable,
