@@ -305,7 +305,11 @@ final class FlutterFrameworkCopier {
       if (coverage == ResourceCoverage.holdsResource &&
           !fileSystem.link(entity.path).existsSync() &&
           fileSystem.directory(entity.path).existsSync()) {
-        await fileSystem.directory(target).create(recursive: true);
+        // Not created here: a directory that only holds declared resources
+        // is created by their source copies, with the source casing
+        // (`en_GB.lproj`). Creating the built name (`en_gb.lproj`) first
+        // would win on a case-insensitive file system (macOS, Windows) and
+        // leave two directories on Linux.
         await _copyGenerated(
           entity.path,
           target,
@@ -316,6 +320,7 @@ final class FlutterFrameworkCopier {
         );
         continue;
       }
+      await fileSystem.directory(destination).create(recursive: true);
       await _copyResource(
         entity.path,
         target,

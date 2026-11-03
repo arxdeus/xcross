@@ -103,6 +103,42 @@ void main() {
     },
   );
 
+  test('a localization directory keeps the source casing', () async {
+    final source = p.join(tmp.path, 'src', 'en_GB.lproj', 'G.strings');
+    File(source)
+      ..createSync(recursive: true)
+      ..writeAsStringSync('source');
+    // `swift build` lowercases the directory in the built bundle.
+    final built = p.join(tmp.path, 'debug', 'G_G.bundle');
+    File(p.join(built, 'en_gb.lproj', 'G.strings'))
+      ..createSync(recursive: true)
+      ..writeAsStringSync('built');
+    File(p.join(built, 'other.txt')).writeAsStringSync('other');
+    final app = Directory(p.join(tmp.path, 'Runner.app'))..createSync();
+    await copierFor().copyResourceBundles(
+      [
+        SwiftPmResourceBundle(
+          bundlePath: built,
+          resources: [
+            SwiftPmBundleResource(
+              source: source,
+              relative: p.join('en_GB.lproj', 'G.strings'),
+            ),
+          ],
+        ),
+      ],
+      app.path,
+      infoPlist: (_, _) => 'info',
+    );
+    final bundle = Directory(p.join(app.path, 'G_G.bundle'));
+    final names = bundle.listSync().map((e) => p.basename(e.path)).toSet();
+    expect(names, {'en_GB.lproj', 'other.txt', 'Info.plist'});
+    expect(
+      File(p.join(bundle.path, 'en_GB.lproj', 'G.strings')).readAsStringSync(),
+      'source',
+    );
+  });
+
   test('copies sources and writes an Info.plist SwiftPM did not', () async {
     final source = p.join(tmp.path, 'src', 'PrivacyInfo.xcprivacy');
     File(source)
