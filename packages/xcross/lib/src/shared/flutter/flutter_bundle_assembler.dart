@@ -14,6 +14,7 @@ import 'package:xcross/src/shared/flutter/flutter_build_runtime.dart';
 import 'package:xcross/src/shared/flutter/flutter_build_steps.dart';
 import 'package:xcross/src/shared/flutter/models/flutter/flutter_build_mode.dart';
 import 'package:xcross/src/shared/flutter/models/flutter/flutter_build_options.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/dynamic_product.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/resource_manifest.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/static_framework_stubs.dart';
 import 'package:xcross/src/target/shared/flutter/xcode_build_metadata.dart';
@@ -39,6 +40,7 @@ final class FlutterBundleAssembler<T extends PlatformHostInterface>
         sdkName: linked.runner.sdkName,
         sdkPath: linked.runner.sdkPath,
         pluginLibraries: linked.compiled.plugins?.dylibPaths ?? const [],
+        pluginProducts: linked.compiled.plugins?.dynamicProducts ?? const [],
         pluginFrameworks: linked.compiled.plugins?.frameworkPaths ?? const [],
         resourceBundles: linked.compiled.plugins?.resourceBundles ?? const [],
         nativeAssetFrameworks: linked.compiled.nativeAssets.frameworks,
@@ -53,6 +55,7 @@ final class FlutterBundleAssembler<T extends PlatformHostInterface>
     required String sdkName,
     required String? sdkPath,
     required List<String> pluginLibraries,
+    required List<SwiftPmDynamicProduct> pluginProducts,
     required List<String> pluginFrameworks,
     required List<SwiftPmResourceBundle> resourceBundles,
     required List<String> nativeAssetFrameworks,
@@ -76,6 +79,7 @@ final class FlutterBundleAssembler<T extends PlatformHostInterface>
       sdkName: sdkName,
       sdkPath: sdkPath,
       pluginLibraries: pluginLibraries,
+      pluginProducts: pluginProducts,
       pluginFrameworks: pluginFrameworks,
       resourceBundles: resourceBundles,
       nativeAssetFrameworks: nativeAssetFrameworks,
@@ -145,6 +149,7 @@ final class FlutterBundleAssembler<T extends PlatformHostInterface>
     required String sdkName,
     required String? sdkPath,
     required List<String> pluginLibraries,
+    required List<SwiftPmDynamicProduct> pluginProducts,
     required List<String> pluginFrameworks,
     required List<SwiftPmResourceBundle> resourceBundles,
     required List<String> nativeAssetFrameworks,
@@ -173,9 +178,26 @@ final class FlutterBundleAssembler<T extends PlatformHostInterface>
       appFramework,
       runtime.host.paths.context.join(frameworksDir, 'App.framework'),
     );
+    final build = sdkPath == null
+        ? null
+        : XcodeBuildMetadata.load(
+            runtime.host.fileSystem,
+            runtime.host.paths.context,
+            sdkPath,
+          );
+    // Dynamic SwiftPM products ship as frameworks, never loose dylibs.
     await runtime.frameworks.copyPluginLibraries(
-      pluginLibraries,
+      pluginProducts,
       frameworksDir,
+      infoPlist: (product) => runtime.policy.transformPlist(
+        swiftPmDynamicProductInfoPlist(
+          product,
+          deploymentTarget: deploymentTarget.version,
+          device: sdkName.startsWith('iphoneos'),
+        ),
+        sdkName: sdkName,
+        build: build,
+      ),
     );
     await runtime.frameworks.copyNativeAssetFrameworks(
       nativeAssetFrameworks,
@@ -216,13 +238,7 @@ final class FlutterBundleAssembler<T extends PlatformHostInterface>
           paths: runtime.host.paths.context,
         ),
         sdkName: sdkName,
-        build: sdkPath == null
-            ? null
-            : XcodeBuildMetadata.load(
-                runtime.host.fileSystem,
-                runtime.host.paths.context,
-                sdkPath,
-              ),
+        build: build,
       ),
     );
 

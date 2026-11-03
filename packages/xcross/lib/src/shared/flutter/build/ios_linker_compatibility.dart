@@ -4,7 +4,9 @@ import 'package:meta/meta.dart';
 ///
 /// `-ObjC` loads archive members that define Objective-C categories. The lld
 /// compatibility flags retain those category and stub symbols when linking on
-/// cross hosts.
+/// cross hosts. `-headerpad_max_install_names` leaves room to rename each
+/// product dylib to the framework install name the app embeds it under
+/// (see `SwiftPmDynamicProduct`), as Xcode links its products.
 @internal
 const List<String> objectiveCLinkerSwiftDriverArguments = [
   '-Xswiftc',
@@ -15,6 +17,10 @@ const List<String> objectiveCLinkerSwiftDriverArguments = [
   '-Xlinker',
   '-Xswiftc',
   '-no_objc_category_merging',
+  '-Xswiftc',
+  '-Xlinker',
+  '-Xswiftc',
+  '-headerpad_max_install_names',
 ];
 
 @internal

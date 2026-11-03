@@ -5346,6 +5346,87 @@ module FirebaseFirestore {
       expect(bundle.resources?.single.source, source);
     });
 
+    test('names dynamic products as the frameworks the app embeds', () async {
+      final scratch = Directory(p.join(tmp.path, 'scratch'))..createSync();
+      final output = Directory(p.join(scratch.path, 'arm64-apple-ios', 'debug'))
+        ..createSync(recursive: true);
+      final aggregate =
+          File(p.join(output.path, 'libFlutterPluginsGenerated.dylib'))
+            ..writeAsBytesSync(
+              _dylibMachO([
+                (0x0d, '/build/libFlutterPluginsGenerated.dylib'),
+                (0x0c, '/build/libflutter-soloud.dylib'),
+              ]),
+            );
+      final soloud = File(p.join(output.path, 'libflutter-soloud.dylib'))
+        ..writeAsBytesSync(
+          _dylibMachO([(0x0d, '@rpath/libflutter-soloud.dylib')]),
+        );
+      final plugin = Directory(p.join(tmp.path, 'Packages', 'flutter_soloud'))
+        ..createSync(recursive: true);
+      File(p.join(plugin.path, 'Package.swift')).writeAsStringSync(
+        'platforms: [.iOS("13.0")],\n'
+        'products: [.library(name: "flutter-soloud", type: .dynamic, '
+        'targets: ["flutter_soloud"])]',
+      );
+      File(p.join(scratch.path, 'workspace-state.json')).writeAsStringSync(
+        jsonEncode({
+          'object': {
+            'dependencies': [
+              {
+                'packageRef': {
+                  'identity': 'flutter_soloud',
+                  'kind': 'fileSystem',
+                  'location': plugin.path,
+                  'name': 'flutter_soloud',
+                },
+                'subpath': 'flutter_soloud',
+              },
+            ],
+          },
+        }),
+      );
+
+      final result = await _swiftPmRuntime.assembly.discoverAndRewriteDylibs(
+        output.path,
+        pluginIdentities: const {'flutter_soloud': 'flutter_soloud-5.1.2'},
+      );
+
+      final products = {
+        for (final product in result.dynamicProducts) product.name: product,
+      };
+      expect(products.keys, {'FlutterPluginsGenerated', 'flutter-soloud'});
+      final soloudProduct = products['flutter-soloud']!;
+      expect(soloudProduct.frameworkName, 'flutter-soloud.framework');
+      expect(
+        soloudProduct.bundleIdentifier,
+        'flutter-soloud-5.1.2.flutter-soloud',
+      );
+      expect(soloudProduct.minimumOsVersion, '13.0');
+      final aggregateProduct = products['FlutterPluginsGenerated']!;
+      expect(
+        aggregateProduct.bundleIdentifier,
+        'flutterpluginsgenerated.FlutterPluginsGenerated',
+      );
+      expect(aggregateProduct.minimumOsVersion, isNull);
+      expect(_dylibMachONames(aggregate.readAsBytesSync()), [
+        '@rpath/FlutterPluginsGenerated.framework/FlutterPluginsGenerated',
+        '@rpath/flutter-soloud.framework/flutter-soloud',
+      ]);
+      expect(_dylibMachONames(soloud.readAsBytesSync()), [
+        '@rpath/flutter-soloud.framework/flutter-soloud',
+      ]);
+
+      // A reused build passes through again unchanged.
+      final again = await _swiftPmRuntime.assembly.discoverAndRewriteDylibs(
+        output.path,
+      );
+      expect(again.dylibPaths, result.dylibPaths);
+      expect(_dylibMachONames(soloud.readAsBytesSync()), [
+        '@rpath/flutter-soloud.framework/flutter-soloud',
+      ]);
+    });
+
     test('names bundle identity and minimum from workspace state', () async {
       final scratch = Directory(p.join(tmp.path, 'scratch'))..createSync();
       final output = Directory(p.join(scratch.path, 'arm64-apple-ios', 'debug'))
@@ -5554,6 +5635,50 @@ module FirebaseFirestore {
       );
     });
   });
+}
+
+/// A thin dylib holding [commands] (`dylib_command` type and name), with
+/// 512 bytes of header padding for names to grow into.
+Uint8List _dylibMachO(List<(int, String)> commands) {
+  final names = [for (final command in commands) utf8.encode(command.$2)];
+  final sizes = [for (final name in names) (24 + name.length + 1 + 7) & ~7];
+  final commandsSize = sizes.fold(0, (sum, size) => sum + size);
+  final bytes = Uint8List(32 + commandsSize + 512);
+  final data = ByteData.sublistView(bytes)
+    ..setUint32(0, 0xfeedfacf, Endian.little)
+    ..setUint32(12, 6, Endian.little)
+    ..setUint32(16, commands.length, Endian.little)
+    ..setUint32(20, commandsSize, Endian.little);
+  var offset = 32;
+  for (var index = 0; index < commands.length; index++) {
+    data
+      ..setUint32(offset, commands[index].$1, Endian.little)
+      ..setUint32(offset + 4, sizes[index], Endian.little)
+      ..setUint32(offset + 8, 24, Endian.little);
+    bytes.setRange(
+      offset + 24,
+      offset + 24 + names[index].length,
+      names[index],
+    );
+    offset += sizes[index];
+  }
+  return bytes;
+}
+
+List<String> _dylibMachONames(Uint8List bytes) {
+  final data = ByteData.sublistView(bytes);
+  final names = <String>[];
+  var offset = 32;
+  for (var index = 0; index < data.getUint32(16, Endian.little); index++) {
+    final start = offset + data.getUint32(offset + 8, Endian.little);
+    var end = start;
+    while (bytes[end] != 0) {
+      end++;
+    }
+    names.add(utf8.decode(bytes.sublist(start, end)));
+    offset += data.getUint32(offset + 4, Endian.little);
+  }
+  return names;
 }
 
 Uint8List _emptyMachO() {

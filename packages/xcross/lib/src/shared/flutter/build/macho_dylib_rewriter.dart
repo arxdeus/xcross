@@ -32,16 +32,21 @@ abstract final class MachODylibRewriter {
     String? installName,
     Map<String, String> producedInstallNames = const {},
     bool repairObjCFastStubs = false,
+    bool replaceRelocatableId = false,
     String source = 'Mach-O data',
   }) {
     Never invalid(String message) => _invalid(source, message);
-    final machO = MachOFile.parse(bytes, invalid: invalid);
+    var machO = MachOFile.parse(bytes, invalid: invalid);
 
     var changed = false;
-    for (final command in machO.commands) {
-      final isId = command.type == _idDylib;
-      if (isId || _dependencyCommands.contains(command.type)) {
-        changed |= _rewriteInstallName(
+    // A command that grows shifts the commands after it, so the file is
+    // parsed again after each growth; rewritten names then compare equal.
+    for (var grown = true; grown;) {
+      grown = false;
+      for (final command in machO.commands) {
+        final isId = command.type == _idDylib;
+        if (!isId && !_dependencyCommands.contains(command.type)) continue;
+        final result = _rewriteInstallName(
           machO,
           command,
           isId: isId,
@@ -49,7 +54,14 @@ abstract final class MachODylibRewriter {
           installName: installName,
           producedDylibNames: producedDylibNames,
           producedInstallNames: producedInstallNames,
+          replaceRelocatableId: replaceRelocatableId,
         );
+        changed |= result.changed;
+        if (result.grown) {
+          grown = true;
+          machO = MachOFile.parse(bytes, invalid: invalid);
+          break;
+        }
       }
     }
     if (repairObjCFastStubs &&
@@ -65,7 +77,9 @@ abstract final class MachODylibRewriter {
   ///
   /// `LC_ID_DYLIB` always becomes `@rpath/<dylibName>`; a dependency is
   /// rewritten only when its basename names a dylib produced by this build.
-  static bool _rewriteInstallName(
+  /// A longer name grows the command into the padding between the load
+  /// commands and the first section (`-headerpad_max_install_names`).
+  static ({bool changed, bool grown}) _rewriteInstallName(
     MachOFile file,
     MachOLoadCommand command, {
     required bool isId,
@@ -73,7 +87,9 @@ abstract final class MachODylibRewriter {
     required String? installName,
     required Set<String> producedDylibNames,
     required Map<String, String> producedInstallNames,
+    required bool replaceRelocatableId,
   }) {
+    const unchanged = (changed: false, grown: false);
     if (command.size < _dylibCommandHeaderSize) {
       file.invalid(
         'dylib command ${command.index} is shorter than '
@@ -95,7 +111,9 @@ abstract final class MachODylibRewriter {
       'dylib command ${command.index} name is not null-terminated',
     );
     final basename = oldName.substring(oldName.lastIndexOf('/') + 1);
-    if (isId && oldName.startsWith('@rpath/')) return false;
+    if (isId && !replaceRelocatableId && oldName.startsWith('@rpath/')) {
+      return unchanged;
+    }
     final replacement = isId
         ? installName ?? '@rpath/$dylibName'
         : producedInstallNames[basename] ??
@@ -103,20 +121,69 @@ abstract final class MachODylibRewriter {
                   ? '@rpath/$basename'
                   : null);
 
-    if (replacement == null || replacement == oldName) return false;
+    if (replacement == null || replacement == oldName) return unchanged;
 
     final replacementBytes = utf8.encode(replacement);
     final capacity = commandEnd - nameStart;
+    var end = commandEnd;
     if (replacementBytes.length >= capacity) {
-      file.invalid('replacement "$replacement" does not fit "$oldName"');
+      final size = (nameOffset + replacementBytes.length + 1 + 7) & ~7;
+      _grow(file, command, size, replacement, oldName);
+      end = command.offset + size;
     }
-    file.bytes.fillRange(nameStart, commandEnd, 0);
+    file.bytes.fillRange(nameStart, end, 0);
     file.bytes.setRange(
       nameStart,
       nameStart + replacementBytes.length,
       replacementBytes,
     );
-    return true;
+    return (changed: true, grown: end != commandEnd);
+  }
+
+  /// Grows [command] to [size] bytes, moving the load commands after it
+  /// into the header padding.
+  static void _grow(
+    MachOFile file,
+    MachOLoadCommand command,
+    int size,
+    String replacement,
+    String oldName,
+  ) {
+    final commandsSize = file.data.getUint32(20, Endian.little);
+    final commandsEnd = MachOConstants.headerSize64 + commandsSize;
+    final delta = size - command.size;
+    if (commandsEnd + delta > _firstContentOffset(file)) {
+      file.invalid(
+        'replacement "$replacement" does not fit "$oldName" and the header '
+        'has no room to grow (link with -headerpad_max_install_names)',
+      );
+    }
+    final commandEnd = command.offset + command.size;
+    file.bytes.setRange(
+      commandEnd + delta,
+      commandsEnd + delta,
+      Uint8List.fromList(file.bytes.sublist(commandEnd, commandsEnd)),
+    );
+    file.data
+      ..setUint32(command.offset + 4, size, Endian.little)
+      ..setUint32(20, commandsSize + delta, Endian.little);
+  }
+
+  /// File offset of the first section with file contents: load commands may
+  /// grow up to it.
+  static int _firstContentOffset(MachOFile file) {
+    var first = file.bytes.length;
+    final segments = file.commands.where(
+      (command) => command.type == MachOConstants.lcSegment64,
+    );
+    for (final section in file.parseSections(segments)) {
+      if (section.fileOffset > 0 &&
+          section.size > 0 &&
+          section.fileOffset < first) {
+        first = section.fileOffset;
+      }
+    }
+    return first;
   }
 
   static Never _invalid(String source, String message) =>

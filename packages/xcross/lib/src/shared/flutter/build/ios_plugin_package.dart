@@ -22,6 +22,7 @@ import 'package:xcross/src/shared/flutter/swiftpm/checkout.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/checkout_attributes.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/checkout_manifest_normalizer.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/dependency_preparation.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/dynamic_product.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/foundation.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/gate_platform.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/host_policy.dart';
@@ -90,12 +91,16 @@ final class GeneratedPluginsBuildResult {
     required this.libraryPath,
     required this.dylibPaths,
     required this.modulesDir,
+    this.dynamicProducts = const [],
     this.frameworkPaths = const [],
     this.resourceBundlePaths = const [],
     this.resourceBundles = const [],
   });
   final String libraryPath;
   final List<String> dylibPaths;
+
+  /// [dylibPaths] as the frameworks the app embeds them as.
+  final List<SwiftPmDynamicProduct> dynamicProducts;
   final List<String> frameworkPaths;
 
   /// SwiftPM resource bundles (`<Package>_<Target>.bundle`, e.g. plugin

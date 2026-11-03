@@ -7,8 +7,10 @@ import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/shared/apple/mach_o.dart';
 import 'package:xcross/src/shared/flutter/build/ios_plugin_package.dart';
+import 'package:xcross/src/shared/flutter/build/macho_dylib_rewriter.dart';
 import 'package:xcross/src/shared/flutter/errors.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_filesystem.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/dynamic_product.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/host_build_services.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/resource_manifest.dart';
 
@@ -55,6 +57,13 @@ final class SwiftPmAssembly<T extends PlatformHostInterface> {
     final dylibNames = dylibPaths.map(p.basename).toSet();
     for (final path in dylibPaths) {
       await hostBuildServices.rewriteDylib(path, dylibNames);
+    }
+    final productInstallNames = {
+      for (final name in dylibNames)
+        name: swiftPmDynamicProductInstallName(swiftPmDynamicProductName(name)),
+    };
+    for (final path in dylibPaths) {
+      await _adoptFrameworkInstallName(path, productInstallNames);
     }
     // SwiftPM emits .swiftmodule files into a sibling `Modules` directory;
     // app-extension targets importing a plugin need it on their include path.
@@ -198,9 +207,37 @@ final class SwiftPmAssembly<T extends PlatformHostInterface> {
       );
     }
 
+    SwiftPmDynamicProduct product(String path) {
+      final name = swiftPmDynamicProductName(p.basename(path));
+      for (final package in packages) {
+        final manifest = fileSystem.file(
+          p.join(package.directory, 'Package.swift'),
+        );
+        try {
+          if (!manifest.existsSync() ||
+              !swiftPmDeclaresDynamicLibrary(
+                manifest.readAsStringSync(),
+                name,
+              )) {
+            continue;
+          }
+        } on FileSystemException {
+          continue;
+        }
+        return SwiftPmDynamicProduct(
+          libraryPath: path,
+          packageIdentity:
+              pluginIdentities[package.identity] ?? package.identity,
+          minimumOsVersion: packageMinimum(package),
+        );
+      }
+      return SwiftPmDynamicProduct(libraryPath: path, packageIdentity: null);
+    }
+
     return GeneratedPluginsBuildResult(
       libraryPath: aggregatePath,
       dylibPaths: List.unmodifiable(dylibPaths),
+      dynamicProducts: List.unmodifiable(dylibPaths.map(product)),
       frameworkPaths: List.unmodifiable(frameworkPaths),
       resourceBundlePaths: List.unmodifiable(resourceBundlePaths),
       resourceBundles: List.unmodifiable([
@@ -210,6 +247,31 @@ final class SwiftPmAssembly<T extends PlatformHostInterface> {
           ? p.absolute(modulesPath)
           : null,
     );
+  }
+
+  /// Gives the dylib at [path] the install name of the framework the app
+  /// embeds it as (see [SwiftPmDynamicProduct]), and points its
+  /// dependencies on the other products at their frameworks too. Runs
+  /// before Runner and app extensions link it, so their load commands name
+  /// the framework, and before anything is signed. Idempotent, so a reused
+  /// build passes through it again unchanged.
+  Future<void> _adoptFrameworkInstallName(
+    String path,
+    Map<String, String> productInstallNames,
+  ) async {
+    final file = fileSystem.file(path);
+    final bytes = await file.readAsBytes();
+    if (MachODylibRewriter.rewriteBytes(
+      bytes,
+      dylibName: p.basename(path),
+      producedDylibNames: const {},
+      installName: productInstallNames[p.basename(path)],
+      producedInstallNames: productInstallNames,
+      replaceRelocatableId: true,
+      source: path,
+    )) {
+      await file.writeAsBytes(bytes, flush: true);
+    }
   }
 
   static bool isDynamicLibrary(Uint8List bytes) {

@@ -12,6 +12,10 @@ void main() {
       '-Xlinker',
       '-Xswiftc',
       '-no_objc_category_merging',
+      '-Xswiftc',
+      '-Xlinker',
+      '-Xswiftc',
+      '-headerpad_max_install_names',
     ]);
     expect(objectiveCSmallStubSwiftDriverArguments, [
       '-Xswiftc',

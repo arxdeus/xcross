@@ -5,6 +5,7 @@ import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/shared/apple/interface_builder/xib_compiler.dart';
 import 'package:xcross/src/shared/flutter/build/internal/recursive_directory_copy.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/dynamic_product.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/resource_manifest.dart';
 
 @internal
@@ -24,20 +25,30 @@ final class FlutterFrameworkCopier {
   final HostFileSystemInterface fileSystem;
   final p.Context paths;
 
-  /// Copies every SwiftPM-produced dylib into the app's Frameworks directory.
-  Future<void> copyPluginLibraries(
-    Iterable<String> pluginLibraries,
-    String frameworksDir,
-  ) async {
-    for (final library in pluginLibraries) {
+  /// Embeds every SwiftPM-produced dylib in the app's Frameworks directory as
+  /// `<Product>.framework/<Product>` with the `Info.plist` [infoPlist] gives
+  /// it, as Xcode embeds a dynamic SwiftPM product: the App Store rejects a
+  /// loose dylib there (ITMS-90171). The dylib already carries the
+  /// framework's install name (see `SwiftPmAssembly`). Returns the
+  /// frameworks it wrote.
+  Future<List<String>> copyPluginLibraries(
+    Iterable<SwiftPmDynamicProduct> products,
+    String frameworksDir, {
+    required String Function(SwiftPmDynamicProduct product) infoPlist,
+  }) async {
+    final written = <String>[];
+    for (final product in products) {
+      final framework = paths.join(frameworksDir, product.frameworkName);
+      await fileSystem.directory(framework).create(recursive: true);
       await fileSystem
-          .file(library)
-          .copy(
-            fileSystem
-                .file(paths.join(frameworksDir, paths.basename(library)))
-                .path,
-          );
+          .file(product.libraryPath)
+          .copy(fileSystem.file(paths.join(framework, product.name)).path);
+      await fileSystem
+          .file(paths.join(framework, 'Info.plist'))
+          .writeAsString(infoPlist(product));
+      written.add(framework);
     }
+    return written;
   }
 
   /// Copies every native-asset framework into the app's Frameworks directory.

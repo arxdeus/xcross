@@ -13,6 +13,7 @@ import 'package:xcross/src/shared/flutter/flutter_build_runtime.dart';
 import 'package:xcross/src/shared/flutter/flutter_build_steps.dart';
 import 'package:xcross/src/shared/flutter/flutter_bundle_assembler.dart';
 import 'package:xcross/src/shared/flutter/models/flutter/flutter_build_options.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/dynamic_product.dart';
 import 'package:xml/xml.dart';
 
 import '../flutter_test_runtime.dart';
@@ -262,22 +263,56 @@ void main() {
         final dependency = File(p.join(tmp.path, 'libDependency.dylib'))
           ..writeAsStringSync('dependency');
 
-        await testIPhoneRuntime().frameworks.copyPluginLibraries([
-          aggregate.path,
-          dependency.path,
-        ], frameworks.path);
+        await testIPhoneRuntime().frameworks.copyPluginLibraries(
+          [
+            SwiftPmDynamicProduct(
+              libraryPath: aggregate.path,
+              packageIdentity: null,
+            ),
+            SwiftPmDynamicProduct(
+              libraryPath: dependency.path,
+              packageIdentity: 'dependency-1.0.0',
+              minimumOsVersion: '13.0',
+            ),
+          ],
+          frameworks.path,
+          infoPlist: (product) => swiftPmDynamicProductInfoPlist(
+            product,
+            deploymentTarget: '15.0',
+            device: true,
+          ),
+        );
 
         expect(
           File(
-            p.join(frameworks.path, p.basename(aggregate.path)),
+            p.join(frameworks.path, 'Aggregate.framework', 'Aggregate'),
           ).readAsStringSync(),
           'aggregate',
         );
         expect(
           File(
-            p.join(frameworks.path, p.basename(dependency.path)),
+            p.join(frameworks.path, 'Dependency.framework', 'Dependency'),
           ).readAsStringSync(),
           'dependency',
+        );
+        final plist = File(
+          p.join(frameworks.path, 'Dependency.framework', 'Info.plist'),
+        ).readAsStringSync();
+        expect(plist, contains('<string>dependency-1.0.0.Dependency</string>'));
+        expect(plist, contains('<string>FMWK</string>'));
+        expect(plist, contains('<string>13.0</string>'));
+        expect(
+          File(
+            p.join(frameworks.path, 'Aggregate.framework', 'Info.plist'),
+          ).readAsStringSync(),
+          allOf(
+            contains('<string>aggregate.Aggregate</string>'),
+            contains('<string>15.0</string>'),
+          ),
+        );
+        expect(
+          frameworks.listSync().where((e) => e.path.endsWith('.dylib')),
+          isEmpty,
         );
       } finally {
         await _deleteTemp(tmp);
