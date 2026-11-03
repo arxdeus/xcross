@@ -1,6 +1,8 @@
 import 'dart:typed_data';
 
 import 'package:meta/meta.dart';
+import 'package:xcross/src/shared/apple/interface_builder/xib_nib_builder.dart';
+import 'package:xml/xml.dart';
 
 /// The result of compiling one `.xib`: the `.nib` `ibtool --compile` writes,
 /// or the reasons it could not be reproduced faithfully.
@@ -33,7 +35,19 @@ final class XibCompiler {
     String xml, {
     required String module,
     required String deploymentTarget,
-  }) => const XibCompilation.unsupported([
-    'xib compilation is not implemented yet',
-  ]);
+  }) {
+    final XmlDocument document;
+    try {
+      document = XmlDocument.parse(xml);
+    } on XmlException catch (e) {
+      return XibCompilation.unsupported(['malformed xib: ${e.message}']);
+    }
+    try {
+      return XibCompilation.compiled(XibNibBuilder(document, module).build());
+    } on XibUnsupported catch (e) {
+      return XibCompilation.unsupported([e.reason]);
+    } on FormatException catch (e) {
+      return XibCompilation.unsupported(['malformed value: ${e.message}']);
+    }
+  }
 }
