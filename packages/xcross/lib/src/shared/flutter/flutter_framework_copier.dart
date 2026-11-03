@@ -160,366 +160,366 @@ final class FlutterFrameworkCopier {
   }) async {
     final copied = <String>[];
     for (final resourceBundle in bundles) {
-      final bundle = resourceBundle.bundlePath;
-      final destination = paths.join(bundleDir, paths.basename(bundle));
+      final destination = paths.join(
+        bundleDir,
+        paths.basename(resourceBundle.bundlePath),
+      );
       if (fileSystem.directory(destination).existsSync()) continue;
+      final plan = planResourceBundle(resourceBundle, warn: warn);
       await fileSystem.directory(destination).create(recursive: true);
-      final resources =
-          resourceBundle.resources ?? const <SwiftPmBundleResource>[];
-      final covered = {
-        for (final resource in resources) paths.normalize(resource.relative),
-      };
-      if (fileSystem.directory(bundle).existsSync()) {
-        await _copyGenerated(bundle, destination, null, covered, warn);
-        if (resourceBundle.resources == null) {
-          await _compileInterfaceFiles(destination, resourceBundle, warn);
-        }
-      }
-      for (final resource in resources) {
-        final target = paths.join(destination, resource.relative);
-        await _copyFromSource(
-          resource.source,
-          target,
-          bundleRoot: destination,
-          warn: warn,
-        );
-        if (!resourceBundle.isCopiedVerbatim(resource, paths) &&
-            fileSystem.file(target).existsSync() &&
-            !fileSystem.link(target).existsSync()) {
-          await _compileInterfaceFile(target, resourceBundle, warn);
-        }
-      }
-      final plist = fileSystem.file(paths.join(destination, 'Info.plist'));
+      await _execute(
+        plan,
+        destination,
+        resourceBundle,
+        warn,
+        skipInfoPlist: infoPlist != null,
+      );
       if (infoPlist != null) {
-        final region = plist.existsSync()
-            ? swiftPmDevelopmentRegion(plist.readAsStringSync())
+        final generated = plan['Info.plist'];
+        final region = generated is BundleFile
+            ? swiftPmDevelopmentRegion(
+                fileSystem.file(generated.source).readAsStringSync(),
+              )
             : null;
-        await plist.writeAsString(infoPlist(resourceBundle, region ?? 'en'));
+        await fileSystem
+            .file(paths.join(destination, 'Info.plist'))
+            .writeAsString(infoPlist(resourceBundle, region ?? 'en'));
       }
       copied.add(destination);
     }
     return copied;
   }
 
-  /// Compiles every interface file under [directory] (a bundle copied
-  /// without a manifest).
-  Future<void> _compileInterfaceFiles(
-    String directory,
-    SwiftPmResourceBundle bundle,
+  /// The contents of [bundle] as [copyResourceBundles] writes them: every
+  /// bundle-relative destination mapped to what is written there, each
+  /// exactly once.
+  ///
+  /// It holds the files of the built bundle no declared resource covers
+  /// (all of it without a manifest), then every declared resource expanded
+  /// from its source; a resource replaces an earlier entry at the same path,
+  /// compared case-insensitively. Directories take the source casing
+  /// (`en_GB.lproj`, where `swift build` writes `en_gb.lproj`), so a built
+  /// file under a resource directory lands in the source-cased one.
+  /// Iteration order puts every directory before its contents.
+  Map<String, BundleEntry> planResourceBundle(
+    SwiftPmResourceBundle bundle, {
     void Function(String message)? warn,
-  ) async {
-    final files = <String>[];
-    await for (final entity
-        in fileSystem.directory(directory).list(followLinks: false)) {
-      if (fileSystem.link(entity.path).existsSync()) continue;
-      if (fileSystem.directory(entity.path).existsSync()) {
-        await _compileInterfaceFiles(entity.path, bundle, warn);
-      } else {
-        files.add(entity.path);
-      }
+  }) {
+    final plan = BundlePlan(paths);
+    final name = paths.basename(bundle.bundlePath);
+    final resources = bundle.resources;
+    if (fileSystem.directory(bundle.bundlePath).existsSync()) {
+      _planGenerated(
+        bundle.bundlePath,
+        null,
+        {
+          for (final resource in resources ?? const <SwiftPmBundleResource>[])
+            paths.normalize(resource.relative),
+        },
+        plan,
+        name: name,
+        compile: resources == null,
+        warn: warn,
+      );
     }
-    for (final file in files) {
-      await _compileInterfaceFile(file, bundle, warn);
+    for (final resource in resources ?? const <SwiftPmBundleResource>[]) {
+      _expand(
+        resource.source,
+        paths.normalize(resource.relative),
+        plan,
+        name: name,
+        fromSource: true,
+        compile: !bundle.isCopiedVerbatim(resource, paths),
+        warn: warn,
+        topLevel: true,
+        linkRoot: '',
+      );
+    }
+    return plan.build();
+  }
+
+  /// Plans what the built bundle holds outside the [covered] resources.
+  /// [prefix] is the bundle-relative path of [directory] (null at the root).
+  /// It is built from listed names rather than `paths.relative`, which on
+  /// Windows misses when the listing carries the `\\?\` long-path prefix
+  /// and the bundle path does not. A directory that only holds declared
+  /// resources is not planned itself: their source copies give it the
+  /// source casing.
+  void _planGenerated(
+    String directory,
+    String? prefix,
+    Set<String> covered,
+    BundlePlan plan, {
+    required String name,
+    required bool compile,
+    required void Function(String message)? warn,
+  }) {
+    for (final entity in _list(directory)) {
+      final entry = paths.basename(entity);
+      final relative = prefix == null ? entry : paths.join(prefix, entry);
+      final coverage = resourceCoverage(paths, relative, covered);
+      if (coverage == ResourceCoverage.covered) continue;
+      if (coverage == ResourceCoverage.holdsResource &&
+          !fileSystem.link(entity).existsSync() &&
+          fileSystem.directory(entity).existsSync()) {
+        _planGenerated(
+          entity,
+          relative,
+          covered,
+          plan,
+          name: name,
+          compile: compile,
+          warn: warn,
+        );
+        continue;
+      }
+      _expand(
+        entity,
+        relative,
+        plan,
+        name: name,
+        fromSource: false,
+        compile: compile,
+        warn: warn,
+        topLevel: true,
+        linkRoot: '',
+      );
     }
   }
 
-  /// Replaces the `.xib` at [path] with its `.nib`, as Xcode's
-  /// `CompileXIB` does, or leaves it with a warning when it cannot.
-  Future<void> _compileInterfaceFile(
+  static const _excluded = {'.DS_Store', 'CVS', '.svn', '.git', '.hg'};
+
+  /// Plans [path] at the bundle-relative [relative], the one link resolver
+  /// for sources and the built bundle alike.
+  ///
+  /// A [topLevel] link (a resource, or an entry of the built bundle) is
+  /// copied as its target, as Xcode's `builtin-copy -resolve-src-symlinks`
+  /// does. A link inside a copied directory stays a link when its relative
+  /// target stays within [linkRoot] (bundle-relative, `''` for the whole
+  /// bundle) and, for a source, resolves there; any other link is copied as
+  /// its target, because codesign and installd reject dangling links, and is
+  /// skipped with a warning when that target does not exist.
+  void _expand(
     String path,
+    String relative,
+    BundlePlan plan, {
+    required String name,
+    required bool fromSource,
+    required bool compile,
+    required void Function(String message)? warn,
+    required bool topLevel,
+    required String linkRoot,
+    Set<String>? visited,
+  }) {
+    var resolved = path;
+    final link = fileSystem.link(path);
+    if (link.existsSync()) {
+      final target = link.targetSync();
+      if (!topLevel &&
+          !paths.isAbsolute(target) &&
+          _staysWithin(linkRoot, paths.join(paths.dirname(relative), target)) &&
+          (!fromSource || _exists(path))) {
+        plan.add(relative, BundleLink(target, path), fromSource: fromSource);
+        return;
+      }
+      try {
+        resolved = fileSystem.file(path).resolveSymbolicLinksSync();
+      } on FileSystemException {
+        warn?.call(
+          'Skipping ${paths.basename(path)} in $name: it links to '
+          '$target, which does not exist.',
+        );
+        return;
+      }
+    }
+    if (fileSystem.directory(resolved).existsSync()) {
+      visited ??= <String>{};
+      // A link cycle (a directory linking to an ancestor) would never end.
+      final canonical = fileSystem
+          .directory(resolved)
+          .resolveSymbolicLinksSync();
+      if (!visited.add(canonical)) {
+        warn?.call(
+          'Skipping ${paths.basename(path)} in $name: its links '
+          'form a cycle.',
+        );
+        return;
+      }
+      plan.add(relative, const BundleDirectory(), fromSource: fromSource);
+      for (final child in _list(resolved)) {
+        final entry = paths.basename(child);
+        if (fromSource && _excluded.contains(entry)) continue;
+        _expand(
+          child,
+          paths.join(relative, entry),
+          plan,
+          name: name,
+          fromSource: fromSource,
+          // A resource directory is copied verbatim; a built bundle is
+          // compiled throughout when there is no manifest.
+          compile: compile && !fromSource,
+          warn: warn,
+          topLevel: false,
+          // A built directory reached through a link is copied as-is, so
+          // links inside it are judged against that directory.
+          linkRoot: !fromSource && resolved != path ? relative : linkRoot,
+          visited: visited,
+        );
+      }
+      visited.remove(canonical);
+    } else if (fileSystem.file(resolved).existsSync()) {
+      plan.add(
+        relative,
+        BundleFile(resolved, compile: compile),
+        fromSource: fromSource,
+      );
+    } else if (fromSource && topLevel) {
+      warn?.call(
+        'Skipping ${paths.basename(path)} in $name: $path does '
+        'not exist.',
+      );
+    }
+  }
+
+  bool _staysWithin(String root, String relative) {
+    const anchor = 'bundle';
+    return paths.isWithin(
+      paths.normalize(paths.join(anchor, root)),
+      paths.normalize(paths.join(anchor, relative)),
+    );
+  }
+
+  bool _exists(String path) =>
+      fileSystem.file(path).existsSync() ||
+      fileSystem.directory(path).existsSync();
+
+  List<String> _list(String directory) => [
+    for (final entity
+        in fileSystem.directory(directory).listSync(followLinks: false))
+      entity.path,
+  ]..sort();
+
+  /// Writes every [plan] entry under [destination], once each.
+  Future<void> _execute(
+    Map<String, BundleEntry> plan,
+    String destination,
+    SwiftPmResourceBundle bundle,
+    void Function(String message)? warn, {
+    required bool skipInfoPlist,
+  }) async {
+    for (final MapEntry(key: relative, value: entry) in plan.entries) {
+      final target = paths.join(destination, relative);
+      if (entry is! BundleDirectory &&
+          (fileSystem.link(target).existsSync() ||
+              fileSystem.file(target).existsSync())) {
+        // The plan maps each path once; reaching an existing entry means a
+        // case collision slipped through, which a copy would silently hide.
+        throw StateError('$target is planned twice.');
+      }
+      switch (entry) {
+        case BundleDirectory():
+          await fileSystem.directory(target).create(recursive: true);
+        case BundleFile(:final source, :final compile):
+          if (skipInfoPlist && relative == 'Info.plist') continue;
+          await fileSystem
+              .directory(paths.dirname(target))
+              .create(recursive: true);
+          if (compile) {
+            await _compileInterfaceFile(source, target, bundle, warn);
+          } else {
+            await fileSystem.file(source).copy(fileSystem.file(target).path);
+          }
+        case BundleLink(target: final linkTarget, :final source):
+          await fileSystem
+              .directory(paths.dirname(target))
+              .create(recursive: true);
+          try {
+            await fileSystem.link(target).create(linkTarget);
+          } on FileSystemException {
+            // No symlink rights (Windows): copy what it points at instead,
+            // which keeps the content identical.
+            final fallback = BundlePlan(paths);
+            _expand(
+              source,
+              paths.basename(target),
+              fallback,
+              name: paths.basename(destination),
+              fromSource: false,
+              compile: false,
+              warn: warn,
+              topLevel: true,
+              linkRoot: '',
+            );
+            await _execute(
+              fallback.build(),
+              paths.dirname(target),
+              bundle,
+              warn,
+              skipInfoPlist: false,
+            );
+          }
+      }
+    }
+  }
+
+  /// Writes the `.nib` of the `.xib` at [source] next to [target], as
+  /// Xcode's `CompileXIB` does, or copies it there with a warning when it
+  /// cannot.
+  Future<void> _compileInterfaceFile(
+    String source,
+    String target,
     SwiftPmResourceBundle bundle,
     void Function(String message)? warn,
   ) async {
-    final extension = paths.extension(path).toLowerCase();
+    Future<void> copy() =>
+        fileSystem.file(source).copy(fileSystem.file(target).path);
+    final extension = paths.extension(target).toLowerCase();
     final name = paths.basename(bundle.bundlePath);
     if (extension == '.storyboard') {
       warn?.call(
-        'storyboard ${paths.basename(path)} in bundle $name is copied '
+        'storyboard ${paths.basename(target)} in bundle $name is copied '
         'uncompiled.',
       );
+      await copy();
       return;
     }
-    if (extension != '.xib') return;
-    final file = fileSystem.file(path);
+    if (extension != '.xib') {
+      await copy();
+      return;
+    }
     final XibCompilation result;
     try {
       result = compileXib(
-        await file.readAsString(),
+        await fileSystem.file(source).readAsString(),
         module:
             bundle.moduleName ??
             paths.basenameWithoutExtension(name).split('_').last,
         deploymentTarget: bundle.minimumOsVersion ?? swiftPmOldestIosVersion,
       );
     } on Object catch (error) {
-      warn?.call('Copying ${paths.basename(path)} in $name uncompiled: $error');
+      warn?.call(
+        'Copying ${paths.basename(target)} in $name uncompiled: $error',
+      );
+      await copy();
       return;
     }
     final nib = result.nib;
     if (nib == null) {
       warn?.call(
-        'Copying ${paths.basename(path)} in $name uncompiled: '
+        'Copying ${paths.basename(target)} in $name uncompiled: '
         '${result.unsupported.join(', ')}.',
       );
+      await copy();
       return;
     }
-    final output = fileSystem.file(
-      paths.join(
-        paths.dirname(path),
-        '${paths.basenameWithoutExtension(path)}.nib',
-      ),
-    );
-    if (output.existsSync()) await output.delete();
-    await output.writeAsBytes(nib);
-    await file.delete();
-  }
-
-  static const _excluded = {'.DS_Store', 'CVS', '.svn', '.git', '.hg'};
-
-  /// Copies what the built bundle holds outside the [covered] resources.
-  /// [prefix] is the bundle-relative path of [directory] (null at the root).
-  /// It is built from listed names rather than `paths.relative`, which on
-  /// Windows misses when the listing carries the `\\?\` long-path prefix
-  /// and the bundle path does not.
-  ///
-  /// Without a manifest (`covered` empty) the built bundle's `.lproj`
-  /// directories keep the lowercase names `swift build` gave them
-  /// (`en_gb.lproj` where Xcode ships `en_GB.lproj`): the source casing is
-  /// only recoverable from the manifest's `copy-tool` inputs (see
-  /// `restoreLprojCasing`).
-  Future<void> _copyGenerated(
-    String directory,
-    String destination,
-    String? prefix,
-    Set<String> covered,
-    void Function(String message)? warn, {
-    String? bundle,
-  }) async {
-    bundle ??= directory;
-    await for (final entity
-        in fileSystem.directory(directory).list(followLinks: false)) {
-      final name = paths.basename(entity.path);
-      final relative = prefix == null ? name : paths.join(prefix, name);
-      final coverage = resourceCoverage(paths, relative, covered);
-      if (coverage == ResourceCoverage.covered) continue;
-      final target = paths.join(destination, name);
-      if (coverage == ResourceCoverage.holdsResource &&
-          !fileSystem.link(entity.path).existsSync() &&
-          fileSystem.directory(entity.path).existsSync()) {
-        // Not created here: a directory that only holds declared resources
-        // is created by their source copies, with the source casing
-        // (`en_GB.lproj`). Creating the built name (`en_gb.lproj`) first
-        // would win on a case-insensitive file system (macOS, Windows) and
-        // leave two directories on Linux.
-        await _copyGenerated(
-          entity.path,
-          target,
-          relative,
-          covered,
-          warn,
-          bundle: bundle,
-        );
-        continue;
-      }
-      await fileSystem.directory(destination).create(recursive: true);
-      await _copyResource(
-        entity.path,
-        target,
-        bundleRoot: bundle,
-        topLevel: true,
-        warn: warn,
-      );
-    }
-  }
-
-  /// Copies one declared resource from its [source] like Xcode's
-  /// `builtin-copy -resolve-src-symlinks`.
-  Future<void> _copyFromSource(
-    String source,
-    String destination, {
-    required String bundleRoot,
-    required void Function(String message)? warn,
-  }) async {
-    var path = source;
-    if (fileSystem.link(source).existsSync()) {
-      try {
-        path = fileSystem.file(source).resolveSymbolicLinksSync();
-      } on FileSystemException {
-        warn?.call(
-          'Skipping ${paths.basename(source)} in '
-          '${paths.basename(bundleRoot)}: it links to '
-          '${fileSystem.link(source).targetSync()}, which does not exist.',
-        );
-        return;
-      }
-    }
-    if (fileSystem.directory(path).existsSync()) {
-      await _copySourceDirectory(
-        path,
-        destination,
-        bundleRoot: bundleRoot,
-        warn: warn,
-        visited: {fileSystem.directory(path).resolveSymbolicLinksSync()},
-      );
-    } else if (fileSystem.file(path).existsSync()) {
-      await fileSystem
-          .directory(paths.dirname(destination))
-          .create(recursive: true);
-      await _copyFile(path, destination);
-    } else {
-      warn?.call(
-        'Skipping ${paths.basename(source)} in '
-        '${paths.basename(bundleRoot)}: $source does not exist.',
-      );
-    }
-  }
-
-  Future<void> _copySourceDirectory(
-    String source,
-    String destination, {
-    required String bundleRoot,
-    required void Function(String message)? warn,
-    required Set<String> visited,
-  }) async {
-    await fileSystem.directory(destination).create(recursive: true);
-    await for (final entity
-        in fileSystem.directory(source).list(followLinks: false)) {
-      final name = paths.basename(entity.path);
-      if (_excluded.contains(name)) continue;
-      final target = paths.join(destination, name);
-      var path = entity.path;
-      if (fileSystem.link(path).existsSync()) {
-        final linkTarget = fileSystem.link(path).targetSync();
-        final inBundle =
-            !paths.isAbsolute(linkTarget) &&
-            paths.isWithin(
-              bundleRoot,
-              paths.normalize(paths.join(destination, linkTarget)),
-            );
-        final resolvesAtSource =
-            fileSystem.file(path).existsSync() ||
-            fileSystem.directory(path).existsSync();
-        if (inBundle && resolvesAtSource) {
-          try {
-            await fileSystem.link(target).create(linkTarget);
-            continue;
-          } on FileSystemException {
-            // No symlink rights (Windows): copy what it points at instead.
-          }
-        }
-        try {
-          path = fileSystem.file(path).resolveSymbolicLinksSync();
-        } on FileSystemException {
-          warn?.call(
-            'Skipping $name in ${paths.basename(bundleRoot)}: it links to '
-            '$linkTarget, which does not exist.',
-          );
-          continue;
-        }
-      }
-      if (fileSystem.directory(path).existsSync()) {
-        final canonical = fileSystem.directory(path).resolveSymbolicLinksSync();
-        if (!visited.add(canonical)) {
-          warn?.call(
-            'Skipping $name in ${paths.basename(bundleRoot)}: its links form '
-            'a cycle.',
-          );
-          continue;
-        }
-        await _copySourceDirectory(
-          path,
-          target,
-          bundleRoot: bundleRoot,
-          warn: warn,
-          visited: visited,
-        );
-        visited.remove(canonical);
-      } else if (fileSystem.file(path).existsSync()) {
-        await _copyFile(path, target);
-      }
-    }
-  }
-
-  Future<void> _copyResource(
-    String source,
-    String destination, {
-    required String bundleRoot,
-    required bool topLevel,
-    required void Function(String message)? warn,
-    Set<String>? visited,
-  }) async {
-    visited ??= <String>{};
-    var path = source;
-    if (fileSystem.link(source).existsSync()) {
-      final target = fileSystem.link(source).targetSync();
-      final resolved = paths.normalize(
-        paths.isAbsolute(target)
-            ? target
-            : paths.join(paths.dirname(source), target),
-      );
-      final staysInBundle =
-          !paths.isAbsolute(target) && paths.isWithin(bundleRoot, resolved);
-      if (!topLevel && staysInBundle) {
-        try {
-          await fileSystem.link(destination).create(target);
-          return;
-        } on FileSystemException {
-          // A Windows host without symlink rights: fall through and copy
-          // what the link points at, which keeps the content identical.
-        }
-      }
-      if (!fileSystem.file(resolved).existsSync() &&
-          !fileSystem.directory(resolved).existsSync()) {
-        warn?.call(
-          'Skipping ${paths.basename(source)} in '
-          '${paths.basename(bundleRoot)}: it links to $target, which does '
-          'not exist.',
-        );
-        return;
-      }
-      path = resolved;
-    }
-    if (fileSystem.directory(path).existsSync()) {
-      // A link cycle (a directory linking to an ancestor) would never end.
-      final canonical = fileSystem.directory(path).resolveSymbolicLinksSync();
-      if (!visited.add(canonical)) {
-        warn?.call(
-          'Skipping ${paths.basename(source)} in '
-          '${paths.basename(bundleRoot)}: its links form a cycle.',
-        );
-        return;
-      }
-      await fileSystem.directory(destination).create(recursive: true);
-      await for (final entity
-          in fileSystem.directory(path).list(followLinks: false)) {
-        await _copyResource(
-          entity.path,
-          paths.join(destination, paths.basename(entity.path)),
-          // A directory reached through a link is copied as-is, so links
-          // inside it are judged against that directory, not the bundle.
-          bundleRoot: path == source ? bundleRoot : path,
-          topLevel: false,
-          warn: warn,
-          visited: visited,
-        );
-      }
-      visited.remove(canonical);
-    } else if (fileSystem.file(path).existsSync()) {
-      await _copyFile(path, destination);
-    }
-  }
-
-  /// Copies a file over whatever [destination] holds. `File.copy` replaces
-  /// an existing file on POSIX but throws `PathExistsException` on Windows;
-  /// a resource copied from source must replace a generated copy (the
-  /// source wins, as in Xcode).
-  Future<void> _copyFile(String source, String destination) async {
-    final existing = fileSystem.file(destination);
-    if (fileSystem.link(destination).existsSync()) {
-      await fileSystem.link(destination).delete();
-    } else if (existing.existsSync()) {
-      await existing.delete();
-    }
-    await fileSystem.file(source).copy(existing.path);
+    await fileSystem
+        .file(
+          paths.join(
+            paths.dirname(target),
+            '${paths.basenameWithoutExtension(target)}.nib',
+          ),
+        )
+        .writeAsBytes(nib);
   }
 }
 
@@ -558,4 +558,133 @@ ResourceCoverage resourceCoverage(
     return ResourceCoverage.holdsResource;
   }
   return ResourceCoverage.none;
+}
+
+/// What [FlutterFrameworkCopier.planResourceBundle] writes at one
+/// bundle-relative path.
+@internal
+@immutable
+sealed class BundleEntry {
+  const BundleEntry();
+}
+
+/// A directory.
+@internal
+final class BundleDirectory extends BundleEntry {
+  const BundleDirectory();
+
+  @override
+  bool operator ==(Object other) => other is BundleDirectory;
+
+  @override
+  int get hashCode => (BundleDirectory).hashCode;
+
+  @override
+  String toString() => 'BundleDirectory()';
+}
+
+/// A copy of [source], or, when [compile] is set and it is an interface
+/// file, what Xcode compiles it into.
+@internal
+final class BundleFile extends BundleEntry {
+  const BundleFile(this.source, {this.compile = false});
+
+  final String source;
+  final bool compile;
+
+  @override
+  bool operator ==(Object other) =>
+      other is BundleFile && other.source == source && other.compile == compile;
+
+  @override
+  int get hashCode => Object.hash(source, compile);
+
+  @override
+  String toString() => 'BundleFile($source, compile: $compile)';
+}
+
+/// A link to the relative [target], made from the link at [source] (whose
+/// target is copied instead where links cannot be created).
+@internal
+final class BundleLink extends BundleEntry {
+  const BundleLink(this.target, this.source);
+
+  final String target;
+  final String source;
+
+  @override
+  bool operator ==(Object other) =>
+      other is BundleLink && other.target == target && other.source == source;
+
+  @override
+  int get hashCode => Object.hash(target, source);
+
+  @override
+  String toString() => 'BundleLink($target, $source)';
+}
+
+/// Collects the entries of a bundle plan, keyed case-insensitively.
+@internal
+final class BundlePlan {
+  BundlePlan(this.paths);
+
+  final p.Context paths;
+  final _entries = <String, (String, BundleEntry, bool)>{};
+
+  /// Plans [entry] at [relative], replacing what an earlier entry planned
+  /// at the same path in any casing.
+  void add(String relative, BundleEntry entry, {required bool fromSource}) {
+    final key = _fold(relative);
+    _entries.remove(key);
+    _entries[key] = (relative, entry, fromSource);
+  }
+
+  String _fold(String relative) =>
+      paths.split(paths.normalize(relative)).join('/').toLowerCase();
+
+  /// The planned entries, every directory before its contents and every
+  /// path in one casing: a directory takes the casing a source entry gave
+  /// it (`en_GB.lproj`), else the first one planned.
+  Map<String, BundleEntry> build() {
+    final casing = <String, String>{};
+    for (final pass in [true, false]) {
+      for (final (relative, _, fromSource) in _entries.values) {
+        if (fromSource != pass) continue;
+        final parts = paths.split(paths.normalize(relative));
+        for (var i = 1; i <= parts.length; i++) {
+          casing.putIfAbsent(
+            parts.take(i).join('/').toLowerCase(),
+            () => parts[i - 1],
+          );
+        }
+      }
+    }
+    String cased(String key) {
+      final parts = key.split('/');
+      return paths.joinAll([
+        for (var i = 1; i <= parts.length; i++)
+          casing[parts.take(i).join('/')]!,
+      ]);
+    }
+
+    final keys = {
+      for (final key in _entries.keys) ...[
+        for (var i = key.indexOf('/'); i != -1; i = key.indexOf('/', i + 1))
+          key.substring(0, i),
+        key,
+      ],
+    }.toList()..sort((a, b) => _compare(a.split('/'), b.split('/')));
+    return {
+      for (final key in keys)
+        cased(key): _entries[key]?.$2 ?? const BundleDirectory(),
+    };
+  }
+
+  static int _compare(List<String> a, List<String> b) {
+    for (var i = 0; i < a.length && i < b.length; i++) {
+      final order = a[i].compareTo(b[i]);
+      if (order != 0) return order;
+    }
+    return a.length.compareTo(b.length);
+  }
 }
