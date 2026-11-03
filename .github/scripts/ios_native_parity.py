@@ -400,8 +400,11 @@ class Comparer:
                     self.add(WARNING, "assets", rel, "extra asset in cross: %s" % k)
                 for k in sorted(set(na) & set(ca)):
                     if na[k] != ca[k]:
-                        self.add(WARNING, "assets", rel, "asset %s differs: native %s, cross %s"
-                                 % (k, _short(na[k]), _short(ca[k])))
+                        diff = {sk: (na[k].get(sk), ca[k].get(sk))
+                                for sk in sorted(set(na[k]) | set(ca[k]))
+                                if na[k].get(sk) != ca[k].get(sk)}
+                        self.add(WARNING, "assets", rel, "asset %s differs (native, cross): %s"
+                                 % (k, _short(diff)))
                 return
         self.add(INFO, "assets", rel, "bytes differ (native %d B, cross %d B); "
                  "assetutil unavailable" % (len(nd), len(cd)))
@@ -428,9 +431,12 @@ class Comparer:
                              ("sdk", INFO)):
                 if n[key] != c[key]:
                     if isinstance(n[key], list):
-                        msg = "%s: missing %s, extra %s" % (
-                            key, sorted(set(n[key]) - set(c[key])),
-                            sorted(set(c[key]) - set(n[key])))
+                        miss = sorted(set(n[key]) - set(c[key]))
+                        extra = sorted(set(c[key]) - set(n[key]))
+                        short = (lambda x: x) if key == "rpaths" else os.path.basename
+                        msg = "%s: %d missing %s, %d extra %s" % (
+                            key, len(miss), [short(x) for x in miss],
+                            len(extra), [short(x) for x in extra])
                     else:
                         msg = "%s: native %s, cross %s" % (key, n[key], c[key])
                     self.add(sev, "macho", tag, msg)
@@ -489,7 +495,7 @@ def _assetutil(root, rel):
         return None
 
 
-_ASSET_VOLATILE = {"Timestamp", "SHA1Digest", "SizeOnDisk", "Authoring Tool",
+_ASSET_VOLATILE = {"Timestamp", "SHA1Digest", "SizeOnDisk", "NameIdentifier", "Authoring Tool",
                    "CoreUIVersion", "DumpToolVersion", "MainVersion", "SchemaVersion",
                    "StorageVersion", "ThinningParameters", "Key Format",
                    "AssetStorageVersion", "Platform", "PlatformVersion"}

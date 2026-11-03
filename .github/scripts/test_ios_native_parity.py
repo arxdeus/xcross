@@ -153,7 +153,7 @@ class ParityTest(unittest.TestCase):
         self.assertIn("aps-environment", text)
         self.assertIn("App.framework/App", text)
         self.assertIn("stub", text)
-        self.assertIn("@rpath/App.framework/App", text)
+        self.assertIn("dylibs: 1 missing ['App']", text)
         errs = {(c, p.split(" ")[0]) for s, c, p, _ in msgs if s == P.ERROR}
         self.assertIn(("bytes", "PrivacyInfo.xcprivacy"), errs)
         self.assertIn(("inventory",
