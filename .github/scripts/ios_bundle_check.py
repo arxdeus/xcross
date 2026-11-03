@@ -110,7 +110,7 @@ def entitlements_from_superblob(blob):
 
 
 def check(path, entitlements=(), launch_image=None, icon=None,
-          private_keys_absent=False, expect_bundle_files=()):
+          private_keys_absent=False, expect_bundle_files=(), no_ib_sources=False):
     errors, notes = [], []
     b = Bundle(path)
     try:
@@ -190,11 +190,12 @@ def check(path, entitlements=(), launch_image=None, icon=None,
         except Exception as e:
             errors.append(f"entitlements unreadable in {exe}: {e}")
 
-    errors.extend(check_resource_bundles(b, expect_bundle_files, notes))
+    errors.extend(check_resource_bundles(b, expect_bundle_files, notes,
+                                           no_ib_sources))
     return errors, notes
 
 
-def check_resource_bundles(b, expect_bundle_files, notes):
+def check_resource_bundles(b, expect_bundle_files, notes, no_ib_sources=False):
     """Top-level `*.bundle` resource bundles must look like Xcode's: a BNDL
     Info.plist and no symlink that leaves the bundle or dangles."""
     errors = []
@@ -223,6 +224,28 @@ def check_resource_bundles(b, expect_bundle_files, notes):
             errors.append(f"{link} links outside its bundle: {target}")
         elif not b.exists(resolved):
             errors.append(f"{link} is a dangling link: {target}")
+    if no_ib_sources:
+        for n in b.names:
+            if n.split("/", 1)[0] in bundles and n.endswith((".xib", ".storyboard")):
+                errors.append(f"{n} is uncompiled Interface Builder source")
+    dir_nibs = {}
+    for n in b.names:
+        top = n.split("/", 1)[0]
+        if top not in bundles:
+            continue
+        m = re.match(r"(.*?\.nib)/(.+)", n)
+        if m:
+            dir_nibs.setdefault(m.group(1), []).append(m.group(2))
+        elif n.endswith(".nib"):
+            data = b.read(n)
+            if not data:
+                errors.append(f"{n} is empty")
+            elif not data.startswith(b"NIBArchive"):
+                errors.append(f"{n} lacks the NIBArchive magic")
+    for nib, inner in sorted(dir_nibs.items()):
+        if not any(i == "runtime.nib" or re.fullmatch(r"objects-.*\.nib", i)
+                   for i in inner):
+            errors.append(f"{nib} has no runtime.nib or objects-*.nib")
     for name in expect_bundle_files:
         if not b.has(name):
             errors.append(f"missing {name}")
@@ -278,10 +301,11 @@ def main(argv):
     p.add_argument("--expect-icon")
     p.add_argument("--no-private-keys", action="store_true")
     p.add_argument("--expect-bundle-file", nargs="*", default=[])
+    p.add_argument("--no-ib-sources", action="store_true")
     a = p.parse_args(argv)
     errors, notes = check(a.path, a.expect_entitlements, a.expect_launch_image,
                           a.expect_icon, a.no_private_keys,
-                          a.expect_bundle_file)
+                          a.expect_bundle_file, a.no_ib_sources)
     for n in notes:
         print(n)
     for e in errors:

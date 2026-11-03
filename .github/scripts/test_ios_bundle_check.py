@@ -114,6 +114,46 @@ class T(unittest.TestCase):
         self.assertIn("missing Gone_T.bundle/PrivacyInfo.xcprivacy", text)
         self.assertNotIn("Pkg_T.bundle has no Info.plist", text)
 
+    def ib_app(self, extra):
+        fs = files()
+        fs["P_T.bundle/Info.plist"] = plistlib.dumps(
+            {"CFBundlePackageType": "BNDL", "CFBundleIdentifier": "p.T"})
+        fs.update(extra)
+        return fs
+
+    def test_ib_sources_and_nibs(self):
+        fs = self.ib_app({
+            "P_T.bundle/A.nib": b"NIBArchive\x01\x00",
+            "P_T.bundle/B.xib": b"<xml/>",
+            "P_T.bundle/C.storyboard": b"<xml/>",
+            "P_T.bundle/Bad.nib": b"junk",
+            "P_T.bundle/Empty.nib": b"",
+            "P_T.bundle/Dir.nib/runtime.nib": b"x",
+            "P_T.bundle/BadDir.nib/other": b"x",
+        })
+        d = self.app(fs)
+        text = "\n".join(c.check(d, no_ib_sources=True)[0])
+        self.assertIn("B.xib is uncompiled", text)
+        self.assertIn("C.storyboard is uncompiled", text)
+        self.assertIn("Bad.nib lacks the NIBArchive magic", text)
+        self.assertIn("Empty.nib is empty", text)
+        self.assertIn("BadDir.nib has no runtime.nib", text)
+        self.assertNotIn("A.nib", text)
+        self.assertNotIn("Dir.nib/", text.replace("BadDir.nib", ""))
+        # opt-in: without the flag the xib is tolerated
+        self.assertNotIn("uncompiled", "\n".join(c.check(d)[0]))
+
+    def test_ib_checks_in_ipa(self):
+        fs = self.ib_app({"P_T.bundle/A.nib": b"NIBArchive\x01",
+                          "P_T.bundle/B.xib": b"<xml/>"})
+        z = os.path.join(tempfile.mkdtemp(), "a.ipa")
+        with zipfile.ZipFile(z, "w") as zf:
+            for n, v in fs.items():
+                zf.writestr("Payload/Runner.app/" + n, v)
+        errors, _ = c.check(z, no_ib_sources=True)
+        self.assertEqual([e for e in errors if "Interface Builder" in e],
+                         ["P_T.bundle/B.xib is uncompiled Interface Builder source"])
+
     def test_add_entitlements(self):
         d = tempfile.mkdtemp()
         os.makedirs(os.path.join(d, "Runner"))

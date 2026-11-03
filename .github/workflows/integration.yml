@@ -651,7 +651,11 @@ jobs:
           check() { python3 "$GITHUB_WORKSPACE/.github/scripts/ios_bundle_check.py" "$1" \
             --expect-icon AppIcon --expect-launch-image LaunchImage \
             --expect-entitlements aps-environment com.apple.developer.associated-domains --no-private-keys \
-            --expect-bundle-file SDWebImage_SDWebImage.bundle/PrivacyInfo.xcprivacy; }
+            --no-ib-sources \
+            --expect-bundle-file SDWebImage_SDWebImage.bundle/PrivacyInfo.xcprivacy \
+            google_mobile_ads_google_mobile_ads.bundle/GADTSmallTemplateView.nib \
+            google_mobile_ads_google_mobile_ads.bundle/GADTMediumTemplateView.nib \
+            google_mobile_ads_google_mobile_ads.bundle/GADTFullScreenTemplateView.nib; }
           apps=(build/xcross-ios/*.app)
           test "${#apps[@]}" -eq 1
           check "${apps[0]}"
@@ -672,7 +676,11 @@ jobs:
           function Check($path) {
             python $checker $path --expect-icon AppIcon --expect-launch-image LaunchImage `
               --expect-entitlements aps-environment com.apple.developer.associated-domains --no-private-keys `
-              --expect-bundle-file SDWebImage_SDWebImage.bundle/PrivacyInfo.xcprivacy
+              --no-ib-sources `
+              --expect-bundle-file SDWebImage_SDWebImage.bundle/PrivacyInfo.xcprivacy `
+              google_mobile_ads_google_mobile_ads.bundle/GADTSmallTemplateView.nib `
+              google_mobile_ads_google_mobile_ads.bundle/GADTMediumTemplateView.nib `
+              google_mobile_ads_google_mobile_ads.bundle/GADTFullScreenTemplateView.nib
             if ($LASTEXITCODE -ne 0) { throw "Bundle check failed for $path" }
           }
           $apps = @(Get-ChildItem build/xcross-ios -Directory -Filter *.app)
@@ -1202,7 +1210,11 @@ jobs:
           test "${#apps[@]}" -eq 1
           python3 .github/scripts/ios_bundle_check.py "${apps[0]}" \
             --expect-icon AppIcon --expect-launch-image LaunchImage \
-            --expect-bundle-file SDWebImage_SDWebImage.bundle/PrivacyInfo.xcprivacy
+            --no-ib-sources \
+            --expect-bundle-file SDWebImage_SDWebImage.bundle/PrivacyInfo.xcprivacy \
+            google_mobile_ads_google_mobile_ads.bundle/GADTSmallTemplateView.nib \
+            google_mobile_ads_google_mobile_ads.bundle/GADTMediumTemplateView.nib \
+            google_mobile_ads_google_mobile_ads.bundle/GADTFullScreenTemplateView.nib
           xcrun assetutil --info "${apps[0]}/Assets.car" > "$RUNNER_TEMP/assets.json"
           python3 - "$RUNNER_TEMP/assets.json" <<'PY'
           import json, sys
@@ -1217,6 +1229,42 @@ jobs:
               assert kind in kinds, (kind, sorted(map(str, kinds)))
           print("assetutil ok:", sorted(n for n in names if n))
           PY
+
+      - name: Compare cross-built nibs with ibtool output
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          apps=("$RUNNER_TEMP/cross-built/"*.app)
+          test "${#apps[@]}" -eq 1
+          # The pub cache is absent on this runner, so fetch the exact
+          # google_mobile_ads version pinned by the example lockfile.
+          version="$(awk '/^  google_mobile_ads:$/{f=1} f&&/version:/{gsub(/"/,"",$2); print $2; exit}' examples/flutter_example/pubspec.lock)"
+          test -n "$version"
+          src="$RUNNER_TEMP/gma-src"
+          mkdir -p "$src"
+          curl -fsSL --retry 3 "https://pub.dev/api/archives/google_mobile_ads-${version}.tar.gz" \
+            | tar -xz -C "$src"
+          out="$RUNNER_TEMP/ibtool-out"
+          mkdir -p "$out"
+          bundle="${apps[0]}/google_mobile_ads_google_mobile_ads.bundle"
+          failed=0
+          for name in GADTSmallTemplateView GADTMediumTemplateView GADTFullScreenTemplateView; do
+            xib="$(find "$src" -name "$name.xib" | head -n 1)"
+            test -n "$xib" || { echo "::error::$name.xib not found in google_mobile_ads $version"; exit 1; }
+            xcrun ibtool --errors --warnings --module google_mobile_ads \
+              --target-device iphone --target-device ipad \
+              --minimum-deployment-target 13.0 --compile "$out/$name.nib" "$xib"
+            if ! cmp "$out/$name.nib" "$bundle/$name.nib"; then
+              echo "::error::NIB PARITY MISMATCH for $name.nib: cross-built output differs from ibtool ($(xcodebuild -version | tr '\n' ' '))"
+              echo "--- ibtool nib ---"; xxd "$out/$name.nib" | head -n 80
+              echo "--- cross-built nib ---"; xxd "$bundle/$name.nib" | head -n 80
+              failed=1
+            else
+              echo "nib parity ok: $name.nib"
+            fi
+          done
+          exit "$failed"
 
       - name: Boot install launch and observe cross-built Flutter example headlessly
         shell: bash
