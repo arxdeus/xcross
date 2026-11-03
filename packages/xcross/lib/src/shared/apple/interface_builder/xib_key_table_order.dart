@@ -6,8 +6,8 @@ import 'package:meta/meta.dart';
 /// them and writes the table by enumerating that dictionary, so the order
 /// is the bucket order of `__NSDictionaryM`: linear probing over a prime
 /// sized table, indexed by `CFHash` of the key, growing through
-/// `__NSDictionarySizes` whenever the count passes the matching entry of
-/// `__NSDictionaryCapacities` (both read from CoreFoundation).
+/// `__NSDictionarySizes` when the count passes one more than the matching
+/// entry of `__NSDictionaryCapacities` (both read from CoreFoundation).
 @internal
 final class XibKeyTableOrder {
   const XibKeyTableOrder._();
@@ -40,7 +40,9 @@ final class XibKeyTableOrder {
     for (final k in keys) {
       place(table, k);
       count++;
-      if (count > _capacities[level] || count >= table.length) {
+      // The encoder's table grows one insertion later than a plain
+      // dictionary would (checked against 351 ibtool archives).
+      if (count > _capacities[level] + 1 || count >= table.length) {
         level++;
         final grown = List<String?>.filled(_sizes[level], null);
         for (final x in table) {

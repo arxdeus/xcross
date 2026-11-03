@@ -997,7 +997,13 @@ final class XibNibBuilder {
       'selected': 4,
     };
     final content = <XibNode>[];
-    for (final s in _children(e, 'state')) {
+    final stateElements = _children(e, 'state').toList()
+      ..sort(
+        (a, b) => (states[a.getAttribute('key')] ?? -1).compareTo(
+          states[b.getAttribute('key')] ?? -1,
+        ),
+      );
+    for (final s in stateElements) {
       final state = states[s.getAttribute('key')];
       if (state == null) {
         throw XibUnsupported('button state ${s.getAttribute('key')}');

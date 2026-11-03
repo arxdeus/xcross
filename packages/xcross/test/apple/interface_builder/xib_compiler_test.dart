@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
@@ -15,7 +16,7 @@ final String _fixtures = p.join(
 );
 
 String _readXib(String name) =>
-    String.fromCharCodes(File(p.join(_fixtures, name)).readAsBytesSync());
+    utf8.decode(File(p.join(_fixtures, name)).readAsBytesSync());
 
 XibCompilation _compileFixture(String name) => const XibCompiler().compile(
   _readXib(name),
