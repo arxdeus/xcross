@@ -1243,10 +1243,13 @@ jobs:
           shopt -s nullglob
           apps=("$RUNNER_TEMP/cross-built/"*.app)
           test "${#apps[@]}" -eq 1
-          # The pub cache is absent on this runner, so fetch the exact
-          # google_mobile_ads version pinned by the example lockfile.
-          version="$(awk '/^  google_mobile_ads:$/{f=1} f&&/version:/{gsub(/"/,"",$2); print $2; exit}' examples/flutter_example/pubspec.lock)"
-          test -n "$version"
+          # The pub cache and the examples submodule are absent on this
+          # runner; the bundle identifier carries the plugin version Xcode
+          # would have used (google-mobile-ads-<version>.google-mobile-ads.resources).
+          bundle="${apps[0]}/google_mobile_ads_google_mobile_ads.bundle"
+          identifier="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$bundle/Info.plist")"
+          version="$(sed -nE 's/^google-mobile-ads-([0-9][^.]*\.[0-9]+\.[0-9]+[^.]*)\.google-mobile-ads\.resources$/\1/p' <<<"$identifier")"
+          test -n "$version" || { echo "::error::no google_mobile_ads version in $identifier"; exit 1; }
           src="$RUNNER_TEMP/gma-src"
           mkdir -p "$src"
           curl -fsSL --retry 3 "https://pub.dev/api/archives/google_mobile_ads-${version}.tar.gz" \
