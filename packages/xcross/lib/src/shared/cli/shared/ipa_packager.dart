@@ -4,6 +4,7 @@ import 'package:archive/archive_io.dart';
 import 'package:cli_kit/shared/platform/platform_host.dart';
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
+import 'package:xcross/src/shared/cli/shared/host_file_handle.dart';
 
 /// Groups `.ipa` packaging.
 @internal
@@ -37,7 +38,9 @@ final class IpaPackager {
         if (entity is File) entity,
     ]..sort((a, b) => a.path.compareTo(b.path));
 
-    final output = OutputFileStream(ipaPath);
+    final output = OutputFileStream.withFileHandle(
+      HostRandomAccessFileHandle.write(ipaFile),
+    );
     final encoder = ZipEncoder()..startEncode(output);
     try {
       for (final file in files) {
@@ -48,7 +51,9 @@ final class IpaPackager {
           ...paths.split(rel),
         ]);
         final stat = file.statSync();
-        final input = InputFileStream(file.path);
+        final input = InputFileStream.withFileHandle(
+          HostRandomAccessFileHandle.read(file),
+        );
         try {
           final entry = ArchiveFile.stream(entryName, input)
             ..mode = entryMode(stat.mode, await _header(file))
