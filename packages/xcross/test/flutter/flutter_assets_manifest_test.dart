@@ -5,8 +5,9 @@ import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 import 'package:xcross/src/shared/flutter/errors.dart';
 import 'package:xcross/src/shared/flutter/flutter_assets_compiler.dart';
+import 'package:xcross/src/shared/flutter/project/pubspec_info_reader.dart';
 
-import 'flutter_test_runtime.dart';
+import '../apple/support/native_test_file_system.dart';
 
 void main() {
   /// `AssetManifest.bin` written by `flutter build bundle` (Flutter 3.47) for
@@ -88,10 +89,12 @@ $appAssets''');
   }
 
   Future<(Map<String, List<String>>, String)> bundle() async {
-    final runtime = testIPhoneRuntime();
+    // The host's own file system and path style, so the test also runs on
+    // Windows (the iPhone test runtime is a Linux host).
+    const fileSystem = NativeTestFileSystem();
     final compiler = FlutterAssetsCompiler(
-      fileSystem: runtime.host.fileSystem,
-      paths: runtime.host.paths.context,
+      fileSystem: fileSystem,
+      paths: p.context,
       projectRoot: app,
       flutterRoot: p.join(tmp.path, 'flutter'),
     );
@@ -99,7 +102,7 @@ $appAssets''');
     Directory(out).createSync();
     final manifest = await compiler.copyPubspecAssets(
       out,
-      runtime.pubspecs.loadSync(app),
+      PubspecInfoReader(fileSystem, p.context).loadSync(app),
     );
     compiler.writeManifests(out, manifest, const []);
     return (manifest, out);
