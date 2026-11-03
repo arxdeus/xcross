@@ -1,4 +1,5 @@
 import 'package:meta/meta.dart';
+import 'package:xcross/src/shared/flutter/models/internal/pubspec_asset.dart';
 import 'package:xcross/src/shared/flutter/models/internal/pubspec_font.dart';
 import 'package:xcross/src/shared/flutter/models/internal/pubspec_shader.dart';
 
@@ -7,7 +8,7 @@ final class PubspecInfo {
   const PubspecInfo({
     required this.name,
     required this.usesMaterialDesign,
-    this.assets = const [],
+    this.assetEntries = const [],
     this.fonts = const [],
     this.shaders = const [],
     this.dependencies = const [],
@@ -56,9 +57,13 @@ final class PubspecInfo {
   /// `MaterialIcons-Regular.otf`).
   final bool usesMaterialDesign;
 
-  /// `flutter: assets:` entries, e.g. `assets/data.json` or `assets/images/`
+  /// `flutter: assets:` entries with their flavor, platform and transformer
+  /// settings.
+  final List<PubspecAsset> assetEntries;
+
+  /// `flutter: assets:` paths, e.g. `assets/data.json` or `assets/images/`
   /// (trailing slash = directory, non-recursive).
-  final List<String> assets;
+  List<String> get assets => [for (final entry in assetEntries) entry.path];
 
   /// `flutter: fonts:` entries.
   final List<PubspecFontFamily> fonts;

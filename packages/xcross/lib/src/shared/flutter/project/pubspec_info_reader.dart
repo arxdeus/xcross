@@ -2,6 +2,7 @@ import 'package:cli_kit/shared/platform/platform_host.dart';
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/shared/flutter/errors.dart';
+import 'package:xcross/src/shared/flutter/models/internal/pubspec_asset.dart';
 import 'package:xcross/src/shared/flutter/models/internal/pubspec_font.dart';
 import 'package:xcross/src/shared/flutter/models/internal/pubspec_shader.dart';
 import 'package:xcross/src/shared/flutter/models/pubspec_info.dart';
@@ -24,7 +25,7 @@ final class PubspecInfoReader {
     return PubspecInfo(
       name: name,
       usesMaterialDesign: flutter?['uses-material-design'] == true,
-      assets: _parseAssets(flutter?['assets']),
+      assetEntries: _parseAssets(flutter?['assets']),
       fonts: _parseFonts(flutter?['fonts']),
       shaders: _parseShaders(flutter?['shaders']),
       dependencies: _parseDependencies(projectRoot, doc['dependencies']),
@@ -51,17 +52,22 @@ final class PubspecInfoReader {
     return doc;
   }
 
-  /// `assets:` entries are either bare path strings or `{path: ..., flavor:
-  /// ...}` maps. Flavor/platform filtering isn't implemented — such assets are
-  /// always bundled (over-inclusion is harmless; under-inclusion isn't).
-  static List<String> _parseAssets(Object? node) {
+  /// `assets:` entries are either bare path strings or `{path, flavors,
+  /// platforms, transformers}` maps.
+  static List<PubspecAsset> _parseAssets(Object? node) {
     if (node is! YamlList) return const [];
     return [
       for (final entry in node)
         if (entry is String)
-          entry
+          PubspecAsset(path: entry)
         else if (entry is YamlMap)
-          ?_valueOf<String>(entry['path']),
+          if (_valueOf<String>(entry['path']) case final path?)
+            PubspecAsset(
+              path: path,
+              flavors: _strings(entry['flavors']),
+              platforms: _strings(entry['platforms']),
+              hasTransformers: entry['transformers'] != null,
+            ),
     ];
   }
 
