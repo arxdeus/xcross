@@ -85,12 +85,13 @@ final class StaticFrameworkStubs {
     String? sdkVersion,
   }) async {
     final frameworks = await discover(pluginLibraries);
-    return await embed(
+    final embedded = await embed(
       frameworks,
       frameworksDir,
       simulator: simulator,
       sdkVersion: sdkVersion,
     );
+    return embedded;
   }
 
   /// The trailing version of an SDK name (`26.5` of `iphoneos26.5`), or null.
