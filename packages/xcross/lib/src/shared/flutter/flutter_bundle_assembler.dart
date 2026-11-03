@@ -15,6 +15,7 @@ import 'package:xcross/src/shared/flutter/flutter_build_steps.dart';
 import 'package:xcross/src/shared/flutter/models/flutter/flutter_build_mode.dart';
 import 'package:xcross/src/shared/flutter/models/flutter/flutter_build_options.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/resource_manifest.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/static_framework_stubs.dart';
 import 'package:xcross/src/target/shared/flutter/xcode_build_metadata.dart';
 
 @internal
@@ -187,6 +188,18 @@ final class FlutterBundleAssembler<T extends PlatformHostInterface>
     await runtime.nativeAssetFrameworks.thinEmbedded(
       embedded,
       lipo: () => runtime.nativeTools.locateLlvmTool('llvm-lipo'),
+    );
+    // Static SwiftPM binary frameworks: Xcode embeds a stub of each so
+    // their privacy manifests and resource bundles ship.
+    await StaticFrameworkStubs(
+      fileSystem: runtime.host.fileSystem,
+      paths: runtime.host.paths.context,
+      copier: runtime.directoryCopier,
+    ).embedLinked(
+      pluginLibraries,
+      frameworksDir,
+      simulator: !sdkName.startsWith('iphoneos'),
+      sdkVersion: StaticFrameworkStubs.sdkVersionOf(sdkName),
     );
     // SwiftPM plugin resource bundles (privacy manifests and other
     // resources) sit in the app root, as Xcode embeds them.
