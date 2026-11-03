@@ -2021,6 +2021,9 @@ framework module FallbackKit {
     });
 
     test(
+      // The fixture runtime is the macOS host, which looks git up through
+      // /bin/sh; Windows CI covers the real path through --expect-lf.
+      testOn: '!windows',
       'restores repository bytes in a checkout made with core.autocrlf',
       () async {
         final source = p.join(tmp.path, 'source');
