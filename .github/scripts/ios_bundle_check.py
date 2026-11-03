@@ -110,7 +110,8 @@ def entitlements_from_superblob(blob):
 
 
 def check(path, entitlements=(), launch_image=None, icon=None,
-          private_keys_absent=False, expect_bundle_files=(), no_ib_sources=False):
+          private_keys_absent=False, expect_bundle_files=(), no_ib_sources=False,
+          expect_lf=()):
     errors, notes = [], []
     b = Bundle(path)
     try:
@@ -191,11 +192,12 @@ def check(path, entitlements=(), launch_image=None, icon=None,
             errors.append(f"entitlements unreadable in {exe}: {e}")
 
     errors.extend(check_resource_bundles(b, expect_bundle_files, notes,
-                                           no_ib_sources))
+                                           no_ib_sources, expect_lf))
     return errors, notes
 
 
-def check_resource_bundles(b, expect_bundle_files, notes, no_ib_sources=False):
+def check_resource_bundles(b, expect_bundle_files, notes, no_ib_sources=False,
+                           expect_lf=()):
     """Top-level `*.bundle` resource bundles must look like Xcode's: a BNDL
     Info.plist and no symlink that leaves the bundle or dangles."""
     errors = []
@@ -251,6 +253,12 @@ def check_resource_bundles(b, expect_bundle_files, notes, no_ib_sources=False):
             errors.append(f"missing {name}")
         elif not b.read(name):
             errors.append(f"{name} is empty")
+    if expect_lf:
+        # Upstream packages ship these as LF; a Windows checkout with
+        # core.autocrlf would turn them into CRLF, which Xcode never does.
+        for n in expect_lf:
+            if b.has(n) and b"\r\n" in b.read(n):
+                errors.append(f"{n} has CRLF line endings")
     notes.append(f"resource bundles: {len(bundles)}")
     return errors
 
@@ -302,10 +310,11 @@ def main(argv):
     p.add_argument("--no-private-keys", action="store_true")
     p.add_argument("--expect-bundle-file", nargs="*", default=[])
     p.add_argument("--no-ib-sources", action="store_true")
+    p.add_argument("--expect-lf", nargs="*", default=[])
     a = p.parse_args(argv)
     errors, notes = check(a.path, a.expect_entitlements, a.expect_launch_image,
                           a.expect_icon, a.no_private_keys,
-                          a.expect_bundle_file, a.no_ib_sources)
+                          a.expect_bundle_file, a.no_ib_sources, a.expect_lf)
     for n in notes:
         print(n)
     for e in errors:

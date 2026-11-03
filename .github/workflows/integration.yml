@@ -655,7 +655,10 @@ jobs:
             --expect-bundle-file SDWebImage_SDWebImage.bundle/PrivacyInfo.xcprivacy \
             google_mobile_ads_google_mobile_ads.bundle/GADTSmallTemplateView.nib \
             google_mobile_ads_google_mobile_ads.bundle/GADTMediumTemplateView.nib \
-            google_mobile_ads_google_mobile_ads.bundle/GADTFullScreenTemplateView.nib; }
+            google_mobile_ads_google_mobile_ads.bundle/GADTFullScreenTemplateView.nib \
+            --expect-lf GoogleSignIn_GoogleSignIn.bundle/en.lproj/GoogleSignIn.strings \
+            AppAuth_AppAuth.bundle/PrivacyInfo.xcprivacy \
+            SDWebImage_SDWebImage.bundle/PrivacyInfo.xcprivacy; }
           apps=(build/xcross-ios/*.app)
           test "${#apps[@]}" -eq 1
           check "${apps[0]}"
@@ -680,7 +683,10 @@ jobs:
               --expect-bundle-file SDWebImage_SDWebImage.bundle/PrivacyInfo.xcprivacy `
               google_mobile_ads_google_mobile_ads.bundle/GADTSmallTemplateView.nib `
               google_mobile_ads_google_mobile_ads.bundle/GADTMediumTemplateView.nib `
-              google_mobile_ads_google_mobile_ads.bundle/GADTFullScreenTemplateView.nib
+              google_mobile_ads_google_mobile_ads.bundle/GADTFullScreenTemplateView.nib `
+              --expect-lf GoogleSignIn_GoogleSignIn.bundle/en.lproj/GoogleSignIn.strings `
+              AppAuth_AppAuth.bundle/PrivacyInfo.xcprivacy `
+              SDWebImage_SDWebImage.bundle/PrivacyInfo.xcprivacy
             if ($LASTEXITCODE -ne 0) { throw "Bundle check failed for $path" }
           }
           $apps = @(Get-ChildItem build/xcross-ios -Directory -Filter *.app)

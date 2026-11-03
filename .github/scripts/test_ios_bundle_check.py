@@ -121,6 +121,20 @@ class T(unittest.TestCase):
         fs.update(extra)
         return fs
 
+    def test_expect_lf(self):
+        fs = self.ib_app({
+            "P_T.bundle/en.lproj/A.strings": b'"a" = "b";\r\n',
+            "P_T.bundle/PrivacyInfo.xcprivacy": b"<plist/>\n",
+        })
+        d = self.app(fs)
+        text = "\n".join(c.check(d, expect_lf=[
+            "P_T.bundle/en.lproj/A.strings",
+            "P_T.bundle/PrivacyInfo.xcprivacy",
+            "P_T.bundle/Missing.strings"])[0])
+        self.assertIn("A.strings has CRLF line endings", text)
+        self.assertNotIn("PrivacyInfo.xcprivacy has CRLF", text)
+        self.assertNotIn("Missing.strings", text)
+
     def test_ib_sources_and_nibs(self):
         fs = self.ib_app({
             "P_T.bundle/A.nib": b"NIBArchive\x01\x00",
