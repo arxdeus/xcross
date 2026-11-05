@@ -1439,8 +1439,27 @@ jobs:
           python3 .github/scripts/prepare_simulator_fixture.py compose \
             "$RUNNER_TEMP/compose-simulator" --source examples/compose_app
 
+      - name: Cache Gradle distribution and dependencies
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        with:
+          path: |
+            ${{ runner.temp }}/gradle/wrapper/dists
+            ${{ runner.temp }}/gradle/caches/modules-2
+          key: gradle-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('examples/compose_app/gradle/wrapper/gradle-wrapper.properties', 'examples/compose_app/**/*.gradle.kts', 'examples/compose_app/gradle.properties') }}
+          restore-keys: |
+            gradle-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Pre-download Gradle wrapper with retry
+        shell: bash
+        working-directory: ${{ runner.temp }}/compose-simulator
+        env:
+          GRADLE_USER_HOME: ${{ runner.temp }}/gradle
+        run: bash "$GITHUB_WORKSPACE/.github/scripts/prefetch_gradle_wrapper.sh"
+
       - name: Set up Compose toolchain
         shell: bash
+        env:
+          GRADLE_USER_HOME: ${{ runner.temp }}/gradle
         working-directory: ${{ runner.temp }}/compose-simulator
         run: |
           set -euo pipefail
@@ -1449,6 +1468,8 @@ jobs:
 
       - name: Build ARM64 simulator app through production xcross
         shell: bash
+        env:
+          GRADLE_USER_HOME: ${{ runner.temp }}/gradle
         working-directory: ${{ runner.temp }}/compose-simulator
         run: |
           set -euo pipefail
@@ -1796,6 +1817,23 @@ jobs:
       - name: Download Darwin SDK
         if: steps.darwin.outputs.available == 'true'
         uses: ./.github/actions/setup-darwin-sdk
+
+      - name: Cache Gradle distribution and dependencies
+        if: steps.darwin.outputs.available == 'true'
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        with:
+          path: |
+            ${{ runner.temp }}/gradle/wrapper/dists
+            ${{ runner.temp }}/gradle/caches/modules-2
+          key: gradle-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('examples/compose_app/gradle/wrapper/gradle-wrapper.properties', 'examples/compose_app/**/*.gradle.kts', 'examples/compose_app/gradle.properties') }}
+          restore-keys: |
+            gradle-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Pre-download Gradle wrapper with retry
+        if: steps.darwin.outputs.available == 'true'
+        shell: bash
+        working-directory: examples/compose_app
+        run: bash "$GITHUB_WORKSPACE/.github/scripts/prefetch_gradle_wrapper.sh"
 
       - name: Set up Compose toolchain
         if: steps.darwin.outputs.available == 'true'

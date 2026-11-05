@@ -83,6 +83,16 @@ class WorkflowSecurityTests(unittest.TestCase):
                     for body in cached:
                         paths = re.findall(r"(?m)^ {12}(\S.*)$", body.split("path: |\n", 1)[1])
                         self.assertTrue(paths)
+                        if "key: gradle-" in body:
+                            paths = re.findall(r"(?m)^ {12}(\S.*)$", body.split("path: |\n", 1)[1].split("key:", 1)[0])
+                            # Gradle cache: only the wrapper distribution and the
+                            # dependency store under the Gradle user home. It must
+                            # never reach the Darwin SDK or xcross caches, which are
+                            # restored read-only from the trusted warm workflow.
+                            for path in paths:
+                                self.assertRegex(path, r"^\$\{\{ runner\.temp \}\}/gradle/(wrapper/dists|caches/modules-2)$")
+                                self.assertNotRegex(path.lower(), r"darwin|sdk|xcross")
+                            continue
                         for path in paths:
                             self.assertRegex(path, r"/xcross(-cache)?/open-apple-macros/\*/(identity\.json|OpenAppleMacrosServer\*?)$")
                         self.assertIn("key: open-apple-macros-", body)
