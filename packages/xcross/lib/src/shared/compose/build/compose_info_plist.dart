@@ -65,12 +65,25 @@ final class ComposeInfoPlist {
       'MinimumOSVersion': '15.0',
       'CFBundleSupportedPlatforms': [target.platformName],
       'UIRequiredDeviceCapabilities': ['arm64'],
-      'UIDeviceFamily': [1],
+      'UIDeviceFamily': deviceFamilyOf(config?.buildSettings),
       'UILaunchScreen': <String, Object?>{},
       'DTPlatformName': target.sdkName,
       'DTSDKName': '${target.sdkName}$composePlistSdkVersion',
       'DTPlatformVersion': composePlistSdkVersion,
     };
+  }
+
+  /// `TARGETED_DEVICE_FAMILY` (`"1,2"`) as Xcode writes it into
+  /// `UIDeviceFamily`, iPhone only when unset.
+  static List<int> deviceFamilyOf(Map<String, String>? settings) {
+    final families = (settings?['TARGETED_DEVICE_FAMILY'] ?? '')
+        .split(',')
+        .map((v) => int.tryParse(v.trim()))
+        .nonNulls
+        .where((f) => f == 1 || f == 2)
+        .toSet()
+        .toList();
+    return families.isEmpty ? const [1] : families;
   }
 
   /// What Xcode would substitute for `$(VAR)` in this app's Info.plist: the

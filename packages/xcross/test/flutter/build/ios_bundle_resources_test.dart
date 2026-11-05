@@ -1,6 +1,7 @@
 @TestOn('!windows')
 library;
 
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
@@ -63,6 +64,60 @@ void main() {
     expect(
       Directory(p.join(bundle.path, 'Assets.xcassets')).existsSync(),
       isFalse,
+    );
+  });
+
+  test('reads the app icon name from the build configuration', () async {
+    _writeProject(project, appRefs: const [], flavorAppIcon: 'AppIcon-prod');
+
+    final debug = await _stage(project, bundle);
+    expect(debug.appIconName, 'AppIcon');
+    expect(debug.deviceFamily, [1, 2]);
+    expect(debug.alternateAppIconNames, ['AppIconRed', 'AppIconBlue']);
+    expect(debug.accentColorName, 'AccentColor');
+    expect(debug.includeAllAppIcons, isFalse);
+    expect(
+      (await _stage(
+        project,
+        bundle,
+        configuration: 'Release-prod',
+      )).appIconName,
+      'AppIcon-prod',
+    );
+  });
+
+  test(
+    'hands asset catalogs and uncompiled storyboards to the compiler',
+    () async {
+      _file(runner, 'Assets.xcassets/Contents.json', '{}');
+      _file(runner, 'Base.lproj/Main.storyboard', 'source');
+      _writeProject(project, appRefs: ['ASSETS', 'STORYBOARD']);
+
+      final staged = await _stage(project, bundle);
+
+      expect(staged.assetCatalogs, [p.join(runner.path, 'Assets.xcassets')]);
+      expect(staged.storyboards, [
+        p.join(runner.path, 'Base.lproj', 'Main.storyboard'),
+      ]);
+      expect(
+        staged.storyboard('Main', p.context),
+        p.join(runner.path, 'Base.lproj', 'Main.storyboard'),
+      );
+      expect(staged.storyboard('LaunchScreen', p.context), isNull);
+      expect(Directory(bundle.path).listSync(), isEmpty);
+    },
+  );
+
+  test('falls back to the Flutter template layout without a project', () async {
+    _file(runner, 'Assets.xcassets/Contents.json', '{}');
+    _file(runner, 'Base.lproj/LaunchScreen.storyboard', 'source');
+
+    final staged = await _stage(project, bundle);
+
+    expect(staged.assetCatalogs, [p.join(runner.path, 'Assets.xcassets')]);
+    expect(
+      staged.storyboard('LaunchScreen', p.context),
+      p.join(runner.path, 'Base.lproj', 'LaunchScreen.storyboard'),
     );
   });
 
@@ -194,15 +249,19 @@ void main() {
     () async {
       _file(runner, 'Info.plist', 'info');
       _file(runner, 'Settings.plist', 'settings');
-      _file(project, 'ios/Flutter/AppFrameworkInfo.plist', 'framework input');
+      _file(project, 'ios/Flutter/AppFrameworkInfo.plist', _appFrameworkInfo);
       _writeProject(project, appRefs: ['INFO', 'SETTINGS', 'FRAMEWORK_INFO']);
 
       await _stage(project, bundle);
 
       expect(_bundleFile(bundle, 'Info.plist').existsSync(), isFalse);
+      // Xcode 26.6 ships it at the app root as a binary plist; these are
+      // the native Runner.app/AppFrameworkInfo.plist's bytes.
       expect(
-        _bundleFile(bundle, 'AppFrameworkInfo.plist').existsSync(),
-        isFalse,
+        base64.encode(
+          _bundleFile(bundle, 'AppFrameworkInfo.plist').readAsBytesSync(),
+        ),
+        _nativeAppFrameworkInfoBinary,
       );
       expect(
         _bundleFile(bundle, 'Settings.plist').readAsStringSync(),
@@ -331,9 +390,15 @@ void main() {
   );
 }
 
-Future<void> _stage(Directory project, Directory bundle) => testIPhoneRuntime()
-    .resources
-    .stage(projectRoot: project.path, bundleDir: bundle.path);
+Future<StagedIosResources> _stage(
+  Directory project,
+  Directory bundle, {
+  String configuration = 'Debug',
+}) => testIPhoneRuntime().resources.stage(
+  projectRoot: project.path,
+  bundleDir: bundle.path,
+  configuration: configuration,
+);
 
 File _bundleFile(Directory bundle, String relative) =>
     File(p.join(bundle.path, relative));
@@ -351,6 +416,7 @@ void _writeProject(
   bool synchronized = false,
   List<String> exceptions = const [],
   String productType = 'com.apple.product-type.application',
+  String flavorAppIcon = '',
 }) {
   final xcodeproj = Directory(
     p.join(project.path, 'ios', '$projectName.xcodeproj'),
@@ -385,8 +451,9 @@ void _writeProject(
     VARIANT = { isa = PBXVariantGroup; path = Labels.strings; children = (BASE_LABELS, FR_LABELS); };
     BASE_LABELS = { isa = PBXFileReference; path = Base.lproj/Labels.strings; sourceTree = "<group>"; };
     FR_LABELS = { isa = PBXFileReference; path = fr.lproj/Labels.strings; sourceTree = "<group>"; };
-    APP_CONFIG_LIST = { isa = XCConfigurationList; buildConfigurations = (APP_CONFIG); };
-    APP_CONFIG = { isa = XCBuildConfiguration; name = Debug; buildSettings = { INFOPLIST_FILE = Runner/Info.plist; }; };
+    APP_CONFIG_LIST = { isa = XCConfigurationList; buildConfigurations = (APP_CONFIG${flavorAppIcon.isEmpty ? '' : ', PROD_CONFIG'}); };
+    APP_CONFIG = { isa = XCBuildConfiguration; name = Debug; buildSettings = { INFOPLIST_FILE = Runner/Info.plist; ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon; TARGETED_DEVICE_FAMILY = "1,2"; ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES = "AppIconRed AppIconBlue"; ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor; }; };
+    ${flavorAppIcon.isEmpty ? '' : 'PROD_CONFIG = { isa = XCBuildConfiguration; name = Release-prod; buildSettings = { INFOPLIST_FILE = Runner/Info.plist; ASSETCATALOG_COMPILER_APPICON_NAME = $flavorAppIcon; }; };'}
     APP_TARGET = { isa = PBXNativeTarget; productType = $productType; buildConfigurationList = APP_CONFIG_LIST; buildPhases = (APP_RESOURCES); ${synchronized ? 'fileSystemSynchronizedGroups = (SYNC_GROUP);' : ''} };
     ${synchronized ? 'SYNC_GROUP = { isa = PBXFileSystemSynchronizedRootGroup; path = Runner; sourceTree = SOURCE_ROOT; exceptions = (SYNC_EXCEPTIONS); };\n    SYNC_EXCEPTIONS = { isa = PBXFileSystemSynchronizedBuildFileExceptionSet; target = APP_TARGET; membershipExceptions = (${exceptions.join(', ')}); };' : ''}
     APP_RESOURCES = { isa = PBXResourcesBuildPhase; files = (
@@ -412,3 +479,34 @@ void _writeProject(
 ''');
   File(p.join(xcodeproj.path, 'project.pbxproj')).writeAsStringSync('$objects');
 }
+
+/// Flutter 3.47's template ios/Flutter/AppFrameworkInfo.plist.
+const _appFrameworkInfo = '''
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleDevelopmentRegion</key>
+  <string>en</string>
+  <key>CFBundleExecutable</key>
+  <string>App</string>
+  <key>CFBundleIdentifier</key>
+  <string>io.flutter.flutter.app</string>
+  <key>CFBundleInfoDictionaryVersion</key>
+  <string>6.0</string>
+  <key>CFBundleName</key>
+  <string>App</string>
+  <key>CFBundlePackageType</key>
+  <string>FMWK</string>
+  <key>CFBundleShortVersionString</key>
+  <string>1.0</string>
+  <key>CFBundleSignature</key>
+  <string>????</string>
+  <key>CFBundleVersion</key>
+  <string>1.0</string>
+</dict>
+</plist>
+''';
+
+const _nativeAppFrameworkInfoBinary =
+    'YnBsaXN0MDDZAQIDBAUGBwgJCgsMDQsODxAPXxAZQ0ZCdW5kbGVEZXZlbG9wbWVudFJlZ2lvbl8QEkNGQnVuZGxlRXhlY3V0YWJsZV8QEkNGQnVuZGxlSWRlbnRpZmllcl8QHUNGQnVuZGxlSW5mb0RpY3Rpb25hcnlWZXJzaW9uXENGQnVuZGxlTmFtZV8QE0NGQnVuZGxlUGFja2FnZVR5cGVfEBpDRkJ1bmRsZVNob3J0VmVyc2lvblN0cmluZ18QEUNGQnVuZGxlU2lnbmF0dXJlXxAPQ0ZCdW5kbGVWZXJzaW9uUmVuU0FwcF8QFmlvLmZsdXR0ZXIuZmx1dHRlci5hcHBTNi4wVEZNV0tTMS4wVD8/Pz8ACAAbADcATABhAIEAjgCkAMEA1QDnAOoA7gEHAQsBEAEUAAAAAAAAAgEAAAAAAAAAEQAAAAAAAAAAAAAAAAAAARk=';

@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
@@ -56,6 +57,65 @@ abstract final class MachOCodeSignature {
       changed |= _rehash(bytes, dataOffset + offset, dataOffset, invalid);
     }
     return changed;
+  }
+
+  static const _entitlementsSlot = 5;
+  static const _entitlementsMagic = 0xFADE_7171;
+
+  /// The XML entitlements plist embedded in [bytes]' code signature, or null
+  /// when there is none (not a thin 64-bit Mach-O, unsigned, or malformed).
+  /// Never throws: callers only use this to refine signing.
+  static String? embeddedEntitlementsXml(Uint8List bytes) {
+    try {
+      if (bytes.length < MachOConstants.headerSize64 ||
+          ByteData.sublistView(bytes).getUint32(0, Endian.little) !=
+              MachOConstants.magic64) {
+        return null;
+      }
+      final file = MachOFile.parse(
+        bytes,
+        invalid: (message) => throw FormatException(message),
+      );
+      MachOLoadCommand? command;
+      for (final candidate in file.commands) {
+        if (candidate.type == _lcCodeSignature) command = candidate;
+      }
+      if (command == null || command.size < 16) return null;
+      final dataOffset = file.data.getUint32(command.offset + 8, Endian.little);
+      final dataSize = file.data.getUint32(command.offset + 12, Endian.little);
+      if (!MachOFile.rangeFits(dataOffset, dataSize, bytes.length) ||
+          dataSize < 12) {
+        return null;
+      }
+      final blob = ByteData.sublistView(
+        bytes,
+        dataOffset,
+        dataOffset + dataSize,
+      );
+      if (blob.getUint32(0) != _superBlobMagic) return null;
+      final count = blob.getUint32(8);
+      if (count > (dataSize - 12) ~/ 8) return null;
+      for (var index = 0; index < count; index++) {
+        if (blob.getUint32(12 + index * 8) != _entitlementsSlot) continue;
+        final offset = blob.getUint32(16 + index * 8);
+        if (offset + 8 > dataSize) return null;
+        if (blob.getUint32(offset) != _entitlementsMagic) return null;
+        final length = blob.getUint32(offset + 4);
+        if (length < 8 || offset + length > dataSize) return null;
+        return utf8.decode(
+          Uint8List.sublistView(
+            bytes,
+            dataOffset + offset + 8,
+            dataOffset + offset + length,
+          ),
+          allowMalformed: true,
+        );
+      }
+      return null;
+      // A truncated table (RangeError) must not break installing the app.
+    } on Object {
+      return null;
+    }
   }
 
   static bool _rehash(

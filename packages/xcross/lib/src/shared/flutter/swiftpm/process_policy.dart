@@ -59,6 +59,37 @@ final class SwiftPmProcessPolicy<T extends PlatformHostInterface> {
         'ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new',
   };
 
+  /// Line-ending settings for every git command that writes a SwiftPM
+  /// checkout, as key/value pairs.
+  ///
+  /// `core.autocrlf=true` is the Git for Windows default, and with it a
+  /// checkout turns every LF text file into CRLF, so resources copied from
+  /// the checkout into the app differ from what Xcode ships. Disabling it
+  /// and setting `core.eol=lf` reproduces a macOS clone exactly: blobs land
+  /// byte for byte, and only paths a repository's `.gitattributes` marks
+  /// `eol=crlf` are converted, as they are on macOS too.
+  static const checkoutLineEndingConfiguration = [
+    'core.autocrlf',
+    'false',
+    'core.eol',
+    'lf',
+  ];
+
+  /// [checkoutLineEndingConfiguration] as `git -c` arguments.
+  static List<String> get checkoutLineEndingArguments => [
+    for (
+      var index = 0;
+      index < checkoutLineEndingConfiguration.length;
+      index += 2
+    ) ...[
+      '-c',
+      [
+        checkoutLineEndingConfiguration[index],
+        checkoutLineEndingConfiguration[index + 1],
+      ].join('='),
+    ],
+  ];
+
   /// Git settings applied through `GIT_CONFIG_*`, in order.
   ///
   /// Resetting `credential.helper` closes the last door: a helper
@@ -75,6 +106,10 @@ final class SwiftPmProcessPolicy<T extends PlatformHostInterface> {
   /// an empty value, and an empty `credential.helper` is what resets the
   /// list.
   ///
+  /// [checkoutLineEndingConfiguration] pins the line endings a checkout
+  /// gets to the ones a macOS clone gets, whatever the user's global
+  /// `core.autocrlf` says.
+  ///
   /// `core.symlinks=false` keeps Windows checkouts on placeholder files
   /// that [materializeGitCheckoutSymlinks] converts afterwards.
   List<({String key, String value})> gitConfigEntries() => [
@@ -82,6 +117,15 @@ final class SwiftPmProcessPolicy<T extends PlatformHostInterface> {
     (key: 'credential.interactive', value: 'false'),
     (key: 'http.lowSpeedLimit', value: '1024'),
     (key: 'http.lowSpeedTime', value: '60'),
+    for (
+      var index = 0;
+      index < checkoutLineEndingConfiguration.length;
+      index += 2
+    )
+      (
+        key: checkoutLineEndingConfiguration[index],
+        value: checkoutLineEndingConfiguration[index + 1],
+      ),
     for (var index = 0; index < hostPolicy.gitConfiguration.length; index += 2)
       (
         key: hostPolicy.gitConfiguration[index],

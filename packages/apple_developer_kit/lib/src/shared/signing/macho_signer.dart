@@ -13,11 +13,33 @@ import 'package:meta/meta.dart';
 /// Signs xcross-generated thin arm64 Mach-O files without invoking zsign.
 @internal
 class MachOSigner {
-  MachOSigner(this.signingAsset, {required this.hostServices});
+  MachOSigner(
+    SigningAsset this.signingAsset, {
+    required AppleHostServices hostServices,
+  }) : _hostServices = hostServices;
 
-  final AppleHostServices hostServices;
+  /// A signer that writes ad-hoc signatures (`codesign -s -`): a code
+  /// directory flagged `CS_ADHOC`, no team, an empty requirement set and an
+  /// empty CMS wrapper, but real entitlement blobs and special-slot hashes.
+  ///
+  /// Needs no certificate, so it runs at build time on any host. Re-signers
+  /// (Sideloadly, zsign, `fastlane resign`) read the entitlements back from it.
+  ///
+  /// [hostServices] is only needed by [signFile]; [signBytes] is pure.
+  MachOSigner.adHoc({AppleHostServices? hostServices})
+    : _hostServices = hostServices,
+      signingAsset = null;
 
-  final SigningAsset signingAsset;
+  final AppleHostServices? _hostServices;
+
+  AppleHostServices get hostServices =>
+      _hostServices ??
+      (throw StateError('MachOSigner.adHoc has no host services for file IO'));
+
+  /// Null for [MachOSigner.adHoc].
+  final SigningAsset? signingAsset;
+
+  bool get _isAdHoc => signingAsset == null;
 
   /// Validates the complete Mach-O structure without changing [path].
   Future<void> preflight(String path) async {
@@ -29,7 +51,7 @@ class MachOSigner {
   Future<void> signFile(
     String path, {
     required String identifier,
-    required String teamIdentifier,
+    required String? teamIdentifier,
     required Map<String, Object?> entitlements,
     Map<String, Object?>? derEntitlements,
     Uint8List? infoPlistBytes,
@@ -71,13 +93,12 @@ class MachOSigner {
     }
   }
 
-  /// Byte-level signing entry point used by focused synthetic Mach-O tests.
-  @visibleForTesting
+  /// Byte-level signing entry point; returns the signed image.
   Uint8List signBytes({
     required String path,
     required Uint8List bytes,
     required String identifier,
-    required String teamIdentifier,
+    required String? teamIdentifier,
     required Map<String, Object?> entitlements,
     Map<String, Object?>? derEntitlements,
     Uint8List? infoPlistBytes,
@@ -175,7 +196,7 @@ class MachOSigner {
     required MachOLayout macho,
     required String path,
     required String identifier,
-    required String teamIdentifier,
+    required String? teamIdentifier,
     required Map<String, Object?> entitlements,
     required Map<String, Object?>? derEntitlements,
     required Uint8List? infoPlistBytes,
@@ -185,7 +206,13 @@ class MachOSigner {
     required DateTime? signingTime,
   }) {
     requireSigningString(identifier, 'identifier', path);
-    requireSigningString(teamIdentifier, 'team identifier', path);
+    final signingAsset = this.signingAsset;
+    if (signingAsset != null) {
+      if (teamIdentifier == null) {
+        machoFail(path, 'team identifier', 'must not be empty');
+      }
+      requireSigningString(teamIdentifier, 'team identifier', path);
+    }
     final infoHash = _hashSource(
       bytes: infoPlistBytes,
       hash: infoPlistSha256,
@@ -209,15 +236,23 @@ class MachOSigner {
     final derEntitlementsBlob = isExecutable
         ? buildDerEntitlements(derEntitlements ?? entitlements, path)
         : null;
-    final requirement = buildRequirements(
-      identifier,
-      signingAsset.certificateCommonName,
-      path,
-    );
+    // `codesign -s -` writes an empty requirement set: there is no
+    // certificate for a designated requirement to anchor to.
+    final requirement = signingAsset == null
+        ? Uint8List.fromList([
+            ...be32(csMagicRequirements),
+            ...be32(csSuperBlobHeaderLength),
+            ...be32(0),
+          ])
+        : buildRequirements(
+            identifier,
+            signingAsset.certificateCommonName,
+            path,
+          );
     return SignatureInputs(
       execSegmentLimit: macho.textVmSize,
       identifier: identifier,
-      teamIdentifier: teamIdentifier,
+      teamIdentifier: signingAsset == null ? null : teamIdentifier,
       infoHash: infoHash,
       resourcesHash: resourcesHash,
       requirement: requirement,
@@ -430,16 +465,22 @@ class MachOSigner {
       teamIdentifier: inputs.teamIdentifier,
       specialSlots: specialSlots,
       path: path,
+      flags: _isAdHoc ? csAdhocFlag : 0,
     );
+    final signingAsset = this.signingAsset;
     final Uint8List cms;
-    try {
-      cms = signingAsset.buildDetachedCms(
-        codeDirectoryBytes: codeDirectory,
-        cdhashBytes: sha256Digest(codeDirectory),
-        signingTime: inputs.signingTime,
-      );
-    } on Object catch (error) {
-      machoFail(path, 'CMS signature', '$error');
+    if (signingAsset == null) {
+      cms = Uint8List(0);
+    } else {
+      try {
+        cms = signingAsset.buildDetachedCms(
+          codeDirectoryBytes: codeDirectory,
+          cdhashBytes: sha256Digest(codeDirectory),
+          signingTime: inputs.signingTime,
+        );
+      } on Object catch (error) {
+        machoFail(path, 'CMS signature', '$error');
+      }
     }
     return buildSuperblob([
       SignatureSlot(type: csslotCodeDirectory, bytes: codeDirectory),

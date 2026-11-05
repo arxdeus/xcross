@@ -1,5 +1,7 @@
+import 'package:apple_developer_kit/shared/appstoreconnect/asc_capabilities.dart';
 import 'package:cli_kit/shared/platform/platform_host.dart';
 import 'package:meta/meta.dart';
+import 'package:xcross/src/shared/artifact/app_entitlements.dart';
 
 /// Capability types a Compose build recorded in the app's `Info.plist`.
 ///
@@ -24,6 +26,10 @@ final class AppCapabilities {
   static const infoPlistKey = 'XCrossCapabilities';
 
   /// The capability types recorded for the `.app` at [appPath].
+  ///
+  /// Without [infoPlistKey] they are derived from the entitlements embedded in
+  /// the main executable's signature (see [AppEntitlements.of]), which is how
+  /// a Flutter build hands them over.
   List<String> of(String appPath) {
     final plist = fileSystem.file(paths.context.join(appPath, 'Info.plist'));
     if (!plist.existsSync()) return const [];
@@ -32,7 +38,11 @@ final class AppCapabilities {
       '<key>\\s*$infoPlistKey\\s*</key>\\s*<array>(.*?)</array>',
       dotAll: true,
     ).firstMatch(plist.readAsStringSync());
-    if (array == null) return const [];
+    if (array == null) {
+      return AscCapabilities.forEntitlements(
+        AppEntitlements(fileSystem: fileSystem, paths: paths).of(appPath),
+      );
+    }
 
     return [
       for (final match in RegExp(

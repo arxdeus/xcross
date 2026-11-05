@@ -6,12 +6,16 @@ import 'package:cli_kit/shared/platform/platform_host.dart';
 import 'package:cli_kit/shared/process/process.dart';
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
+import 'package:xcross/src/shared/apple/app_resource_compiler.dart';
 import 'package:xcross/src/shared/artifact/app_capabilities.dart';
 import 'package:xcross/src/shared/artifact/app_entitlements.dart';
 import 'package:xcross/src/shared/compose/build/compose_entitlements.dart';
 import 'package:xcross/src/shared/compose/build/compose_info_plist.dart';
+import 'package:xcross/src/shared/compose/compose_ios_constants.dart';
+import 'package:xcross/src/shared/compose/project/ios_app_config.dart';
 import 'package:xcross/src/shared/compose/project/kmp_project.dart';
 import 'package:xcross/src/shared/errors/errors.dart';
+import 'package:xcross/src/shared/flutter/build/bundle_pkg_info.dart';
 import 'package:xcross/src/target/shared/compose/compose_target.dart';
 
 @internal
@@ -205,23 +209,29 @@ final class ComposeAppAssembler<T extends PlatformHostInterface> {
     final capabilities = AscCapabilities.forEntitlements(declared ?? const {});
     final runnerDest = p.join(stagingPath, 'Runner');
     await runner.copy(target.host.fileSystem.file(runnerDest).path);
+    final infoPlist = ComposeInfoPlist(target.host.fileSystem, log).build(
+      project: project,
+      target: target.buildPlatform,
+      extras: {
+        // Read back at signing time, when the project may be long gone.
+        if (capabilities.isNotEmpty) AppCapabilities.infoPlistKey: capabilities,
+        // The profile grants some keys generically (`associated-domains: *`),
+        // and the app's own values are what the runtime checks against.
+        if (declared != null && declared.isNotEmpty)
+          AppEntitlements.infoPlistKey: declared,
+      },
+    );
+    final compiledPlist = await _compileAppResources(
+      project: project,
+      stagingPath: stagingPath,
+      infoPlist: infoPlist,
+    );
     await target.host.fileSystem
         .file(p.join(stagingPath, 'Info.plist'))
-        .writeAsString(
-          ComposeInfoPlist(target.host.fileSystem, log).build(
-            project: project,
-            target: target.buildPlatform,
-            extras: {
-              // Read back at signing time, when the project may be long gone.
-              if (capabilities.isNotEmpty)
-                AppCapabilities.infoPlistKey: capabilities,
-              // The profile grants some keys generically (`associated-domains: *`),
-              // and the app's own values are what the runtime checks against.
-              if (declared != null && declared.isNotEmpty)
-                AppEntitlements.infoPlistKey: declared,
-            },
-          ),
-        );
+        .writeAsString(compiledPlist);
+    await target.host.fileSystem
+        .file(p.join(stagingPath, BundlePkgInfo.fileName))
+        .writeAsString(BundlePkgInfo.contentsFor(compiledPlist));
 
     // A static framework is linked into Runner, so there is nothing to embed;
     // copying it would ship a ~400 MB archive inside the .app for no reason.
@@ -248,6 +258,58 @@ final class ComposeAppAssembler<T extends PlatformHostInterface> {
     );
 
     _makeExecutable(runnerDest);
+  }
+
+  /// Compiles the iOS app's `Assets.xcassets` into `Assets.car` and loose app
+  /// icons, as Xcode's `actool` step would, and returns [infoPlist] with the
+  /// icon keys. A Compose app has no launch storyboard: its Info.plist keeps
+  /// the `UILaunchScreen` it declares (an empty one by default).
+  Future<String> _compileAppResources({
+    required KmpProject project,
+    required String stagingPath,
+    required String infoPlist,
+  }) {
+    final catalog = _assetCatalog(project);
+    if (catalog == null) return Future.value(infoPlist);
+    final settings = project.iosConfig?.buildSettings ?? const {};
+    return AppResourceCompiler(
+      fileSystem: target.host.fileSystem,
+      paths: p.context,
+      log: log,
+    ).compile(
+      bundleDir: stagingPath,
+      infoPlistXml: infoPlist,
+      catalogs: [catalog],
+      deploymentTarget: composeMinimumIosVersion,
+      appIconName: settings['ASSETCATALOG_COMPILER_APPICON_NAME'],
+      alternateAppIconNames:
+          (settings['ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES'] ?? '')
+              .split(RegExp(r'\s+'))
+              .where((n) => n.isNotEmpty)
+              .toList(),
+      includeAllAppIcons:
+          settings['ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS'] == 'YES',
+      accentColorName:
+          settings['ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME'],
+      deviceFamilies: AppResourceCompiler.deviceFamiliesOf(infoPlist),
+    );
+  }
+
+  /// The iOS app's asset catalog: beside its `@main` Swift file when known,
+  /// otherwise in the `iosApp` layouts the Info.plist is looked for in.
+  String? _assetCatalog(KmpProject project) {
+    final files = target.host.fileSystem;
+    final iosApp = IosAppConfigLoader(files).directory(project.root);
+    for (final directory in [
+      ?project.swiftAppDir,
+      if (iosApp != null) ...[p.join(iosApp, 'iosApp'), iosApp],
+      p.join(project.root, 'iosApp', 'iosApp'),
+      p.join(project.root, 'iosApp'),
+    ]) {
+      final catalog = p.join(directory, 'Assets.xcassets');
+      if (files.directory(catalog).existsSync()) return catalog;
+    }
+    return null;
   }
 
   /// Copies the app's Compose resources in as `compose-resources/`.

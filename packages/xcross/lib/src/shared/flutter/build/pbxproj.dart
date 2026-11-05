@@ -3,7 +3,17 @@ import 'dart:io';
 import 'package:cli_kit/shared/platform/platform_host.dart';
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
+import 'package:xcross/src/shared/flutter/models/flutter/flutter_build_mode.dart';
 import 'package:xcross/src/shared/flutter/project/pbx_parser.dart';
+
+/// The base Xcode configuration name for [mode]
+/// (`Debug`/`Profile`/`Release`), before any flavor suffix.
+@internal
+String xcodeBaseConfiguration(FlutterBuildMode mode) => switch (mode) {
+  FlutterBuildMode.debug => 'Debug',
+  FlutterBuildMode.profile => 'Profile',
+  FlutterBuildMode.release => 'Release',
+};
 
 /// One object in the `objects = { ... }` map of a `project.pbxproj` file.
 ///
@@ -118,32 +128,90 @@ final class PbxProject {
     return null;
   }
 
-  /// The `buildSettings` of [target]'s build configurations, preferring the
-  /// configuration named [preferredConfiguration] (usually `Debug`).
+  /// The effective `buildSettings` of [target] for the build configuration
+  /// named [preferredConfiguration] (usually `Debug`/`Release`/`Profile` or a
+  /// flavored `Release-prod`).
+  ///
+  /// Mirrors Xcode's layering for settings written in the pbxproj: the
+  /// target's configuration overrides the `PBXProject` configuration of the
+  /// same name. Flutter's template sets `TARGETED_DEVICE_FAMILY = "1,2"` only
+  /// at project level, so reading the target alone yields iPhone-only apps.
+  /// xcconfig files (`baseConfigurationReference`) are not layered: Flutter's
+  /// ones only carry `FLUTTER_*`/Pods settings, none of which xcross reads
+  /// here. A literal `$(inherited)` is substituted with the project value.
   Map<String, Object?> buildSettings(
     PbxObject target, {
     String preferredConfiguration = 'Debug',
   }) {
-    final list = object(target.string('buildConfigurationList'));
-    if (list == null) return const {};
+    final targetConfig = _configuration(
+      target.string('buildConfigurationList'),
+      preferredConfiguration,
+    );
+    final root = object(rootObjectId);
+    final projectConfig = root?.isa == 'PBXProject'
+        ? _configuration(
+            root!.string('buildConfigurationList'),
+            // Same name as the selected target configuration, as Xcode does.
+            targetConfig?.string('name') ?? preferredConfiguration,
+          )
+        : null;
+    final projectSettings = projectConfig?.map('buildSettings') ?? const {};
+    final targetSettings = targetConfig?.map('buildSettings') ?? const {};
+    final merged = <String, Object?>{...projectSettings};
+    for (final entry in targetSettings.entries) {
+      final value = entry.value;
+      final inherited = projectSettings[entry.key];
+      merged[entry.key] = value is String && value.contains(r'$(inherited)')
+          ? value
+                .replaceAll(
+                  r'$(inherited)',
+                  inherited is String ? inherited : '',
+                )
+                .trim()
+          : value;
+    }
+    return merged;
+  }
 
-    Map<String, Object?>? fallback;
+  /// The Xcode configuration name `flutter build ios` uses for [base]
+  /// (`Debug`/`Profile`/`Release`) and [flavor]: `<base>-<flavor>` when the
+  /// project declares it, otherwise [base].
+  String configurationName(String base, String? flavor) {
+    if (flavor == null || flavor.isEmpty) return base;
+    final flavored = '$base-$flavor';
+    final declared = byIsa(
+      'XCBuildConfiguration',
+    ).any((configuration) => configuration.string('name') == flavored);
+    return declared ? flavored : base;
+  }
+
+  /// The `XCBuildConfiguration` named [name] in the list [listId], falling
+  /// back to the first configuration that has settings.
+  PbxObject? _configuration(String? listId, String name) {
+    final list = object(listId);
+    if (list == null) return null;
+    PbxObject? fallback;
     for (final id in list.stringList('buildConfigurations')) {
       final configuration = object(id);
       if (configuration?.isa != 'XCBuildConfiguration') continue;
-      final settings = configuration!.map('buildSettings');
-      if (settings.isEmpty) continue;
-      if (configuration.string('name') == preferredConfiguration) {
-        return settings;
+      if (configuration!.string('name') == name) return configuration;
+      if (configuration.map('buildSettings').isNotEmpty) {
+        fallback ??= configuration;
       }
-      fallback ??= settings;
     }
-    return fallback ?? const {};
+    return fallback;
   }
 
   /// One build setting of [target] as a string, or null when unset.
-  String? buildSetting(PbxObject target, String key) {
-    final value = buildSettings(target)[key];
+  String? buildSetting(
+    PbxObject target,
+    String key, {
+    String configuration = 'Debug',
+  }) {
+    final value = buildSettings(
+      target,
+      preferredConfiguration: configuration,
+    )[key];
     return value is String ? value : null;
   }
 

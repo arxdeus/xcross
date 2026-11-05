@@ -25,7 +25,14 @@ const sdkIncludedFiles = <String>[
   'Developer/Platforms/iPhoneOS.platform/Info.plist',
   'Developer/Platforms/iPhoneSimulator.platform/Info.plist',
   'Developer/Toolchains/XcodeDefault.xctoolchain/Info.plist',
+  sdkXcodeVersionFile,
 ];
+
+/// Xcode's own `Contents/version.plist`: the source of the `DTXcode` /
+/// `DTXcodeBuild` keys stamped into built Info.plists. SDKs installed
+/// before it was kept simply omit those keys.
+@internal
+const sdkXcodeVersionFile = 'version.plist';
 
 @internal
 const sdkToolchainRelativePath =

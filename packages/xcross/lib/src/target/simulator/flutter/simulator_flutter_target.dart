@@ -3,6 +3,7 @@ import 'package:darwin_sdk_kit/target/shared/ios_target.dart';
 import 'package:meta/meta.dart';
 import 'package:xcross/src/target/shared/flutter/flutter_target_build_policy.dart';
 import 'package:xcross/src/target/shared/flutter/ios_plist_metadata.dart';
+import 'package:xcross/src/target/shared/flutter/xcode_build_metadata.dart';
 
 @internal
 final class SimulatorFlutterTarget<T extends PlatformHostInterface>
@@ -24,6 +25,8 @@ final class SimulatorFlutterTarget<T extends PlatformHostInterface>
   @override
   bool get supportsPrecompiledModes => false;
   @override
+  bool get embedsEntitlements => false;
+  @override
   List<String> get engineSliceIdentifiers => const [
     'ios-arm64_x86_64-simulator',
     'ios-arm64-simulator',
@@ -38,12 +41,16 @@ final class SimulatorFlutterTarget<T extends PlatformHostInterface>
   @override
   bool matchesLibraryVariant(String? variant) => variant == 'simulator';
   @override
-  String transformPlist(String xml, {String? sdkName}) =>
-      IosPlistMetadata.overwrite(
-        xml,
-        platform: target.buildPlatform,
-        sdkName: sdkName,
-      );
+  String transformPlist(
+    String xml, {
+    String? sdkName,
+    XcodeBuildMetadata? build,
+  }) => IosPlistMetadata.overwrite(
+    xml,
+    platform: target.buildPlatform,
+    sdkName: sdkName,
+    build: build,
+  );
   @override
   String get sanitizerRuntimeLibrary => 'libclang_rt.iossim.a';
   @override

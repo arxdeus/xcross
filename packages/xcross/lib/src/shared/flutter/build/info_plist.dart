@@ -43,6 +43,7 @@ abstract final class InfoPlist {
     String plistXml, {
     required String bundleId,
     required IosDeploymentTarget deploymentTarget,
+    List<int>? deviceFamily,
   }) {
     var xml = PlistMutations.setPlistString(
       plistXml,
@@ -58,9 +59,14 @@ abstract final class InfoPlist {
     );
     for (final entry in _requiredKeys) {
       if (xml.contains(entry.key)) continue;
+      // Xcode writes the target's TARGETED_DEVICE_FAMILY here.
+      final value = entry.key == 'UIDeviceFamily' && deviceFamily != null
+          ? '<array>${deviceFamily.map((f) => '<integer>$f</integer>').join()}'
+                '</array>'
+          : entry.value;
       xml = PlistMutations.insertBeforeEnd(
         xml,
-        '\t<key>${entry.key}</key>\n\t${entry.value}\n',
+        '\t<key>${entry.key}</key>\n\t$value\n',
       );
     }
     return xml;

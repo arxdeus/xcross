@@ -183,7 +183,9 @@ which are macOS-only and are not part of the Xcode SDK xcross extracts.
   normal case, and what `receive_sharing_intent` does) behave identically.
   An extension with real layout in its storyboard will lose that layout.
 * **Asset catalogs**: skipped with a warning. Images from an `.xcassets` inside
-  an extension will not be available.
+  an extension will not be available. The main app's asset catalogs, app icon
+  and launch screen are handled separately, see the README section
+  [App icon, launch screen and entitlements](../README.md#app-icon-launch-screen-and-entitlements).
 
 ---
 

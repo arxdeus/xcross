@@ -97,11 +97,19 @@ final class IosAppExtensions {
   /// Returns an empty list when the project has no extensions, no pbxproj, or
   /// the pbxproj cannot be parsed: extensions are an optional feature and a
   /// parse failure must never break an otherwise fine app build.
-  List<IosAppExtension> discover(String projectRoot) {
+  ///
+  /// Build settings are read for the Xcode configuration `flutter build ios`
+  /// picks for [baseConfiguration] (`Debug`/`Profile`/`Release`) and [flavor].
+  List<IosAppExtension> discover(
+    String projectRoot, {
+    String baseConfiguration = 'Debug',
+    String? flavor,
+  }) {
     final pbxprojPath = projects.findPbxproj(projectRoot);
     if (pbxprojPath == null) return const [];
     final project = projects.parseFile(pbxprojPath);
     if (project == null) return const [];
+    final configuration = project.configurationName(baseConfiguration, flavor);
 
     final extensions = <IosAppExtension>[];
     for (final target in project.nativeTargets) {
@@ -112,17 +120,26 @@ final class IosAppExtensions {
       final bundleId = project.buildSetting(
         target,
         'PRODUCT_BUNDLE_IDENTIFIER',
+        configuration: configuration,
       );
       // A target whose id is still an unresolved $(VAR) can't be provisioned.
       if (name == null || bundleId == null || bundleId.contains(r'$')) continue;
 
       final entitlements = _resolveProjectPath(
         project,
-        project.buildSetting(target, 'CODE_SIGN_ENTITLEMENTS'),
+        project.buildSetting(
+          target,
+          'CODE_SIGN_ENTITLEMENTS',
+          configuration: configuration,
+        ),
       );
       final infoPlist = _resolveProjectPath(
         project,
-        project.buildSetting(target, 'INFOPLIST_FILE'),
+        project.buildSetting(
+          target,
+          'INFOPLIST_FILE',
+          configuration: configuration,
+        ),
       );
 
       // Xcode 16 targets may list files explicitly, via a synchronized folder
@@ -154,10 +171,17 @@ final class IosAppExtensions {
           sources: sources,
           resources: resources,
           entitlementsPath: entitlements,
-          swiftVersion: project.buildSetting(target, 'SWIFT_VERSION') ?? '5.0',
+          swiftVersion:
+              project.buildSetting(
+                target,
+                'SWIFT_VERSION',
+                configuration: configuration,
+              ) ??
+              '5.0',
           deploymentTarget: project.buildSetting(
             target,
             'IPHONEOS_DEPLOYMENT_TARGET',
+            configuration: configuration,
           ),
           appGroups: readAppGroups(entitlements),
         ),
@@ -186,17 +210,26 @@ final class IosAppExtensions {
 
   /// Absolute path to the application target's `CODE_SIGN_ENTITLEMENTS`, or
   /// null when the project declares none.
-  String? applicationEntitlements(String projectRoot) {
+  String? applicationEntitlements(
+    String projectRoot, {
+    String baseConfiguration = 'Debug',
+    String? flavor,
+  }) {
     final pbxprojPath = projects.findPbxproj(projectRoot);
     if (pbxprojPath == null) return null;
     final project = projects.parseFile(pbxprojPath);
     if (project == null) return null;
+    final configuration = project.configurationName(baseConfiguration, flavor);
 
     for (final target in project.nativeTargets) {
       if (target.string('productType') != _applicationProductType) continue;
       final entitlements = _resolveProjectPath(
         project,
-        project.buildSetting(target, 'CODE_SIGN_ENTITLEMENTS'),
+        project.buildSetting(
+          target,
+          'CODE_SIGN_ENTITLEMENTS',
+          configuration: configuration,
+        ),
       );
       if (entitlements != null) return entitlements;
     }

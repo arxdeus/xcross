@@ -86,6 +86,49 @@ void main() {
     ]);
   });
 
+  test('grows load commands into header padding for longer names', () {
+    final commands = _macho([
+      (_idDylib, '@rpath/libflutter-soloud.dylib'),
+      (_loadDylib, '@rpath/libFlutterPluginsGenerated.dylib'),
+      (_loadDylib, '/usr/lib/libSystem.B.dylib'),
+    ]);
+    final bytes = Uint8List(commands.length + 256)
+      ..setRange(0, commands.length, commands);
+
+    expect(
+      MachODylibRewriter.rewriteBytes(
+        bytes,
+        dylibName: 'libflutter-soloud.dylib',
+        producedDylibNames: const {},
+        installName: '@rpath/flutter-soloud.framework/flutter-soloud',
+        producedInstallNames: const {
+          'libFlutterPluginsGenerated.dylib':
+              '@rpath/FlutterPluginsGenerated.framework/'
+              'FlutterPluginsGenerated',
+        },
+        replaceRelocatableId: true,
+      ),
+      isTrue,
+    );
+    expect(_dylibNames(bytes), [
+      '@rpath/flutter-soloud.framework/flutter-soloud',
+      '@rpath/FlutterPluginsGenerated.framework/FlutterPluginsGenerated',
+      '/usr/lib/libSystem.B.dylib',
+    ]);
+    final rewritten = Uint8List.fromList(bytes);
+    expect(
+      MachODylibRewriter.rewriteBytes(
+        bytes,
+        dylibName: 'libflutter-soloud.dylib',
+        producedDylibNames: const {},
+        installName: '@rpath/flutter-soloud.framework/flutter-soloud',
+        replaceRelocatableId: true,
+      ),
+      isFalse,
+    );
+    expect(bytes, rewritten);
+  });
+
   test('rejects a replacement longer than the existing string', () {
     final bytes = _macho([(_idDylib, 'x')]);
 

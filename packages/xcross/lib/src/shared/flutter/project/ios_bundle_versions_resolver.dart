@@ -20,8 +20,14 @@ final class IosBundleVersionsResolver {
     String projectRoot, {
     String? buildName,
     String? buildNumber,
+    String baseConfiguration = 'Debug',
+    String? flavor,
   }) {
-    final settings = _applicationBuildSettings(projectRoot);
+    final settings = _applicationBuildSettings(
+      projectRoot,
+      baseConfiguration,
+      flavor,
+    );
     return IosBundleVersions(
       shortVersion:
           buildName ??
@@ -34,11 +40,16 @@ final class IosBundleVersionsResolver {
     );
   }
 
-  Map<String, Object?> _applicationBuildSettings(String projectRoot) {
+  Map<String, Object?> _applicationBuildSettings(
+    String projectRoot,
+    String baseConfiguration,
+    String? flavor,
+  ) {
     final pbxprojPath = projects.findPbxproj(projectRoot);
     if (pbxprojPath == null) return const {};
     final project = projects.parseFile(pbxprojPath);
     if (project == null) return const {};
+    final configuration = project.configurationName(baseConfiguration, flavor);
 
     Map<String, Object?>? fallbackSettings;
     for (final target in project.nativeTargets) {
@@ -46,7 +57,10 @@ final class IosBundleVersionsResolver {
           'com.apple.product-type.application') {
         continue;
       }
-      final settings = project.buildSettings(target);
+      final settings = project.buildSettings(
+        target,
+        preferredConfiguration: configuration,
+      );
       if (target.string('name') == 'Runner') return settings;
       fallbackSettings ??= settings;
     }

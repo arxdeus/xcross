@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:cli_kit/shared/platform/platform_host.dart';
 import 'package:meta/meta.dart';
 import 'package:propertylistserialization/propertylistserialization.dart';
+import 'package:xcross/src/shared/apple/mach_o_code_signature.dart';
 
 /// The entitlements a Compose build recorded in the app's `Info.plist`.
 ///
@@ -33,6 +34,12 @@ final class AppEntitlements {
   /// binary plist and on one without an `<?xml?>` declaration, neither of which
   /// is xcross's business to reject here: signing works off the profile, and
   /// these values only ever refine it.
+  ///
+  /// Without the key, the entitlements embedded in the main executable's
+  /// code signature are used: a Flutter build writes the project's
+  /// `CODE_SIGN_ENTITLEMENTS` there (ad-hoc) so that external re-signers see
+  /// them, and reading them back here means no private key has to ship in an
+  /// unsigned `.ipa`.
   Map<String, Object?> of(String appPath) {
     final plist = fileSystem.file(paths.context.join(appPath, 'Info.plist'));
     if (!plist.existsSync()) return const {};
@@ -42,7 +49,7 @@ final class AppEntitlements {
     } on FileSystemException {
       return const {};
     }
-    if (!xml.contains(infoPlistKey)) return const {};
+    if (!xml.contains(infoPlistKey)) return _embedded(appPath, xml);
     final Object? object;
     try {
       object = PropertyListSerialization.propertyListWithString(xml);
@@ -53,5 +60,31 @@ final class AppEntitlements {
     final declared = object[infoPlistKey];
     if (declared is! Map) return const {};
     return declared.cast<String, Object?>();
+  }
+
+  Map<String, Object?> _embedded(String appPath, String infoPlistXml) {
+    final executable = RegExp(
+      r'<key>\s*CFBundleExecutable\s*</key>\s*<string>([^<]+)</string>',
+    ).firstMatch(infoPlistXml)?.group(1)?.trim();
+    if (executable == null || executable.isEmpty) return const {};
+    final file = fileSystem.file(paths.context.join(appPath, executable));
+    final String? entitlements;
+    try {
+      if (!file.existsSync()) return const {};
+      entitlements = MachOCodeSignature.embeddedEntitlementsXml(
+        file.readAsBytesSync(),
+      );
+    } on FileSystemException {
+      return const {};
+    }
+    if (entitlements == null) return const {};
+    try {
+      final object = PropertyListSerialization.propertyListWithString(
+        entitlements,
+      );
+      return object is Map ? object.cast<String, Object?>() : const {};
+    } on Object {
+      return const {};
+    }
   }
 }
