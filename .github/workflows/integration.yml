@@ -533,6 +533,13 @@ jobs:
             ${{ runner.os == 'Windows' && '~/AppData/Local' || '~/.cache' }}/xcross/open-apple-macros/*/OpenAppleMacrosServer*
           key: open-apple-macros-${{ runner.os }}-${{ runner.arch }}-swift-${{ env.SWIFT_VERSION }}-${{ hashFiles('.gitmodules', 'packages/xcross/lib/src/shared/flutter/swiftpm/open_apple_macros.dart') }}
 
+      - name: Add entitlements fixture to Flutter example
+        if: steps.darwin.outputs.available == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/ios_bundle_check.py add-entitlements examples/flutter_example/ios
+
       - name: Build Flutter example on Linux
         if: runner.os == 'Linux' && steps.darwin.outputs.available == 'true'
         shell: bash
@@ -634,6 +641,89 @@ jobs:
           dart test test/signing/built_app_signing_test.dart --reporter expanded
           if ($LASTEXITCODE -ne 0) { throw 'Signing the flutter_example artifact failed' }
 
+      - name: Verify bundle icons launch screen entitlements and IPA on Linux
+        if: runner.os == 'Linux' && steps.darwin.outputs.available == 'true'
+        shell: bash
+        working-directory: examples/flutter_example
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          check() { python3 "$GITHUB_WORKSPACE/.github/scripts/ios_bundle_check.py" "$1" \
+            --expect-icon AppIcon --expect-launch-image LaunchImage \
+            --expect-entitlements aps-environment com.apple.developer.associated-domains --no-private-keys \
+            --no-ib-sources \
+            --expect-bundle-file SDWebImage_SDWebImage.bundle/PrivacyInfo.xcprivacy \
+            google_mobile_ads_google_mobile_ads.bundle/GADTSmallTemplateView.nib \
+            google_mobile_ads_google_mobile_ads.bundle/GADTMediumTemplateView.nib \
+            google_mobile_ads_google_mobile_ads.bundle/GADTFullScreenTemplateView.nib \
+            --expect-lf GoogleSignIn_GoogleSignIn.bundle/en.lproj/GoogleSignIn.strings \
+            AppAuth_AppAuth.bundle/PrivacyInfo.xcprivacy \
+            SDWebImage_SDWebImage.bundle/PrivacyInfo.xcprivacy \
+            --no-loose-dylibs --expect-device-family 1,2 \
+            --expect-framework-file \
+            Frameworks/absl.framework/xcprivacy.bundle/PrivacyInfo.xcprivacy \
+            Frameworks/FirebaseFirestoreInternal.framework/FirebaseFirestoreInternal_Privacy.bundle/PrivacyInfo.xcprivacy \
+            Frameworks/GoogleCast.framework/PrivacyInfo.xcprivacy \
+            Frameworks/GoogleMobileAds.framework/PrivacyInfo.xcprivacy \
+            Frameworks/grpc.framework/grpc.bundle/PrivacyInfo.xcprivacy \
+            Frameworks/grpcpp.framework/grpcpp.bundle/PrivacyInfo.xcprivacy \
+            Frameworks/openssl_grpc.framework/openssl_grpc.bundle/PrivacyInfo.xcprivacy \
+            Frameworks/RecaptchaEnterpriseSDK.framework/PrivacyInfo.xcprivacy \
+            Frameworks/Sentry.framework/PrivacyInfo.xcprivacy \
+            Frameworks/UserMessagingPlatform.framework/PrivacyInfo.xcprivacy; }
+          apps=(build/xcross-ios/*.app)
+          test "${#apps[@]}" -eq 1
+          check "${apps[0]}"
+          "$RUNNER_TEMP/xcross-bundle/bin/xcross" --verbose flutter build --release --ipa
+          apps=(build/xcross-ios/*.app)
+          check "${apps[0]}"
+          ipas=(build/xcross-ios/*.ipa build/ios/ipa/*.ipa)
+          test "${#ipas[@]}" -ge 1
+          check "${ipas[0]}"
+
+      - name: Verify bundle icons launch screen entitlements and IPA on Windows
+        if: runner.os == 'Windows' && steps.darwin.outputs.available == 'true'
+        shell: pwsh
+        working-directory: examples/flutter_example
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $checker = Join-Path $env:GITHUB_WORKSPACE '.github/scripts/ios_bundle_check.py'
+          function Check($path) {
+            python $checker $path --expect-icon AppIcon --expect-launch-image LaunchImage `
+              --expect-entitlements aps-environment com.apple.developer.associated-domains --no-private-keys `
+              --no-ib-sources `
+              --expect-bundle-file SDWebImage_SDWebImage.bundle/PrivacyInfo.xcprivacy `
+              google_mobile_ads_google_mobile_ads.bundle/GADTSmallTemplateView.nib `
+              google_mobile_ads_google_mobile_ads.bundle/GADTMediumTemplateView.nib `
+              google_mobile_ads_google_mobile_ads.bundle/GADTFullScreenTemplateView.nib `
+              --expect-lf GoogleSignIn_GoogleSignIn.bundle/en.lproj/GoogleSignIn.strings `
+              AppAuth_AppAuth.bundle/PrivacyInfo.xcprivacy `
+              SDWebImage_SDWebImage.bundle/PrivacyInfo.xcprivacy `
+              --no-loose-dylibs --expect-device-family 1,2 `
+              --expect-framework-file `
+              Frameworks/absl.framework/xcprivacy.bundle/PrivacyInfo.xcprivacy `
+              Frameworks/FirebaseFirestoreInternal.framework/FirebaseFirestoreInternal_Privacy.bundle/PrivacyInfo.xcprivacy `
+              Frameworks/GoogleCast.framework/PrivacyInfo.xcprivacy `
+              Frameworks/GoogleMobileAds.framework/PrivacyInfo.xcprivacy `
+              Frameworks/grpc.framework/grpc.bundle/PrivacyInfo.xcprivacy `
+              Frameworks/grpcpp.framework/grpcpp.bundle/PrivacyInfo.xcprivacy `
+              Frameworks/openssl_grpc.framework/openssl_grpc.bundle/PrivacyInfo.xcprivacy `
+              Frameworks/RecaptchaEnterpriseSDK.framework/PrivacyInfo.xcprivacy `
+              Frameworks/Sentry.framework/PrivacyInfo.xcprivacy `
+              Frameworks/UserMessagingPlatform.framework/PrivacyInfo.xcprivacy
+            if ($LASTEXITCODE -ne 0) { throw "Bundle check failed for $path" }
+          }
+          $apps = @(Get-ChildItem build/xcross-ios -Directory -Filter *.app)
+          if ($apps.Count -ne 1) { throw "Expected one .app, found $($apps.Count)" }
+          Check $apps[0].FullName
+          & "$env:RUNNER_TEMP\xcross-bundle\bin\xcross.exe" --verbose flutter build --release --ipa
+          if ($LASTEXITCODE -ne 0) { throw 'flutter_example --ipa build failed' }
+          $apps = @(Get-ChildItem build/xcross-ios -Directory -Filter *.app)
+          Check $apps[0].FullName
+          $ipas = @(Get-ChildItem build -Recurse -Filter *.ipa)
+          if ($ipas.Count -lt 1) { throw 'No .ipa produced' }
+          Check $ipas[0].FullName
+
       - name: Build Flutter example for ARM64 simulator on Linux
         if: runner.os == 'Linux' && steps.darwin.outputs.available == 'true'
         shell: bash
@@ -650,6 +740,15 @@ jobs:
           $ErrorActionPreference = 'Stop'
           & "$env:RUNNER_TEMP\xcross-bundle\bin\xcross.exe" --verbose flutter build --target-platform simulator --debug
           if ($LASTEXITCODE -ne 0) { throw 'flutter_example simulator build failed' }
+
+      - name: Upload Flutter example release IPA
+        if: steps.darwin.outputs.available == 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: flutter-example-ipa-${{ matrix.os }}
+          path: examples/flutter_example/build/xcross-ios/*.ipa
+          if-no-files-found: error
+          retention-days: 7
 
       - name: Upload Flutter example simulator app
         if: steps.darwin.outputs.available == 'true'
@@ -1141,6 +1240,86 @@ jobs:
           name: flutter-example-simulator-${{ matrix.host }}
           path: ${{ runner.temp }}/cross-built
 
+      - name: Verify cross-built simulator bundle resources
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          apps=("$RUNNER_TEMP/cross-built/"*.app)
+          test "${#apps[@]}" -eq 1
+          python3 .github/scripts/ios_bundle_check.py "${apps[0]}" \
+            --expect-icon AppIcon --expect-launch-image LaunchImage \
+            --no-ib-sources \
+            --expect-bundle-file SDWebImage_SDWebImage.bundle/PrivacyInfo.xcprivacy \
+            google_mobile_ads_google_mobile_ads.bundle/GADTSmallTemplateView.nib \
+            google_mobile_ads_google_mobile_ads.bundle/GADTMediumTemplateView.nib \
+            google_mobile_ads_google_mobile_ads.bundle/GADTFullScreenTemplateView.nib \
+            --no-loose-dylibs --expect-device-family 1,2 \
+            --expect-framework-file \
+            Frameworks/absl.framework/xcprivacy.bundle/PrivacyInfo.xcprivacy \
+            Frameworks/FirebaseFirestoreInternal.framework/FirebaseFirestoreInternal_Privacy.bundle/PrivacyInfo.xcprivacy \
+            Frameworks/GoogleCast.framework/PrivacyInfo.xcprivacy \
+            Frameworks/GoogleMobileAds.framework/PrivacyInfo.xcprivacy \
+            Frameworks/grpc.framework/grpc.bundle/PrivacyInfo.xcprivacy \
+            Frameworks/grpcpp.framework/grpcpp.bundle/PrivacyInfo.xcprivacy \
+            Frameworks/openssl_grpc.framework/openssl_grpc.bundle/PrivacyInfo.xcprivacy \
+            Frameworks/RecaptchaEnterpriseSDK.framework/PrivacyInfo.xcprivacy \
+            Frameworks/Sentry.framework/PrivacyInfo.xcprivacy \
+            Frameworks/UserMessagingPlatform.framework/PrivacyInfo.xcprivacy
+          xcrun assetutil --info "${apps[0]}/Assets.car" > "$RUNNER_TEMP/assets.json"
+          python3 - "$RUNNER_TEMP/assets.json" <<'PY'
+          import json, sys
+          items = json.load(open(sys.argv[1]))
+          names = {i.get("Name") for i in items}
+          kinds = {(i.get("AssetType"), i.get("Idiom")) for i in items}
+          assert "LaunchImage" in names, names
+          # The app icon renditions actool writes for a per-size icon set.
+          for kind in [("Icon Image", "phone"), ("Icon Image", "pad"),
+                       ("Icon Image", "marketing"), ("MultiSized Image", "phone"),
+                       ("MultiSized Image", "pad")]:
+              assert kind in kinds, (kind, sorted(map(str, kinds)))
+          print("assetutil ok:", sorted(n for n in names if n))
+          PY
+
+      - name: Compare cross-built nibs with ibtool output
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          apps=("$RUNNER_TEMP/cross-built/"*.app)
+          test "${#apps[@]}" -eq 1
+          # The pub cache and the examples submodule are absent on this
+          # runner; the bundle identifier carries the plugin version Xcode
+          # would have used (google-mobile-ads-<version>.google-mobile-ads.resources).
+          bundle="${apps[0]}/google_mobile_ads_google_mobile_ads.bundle"
+          identifier="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$bundle/Info.plist")"
+          version="$(sed -nE 's/^google-mobile-ads-([0-9][^.]*\.[0-9]+\.[0-9]+[^.]*)\.google-mobile-ads\.resources$/\1/p' <<<"$identifier")"
+          test -n "$version" || { echo "::error::no google_mobile_ads version in $identifier"; exit 1; }
+          src="$RUNNER_TEMP/gma-src"
+          mkdir -p "$src"
+          curl -fsSL --retry 3 "https://pub.dev/api/archives/google_mobile_ads-${version}.tar.gz" \
+            | tar -xz -C "$src"
+          out="$RUNNER_TEMP/ibtool-out"
+          mkdir -p "$out"
+          bundle="${apps[0]}/google_mobile_ads_google_mobile_ads.bundle"
+          failed=0
+          for name in GADTSmallTemplateView GADTMediumTemplateView GADTFullScreenTemplateView; do
+            xib="$(find "$src" -name "$name.xib" | head -n 1)"
+            test -n "$xib" || { echo "::error::$name.xib not found in google_mobile_ads $version"; exit 1; }
+            xcrun ibtool --errors --warnings --module google_mobile_ads \
+              --target-device iphone --target-device ipad \
+              --minimum-deployment-target 13.0 --compile "$out/$name.nib" "$xib"
+            if ! cmp "$out/$name.nib" "$bundle/$name.nib"; then
+              echo "::error::NIB PARITY MISMATCH for $name.nib: cross-built output differs from ibtool ($(xcodebuild -version | tr '\n' ' '))"
+              echo "--- ibtool nib ---"; xxd "$out/$name.nib" | head -n 80
+              echo "--- cross-built nib ---"; xxd "$bundle/$name.nib" | head -n 80
+              failed=1
+            else
+              echo "nib parity ok: $name.nib"
+            fi
+          done
+          exit "$failed"
+
       - name: Boot install launch and observe cross-built Flutter example headlessly
         shell: bash
         run: |
@@ -1260,8 +1439,27 @@ jobs:
           python3 .github/scripts/prepare_simulator_fixture.py compose \
             "$RUNNER_TEMP/compose-simulator" --source examples/compose_app
 
+      - name: Cache Gradle distribution and dependencies
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        with:
+          path: |
+            ${{ runner.temp }}/gradle/wrapper/dists
+            ${{ runner.temp }}/gradle/caches/modules-2
+          key: gradle-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('examples/compose_app/gradle/wrapper/gradle-wrapper.properties', 'examples/compose_app/**/*.gradle.kts', 'examples/compose_app/gradle.properties') }}
+          restore-keys: |
+            gradle-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Pre-download Gradle wrapper with retry
+        shell: bash
+        working-directory: ${{ runner.temp }}/compose-simulator
+        env:
+          GRADLE_USER_HOME: ${{ runner.temp }}/gradle
+        run: bash "$GITHUB_WORKSPACE/.github/scripts/prefetch_gradle_wrapper.sh"
+
       - name: Set up Compose toolchain
         shell: bash
+        env:
+          GRADLE_USER_HOME: ${{ runner.temp }}/gradle
         working-directory: ${{ runner.temp }}/compose-simulator
         run: |
           set -euo pipefail
@@ -1270,6 +1468,8 @@ jobs:
 
       - name: Build ARM64 simulator app through production xcross
         shell: bash
+        env:
+          GRADLE_USER_HOME: ${{ runner.temp }}/gradle
         working-directory: ${{ runner.temp }}/compose-simulator
         run: |
           set -euo pipefail
@@ -1617,6 +1817,23 @@ jobs:
       - name: Download Darwin SDK
         if: steps.darwin.outputs.available == 'true'
         uses: ./.github/actions/setup-darwin-sdk
+
+      - name: Cache Gradle distribution and dependencies
+        if: steps.darwin.outputs.available == 'true'
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        with:
+          path: |
+            ${{ runner.temp }}/gradle/wrapper/dists
+            ${{ runner.temp }}/gradle/caches/modules-2
+          key: gradle-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('examples/compose_app/gradle/wrapper/gradle-wrapper.properties', 'examples/compose_app/**/*.gradle.kts', 'examples/compose_app/gradle.properties') }}
+          restore-keys: |
+            gradle-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Pre-download Gradle wrapper with retry
+        if: steps.darwin.outputs.available == 'true'
+        shell: bash
+        working-directory: examples/compose_app
+        run: bash "$GITHUB_WORKSPACE/.github/scripts/prefetch_gradle_wrapper.sh"
 
       - name: Set up Compose toolchain
         if: steps.darwin.outputs.available == 'true'

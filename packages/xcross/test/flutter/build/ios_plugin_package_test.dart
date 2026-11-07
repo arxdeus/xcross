@@ -23,6 +23,7 @@ import 'package:xcross/src/shared/flutter/build/swiftpm_binary_target.dart';
 import 'package:xcross/src/shared/flutter/errors.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_destination_publisher.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/binary_provenance.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/checkout.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/discovery.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/filesystem.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/host_source_normalizer.dart';
@@ -1997,6 +1998,86 @@ framework module FallbackKit {
         expect(aliases, isEmpty);
         expect(manifestFile.readAsStringSync(), original);
         expect(writes, 0);
+      },
+    );
+  });
+
+  group('checkout line endings', () {
+    test('selects only autocrlf-converted paths', () {
+      expect(
+        SwiftPmCheckout.crlfConvertedPaths(
+          [
+            'i/lf    w/crlf  attr/                 \tconverted.strings',
+            'i/lf    w/crlf  attr/text eol=crlf    \trequested.bat',
+            'i/crlf  w/crlf  attr/                 \tstored-crlf.txt',
+            'i/lf    w/lf    attr/                 \tclean.txt',
+            'i/      w/      attr/                 \tlink',
+            'i/lf    w/crlf  attr/                 \tdir/with space.txt',
+            '',
+          ].join('\u0000'),
+        ),
+        ['converted.strings', 'dir/with space.txt'],
+      );
+    });
+
+    test(
+      // The fixture runtime is the macOS host, which looks git up through
+      // /bin/sh; Windows CI covers the real path through --expect-lf.
+      testOn: '!windows',
+      'restores repository bytes in a checkout made with core.autocrlf',
+      () async {
+        final source = p.join(tmp.path, 'source');
+        final scratch = p.join(tmp.path, 'scratch');
+        final repo = p.join(scratch, 'checkouts', 'dependency');
+        Directory(source).createSync(recursive: true);
+
+        ProcessResult git(List<String> arguments, {String? directory}) {
+          final result = Process.runSync('git', [
+            '-c',
+            'core.autocrlf=true',
+            '-C',
+            directory ?? source,
+            ...arguments,
+          ]);
+          expect(
+            result.exitCode,
+            0,
+            reason: '${result.stdout}${result.stderr}',
+          );
+          return result;
+        }
+
+        git(['init', '-q']);
+        File(p.join(source, 'a.strings')).writeAsStringSync('"a" = "b";\n');
+        File(
+          p.join(source, '.gitattributes'),
+        ).writeAsStringSync('*.bat text eol=crlf\n');
+        File(p.join(source, 'run.bat')).writeAsStringSync('echo\n');
+        git(['add', '.']);
+        git([
+          '-c',
+          'user.email=x@example.com',
+          '-c',
+          'user.name=x',
+          'commit',
+          '-qm',
+          'init',
+        ]);
+        git(['clone', '-q', source, repo], directory: tmp.path);
+        final strings = File(p.join(repo, 'a.strings'));
+        expect(strings.readAsStringSync(), '"a" = "b";\r\n');
+
+        expect(
+          await _swiftPmRuntime.checkout.materializeCheckoutSymlinks(scratch),
+          isTrue,
+        );
+        expect(strings.readAsStringSync(), '"a" = "b";\n');
+        // Attributes asking for CRLF win, exactly as on macOS.
+        expect(File(p.join(repo, 'run.bat')).readAsStringSync(), 'echo\r\n');
+        expect(
+          await _swiftPmRuntime.checkout.materializeCheckoutSymlinks(scratch),
+          isFalse,
+        );
       },
     );
   });
@@ -4941,7 +5022,7 @@ module FirebaseFirestore {
         );
         expect(await _windowsRuntime.processPolicy.swiftProcessEnvironment(), {
           ...SwiftPmProcessPolicy.nonInteractiveGitEnvironment,
-          'GIT_CONFIG_COUNT': '6',
+          'GIT_CONFIG_COUNT': '8',
           'GIT_CONFIG_KEY_0': 'credential.helper',
           // Two quotes, not the empty string: git rejects a genuinely empty
           // GIT_CONFIG_VALUE_* and would then fail every command.
@@ -4953,10 +5034,16 @@ module FirebaseFirestore {
           'GIT_CONFIG_VALUE_2': '1024',
           'GIT_CONFIG_KEY_3': 'http.lowSpeedTime',
           'GIT_CONFIG_VALUE_3': '60',
-          'GIT_CONFIG_KEY_4': 'core.symlinks',
+          // A checkout keeps repository bytes whatever core.autocrlf the
+          // user configured, as a macOS clone does.
+          'GIT_CONFIG_KEY_4': 'core.autocrlf',
           'GIT_CONFIG_VALUE_4': 'false',
-          'GIT_CONFIG_KEY_5': 'core.longpaths',
-          'GIT_CONFIG_VALUE_5': 'true',
+          'GIT_CONFIG_KEY_5': 'core.eol',
+          'GIT_CONFIG_VALUE_5': 'lf',
+          'GIT_CONFIG_KEY_6': 'core.symlinks',
+          'GIT_CONFIG_VALUE_6': 'false',
+          'GIT_CONFIG_KEY_7': 'core.longpaths',
+          'GIT_CONFIG_VALUE_7': 'true',
           'EXPERIMENTAL_SPM_BUILDS': '1',
         });
       },
@@ -4983,12 +5070,20 @@ module FirebaseFirestore {
       final posix = await _swiftPmRuntime.processPolicy
           .swiftProcessEnvironment();
       expect(posix.containsKey('EXPERIMENTAL_SPM_BUILDS'), isFalse);
-      // Only the credential settings, never the Windows symlink lane.
-      expect(posix['GIT_CONFIG_COUNT'], '4');
+      // Credential and line-ending settings, never the Windows symlink lane.
+      expect(posix['GIT_CONFIG_COUNT'], '6');
       expect(posix['GIT_CONFIG_KEY_0'], 'credential.helper');
       expect(posix['GIT_CONFIG_VALUE_0'], '""');
       expect(posix['GIT_CONFIG_KEY_1'], 'credential.interactive');
-      expect(posix.containsKey('GIT_CONFIG_KEY_4'), isFalse);
+      expect(
+        [posix['GIT_CONFIG_KEY_4'], posix['GIT_CONFIG_VALUE_4']],
+        ['core.autocrlf', 'false'],
+      );
+      expect(
+        [posix['GIT_CONFIG_KEY_5'], posix['GIT_CONFIG_VALUE_5']],
+        ['core.eol', 'lf'],
+      );
+      expect(posix.containsKey('GIT_CONFIG_KEY_6'), isFalse);
       expect(
         [posix['GIT_CONFIG_KEY_2'], posix['GIT_CONFIG_KEY_3']],
         ['http.lowSpeedLimit', 'http.lowSpeedTime'],
@@ -5178,6 +5273,233 @@ module FirebaseFirestore {
 
       expect(result.frameworkPaths, [thinDynamic, universalDynamic]);
     });
+
+    test('returns SwiftPM resource bundles for the app root', () async {
+      final output = Directory(p.join(tmp.path, 'debug'))..createSync();
+      File(
+        p.join(output.path, 'libFlutterPluginsGenerated.dylib'),
+      ).writeAsBytesSync(_emptyMachO());
+      String bundle(String name) {
+        final directory = Directory(p.join(output.path, '$name.bundle'))
+          ..createSync();
+        File(
+          p.join(directory.path, 'PrivacyInfo.xcprivacy'),
+        ).writeAsStringSync('<plist/>');
+        return p.absolute(directory.path);
+      }
+
+      final sqlite = bundle('sqlite3_flutter_libs_sqlite3_flutter_libs');
+      final prefs = bundle(
+        'shared_preferences_foundation_shared_preferences_foundation',
+      );
+      File(p.join(output.path, 'stray.bundle')).writeAsStringSync('file');
+
+      final result = await _swiftPmRuntime.assembly.discoverAndRewriteDylibs(
+        output.path,
+      );
+
+      expect(result.resourceBundlePaths, [prefs, sqlite]);
+    });
+
+    test('keeps manifest bundles swift build did not recreate', () async {
+      final scratch = Directory(p.join(tmp.path, 'scratch'))..createSync();
+      final output = Directory(p.join(scratch.path, 'arm64-apple-ios', 'debug'))
+        ..createSync(recursive: true);
+      File(
+        p.join(output.path, 'libFlutterPluginsGenerated.dylib'),
+      ).writeAsBytesSync(_emptyMachO());
+      Directory(p.join(output.path, 'SDWebImage.build')).createSync();
+      final source = p.join(
+        tmp.path,
+        'checkouts',
+        'SDWebImage',
+        'SDWebImage',
+        'Resources',
+        'PrivacyInfo.xcprivacy',
+      );
+      final missing = p.join(output.path, 'SDWebImage_SDWebImage.bundle');
+      final testOnly = p.join(output.path, 'SDWebImage_Tests.bundle');
+      final mapKit = p.join(output.path, 'SDWebImage_SDWebImageMapKit.bundle');
+      Directory(p.join(output.path, 'SDWebImageMapKit.build')).createSync();
+      String copy(String bundle) =>
+          '  "${p.join(bundle, 'PrivacyInfo.xcprivacy')}":\n'
+          '    tool: copy-tool\n'
+          '    inputs: ${jsonEncode([source])}\n'
+          '    outputs: ${jsonEncode([p.join(bundle, 'PrivacyInfo.xcprivacy')])}\n';
+      final dylib = p.join(output.path, 'libFlutterPluginsGenerated.dylib');
+      final link =
+          '  "C.dylib":\n'
+          '    tool: shell\n'
+          '    inputs: ${jsonEncode([p.join(output.path, 'SDWebImage.build', 'SDImageCache.m.o')])}\n'
+          '    outputs: ${jsonEncode([dylib])}\n';
+      File(p.join(scratch.path, 'debug.yaml')).writeAsStringSync(
+        'commands:\n${copy(missing)}${copy(testOnly)}${copy(mapKit)}$link',
+      );
+
+      final result = await _swiftPmRuntime.assembly.discoverAndRewriteDylibs(
+        output.path,
+      );
+
+      expect(result.resourceBundlePaths, [p.absolute(missing)]);
+      final bundle = result.resourceBundles.single;
+      expect(bundle.targetName, 'SDWebImage');
+      expect(bundle.resources?.single.source, source);
+    });
+
+    test('names dynamic products as the frameworks the app embeds', () async {
+      final scratch = Directory(p.join(tmp.path, 'scratch'))..createSync();
+      final output = Directory(p.join(scratch.path, 'arm64-apple-ios', 'debug'))
+        ..createSync(recursive: true);
+      final aggregate =
+          File(p.join(output.path, 'libFlutterPluginsGenerated.dylib'))
+            ..writeAsBytesSync(
+              _dylibMachO([
+                (0x0d, '/build/libFlutterPluginsGenerated.dylib'),
+                (0x0c, '/build/libflutter-soloud.dylib'),
+              ]),
+            );
+      final soloud = File(p.join(output.path, 'libflutter-soloud.dylib'))
+        ..writeAsBytesSync(
+          _dylibMachO([(0x0d, '@rpath/libflutter-soloud.dylib')]),
+        );
+      final plugin = Directory(p.join(tmp.path, 'Packages', 'flutter_soloud'))
+        ..createSync(recursive: true);
+      File(p.join(plugin.path, 'Package.swift')).writeAsStringSync(
+        'platforms: [.iOS("13.0")],\n'
+        'products: [.library(name: "flutter-soloud", type: .dynamic, '
+        'targets: ["flutter_soloud"])]',
+      );
+      File(p.join(scratch.path, 'workspace-state.json')).writeAsStringSync(
+        jsonEncode({
+          'object': {
+            'dependencies': [
+              {
+                'packageRef': {
+                  'identity': 'flutter_soloud',
+                  'kind': 'fileSystem',
+                  'location': plugin.path,
+                  'name': 'flutter_soloud',
+                },
+                'subpath': 'flutter_soloud',
+              },
+            ],
+          },
+        }),
+      );
+
+      final result = await _swiftPmRuntime.assembly.discoverAndRewriteDylibs(
+        output.path,
+        pluginIdentities: const {'flutter_soloud': 'flutter_soloud-5.1.2'},
+      );
+
+      final products = {
+        for (final product in result.dynamicProducts) product.name: product,
+      };
+      expect(products.keys, {'FlutterPluginsGenerated', 'flutter-soloud'});
+      final soloudProduct = products['flutter-soloud']!;
+      expect(soloudProduct.frameworkName, 'flutter-soloud.framework');
+      expect(
+        soloudProduct.bundleIdentifier,
+        'flutter-soloud-5.1.2.flutter-soloud',
+      );
+      expect(soloudProduct.minimumOsVersion, '13.0');
+      final aggregateProduct = products['FlutterPluginsGenerated']!;
+      expect(
+        aggregateProduct.bundleIdentifier,
+        'flutterpluginsgenerated.FlutterPluginsGenerated',
+      );
+      expect(aggregateProduct.minimumOsVersion, isNull);
+      expect(_dylibMachONames(aggregate.readAsBytesSync()), [
+        '@rpath/FlutterPluginsGenerated.framework/FlutterPluginsGenerated',
+        '@rpath/flutter-soloud.framework/flutter-soloud',
+      ]);
+      expect(_dylibMachONames(soloud.readAsBytesSync()), [
+        '@rpath/flutter-soloud.framework/flutter-soloud',
+      ]);
+
+      // A reused build passes through again unchanged.
+      final again = await _swiftPmRuntime.assembly.discoverAndRewriteDylibs(
+        output.path,
+      );
+      expect(again.dylibPaths, result.dylibPaths);
+      expect(_dylibMachONames(soloud.readAsBytesSync()), [
+        '@rpath/flutter-soloud.framework/flutter-soloud',
+      ]);
+    });
+
+    test('names bundle identity and minimum from workspace state', () async {
+      final scratch = Directory(p.join(tmp.path, 'scratch'))..createSync();
+      final output = Directory(p.join(scratch.path, 'arm64-apple-ios', 'debug'))
+        ..createSync(recursive: true);
+      File(
+        p.join(output.path, 'libFlutterPluginsGenerated.dylib'),
+      ).writeAsBytesSync(_emptyMachO());
+      final checkout = Directory(
+        p.join(scratch.path, 'checkouts', 'GoogleUtilities'),
+      )..createSync(recursive: true);
+      File(
+        p.join(checkout.path, 'Package.swift'),
+      ).writeAsStringSync('platforms: [.iOS(.v12), .macOS(.v10_15)]');
+      final plugin = Directory(p.join(tmp.path, 'Packages', 'file_picker'))
+        ..createSync(recursive: true);
+      File(
+        p.join(plugin.path, 'Package.swift'),
+      ).writeAsStringSync('platforms: [.iOS("14.0")]');
+      File(p.join(scratch.path, 'workspace-state.json')).writeAsStringSync(
+        jsonEncode({
+          'object': {
+            'dependencies': [
+              {
+                'packageRef': {
+                  'identity': 'googleutilities',
+                  'kind': 'remoteSourceControl',
+                  'location': 'https://github.com/google/GoogleUtilities.git',
+                  'name': 'GoogleUtilities',
+                },
+                'subpath': 'GoogleUtilities',
+              },
+              {
+                'packageRef': {
+                  'identity': 'file_picker',
+                  'kind': 'fileSystem',
+                  'location': plugin.path,
+                  'name': 'file_picker',
+                },
+                'subpath': 'file_picker',
+              },
+            ],
+          },
+        }),
+      );
+      for (final name in [
+        'GoogleUtilities_GoogleUtilities-Logger',
+        'file_picker_file_picker',
+      ]) {
+        Directory(p.join(output.path, '$name.bundle')).createSync();
+      }
+
+      final result = await _swiftPmRuntime.assembly.discoverAndRewriteDylibs(
+        output.path,
+        pluginIdentities: const {'file_picker': 'file_picker-1.0.4'},
+      );
+
+      final bundles = {
+        for (final bundle in result.resourceBundles)
+          p.basename(bundle.bundlePath): bundle,
+      };
+      final logger = bundles['GoogleUtilities_GoogleUtilities-Logger.bundle']!;
+      expect(
+        logger.bundleIdentifier,
+        'googleutilities.GoogleUtilities-Logger.resources',
+      );
+      expect(logger.minimumOsVersion, '12.0');
+      final picker = bundles['file_picker_file_picker.bundle']!;
+      expect(
+        picker.bundleIdentifier,
+        'file-picker-1.0.4.file-picker.resources',
+      );
+      expect(picker.minimumOsVersion, '14.0');
+    });
   });
 
   group('build', () {
@@ -5313,6 +5635,50 @@ module FirebaseFirestore {
       );
     });
   });
+}
+
+/// A thin dylib holding [commands] (`dylib_command` type and name), with
+/// 512 bytes of header padding for names to grow into.
+Uint8List _dylibMachO(List<(int, String)> commands) {
+  final names = [for (final command in commands) utf8.encode(command.$2)];
+  final sizes = [for (final name in names) (24 + name.length + 1 + 7) & ~7];
+  final commandsSize = sizes.fold(0, (sum, size) => sum + size);
+  final bytes = Uint8List(32 + commandsSize + 512);
+  final data = ByteData.sublistView(bytes)
+    ..setUint32(0, 0xfeedfacf, Endian.little)
+    ..setUint32(12, 6, Endian.little)
+    ..setUint32(16, commands.length, Endian.little)
+    ..setUint32(20, commandsSize, Endian.little);
+  var offset = 32;
+  for (var index = 0; index < commands.length; index++) {
+    data
+      ..setUint32(offset, commands[index].$1, Endian.little)
+      ..setUint32(offset + 4, sizes[index], Endian.little)
+      ..setUint32(offset + 8, 24, Endian.little);
+    bytes.setRange(
+      offset + 24,
+      offset + 24 + names[index].length,
+      names[index],
+    );
+    offset += sizes[index];
+  }
+  return bytes;
+}
+
+List<String> _dylibMachONames(Uint8List bytes) {
+  final data = ByteData.sublistView(bytes);
+  final names = <String>[];
+  var offset = 32;
+  for (var index = 0; index < data.getUint32(16, Endian.little); index++) {
+    final start = offset + data.getUint32(offset + 8, Endian.little);
+    var end = start;
+    while (bytes[end] != 0) {
+      end++;
+    }
+    names.add(utf8.decode(bytes.sublist(start, end)));
+    offset += data.getUint32(offset + 4, Endian.little);
+  }
+  return names;
 }
 
 Uint8List _emptyMachO() {

@@ -1,8 +1,14 @@
+import 'dart:io';
+
 import 'package:cli_kit/shared/platform/platform_host.dart';
 import 'package:meta/meta.dart';
+import 'package:xcross/src/shared/apple/app_resource_compiler.dart';
 import 'package:xcross/src/shared/artifact/plist_mutations.dart';
 import 'package:xcross/src/shared/flutter/build/app_extension_builder.dart';
+import 'package:xcross/src/shared/flutter/build/bundle_pkg_info.dart';
 import 'package:xcross/src/shared/flutter/build/info_plist.dart';
+import 'package:xcross/src/shared/flutter/build/internal/staged_directory_swap.dart';
+import 'package:xcross/src/shared/flutter/build/ios_bundle_resources.dart';
 import 'package:xcross/src/shared/flutter/build/ios_bundle_versions.dart';
 import 'package:xcross/src/shared/flutter/build/ios_deployment_target.dart';
 import 'package:xcross/src/shared/flutter/constants.dart';
@@ -11,6 +17,10 @@ import 'package:xcross/src/shared/flutter/flutter_build_runtime.dart';
 import 'package:xcross/src/shared/flutter/flutter_build_steps.dart';
 import 'package:xcross/src/shared/flutter/models/flutter/flutter_build_mode.dart';
 import 'package:xcross/src/shared/flutter/models/flutter/flutter_build_options.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/dynamic_product.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/resource_manifest.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/static_framework_stubs.dart';
+import 'package:xcross/src/target/shared/flutter/xcode_build_metadata.dart';
 
 @internal
 final class FlutterBundleAssembler<T extends PlatformHostInterface>
@@ -31,8 +41,11 @@ final class FlutterBundleAssembler<T extends PlatformHostInterface>
         xcframework: linked.runner.xcframework,
         runnerBinary: linked.runner.runnerBinary,
         sdkName: linked.runner.sdkName,
+        sdkPath: linked.runner.sdkPath,
         pluginLibraries: linked.compiled.plugins?.dylibPaths ?? const [],
+        pluginProducts: linked.compiled.plugins?.dynamicProducts ?? const [],
         pluginFrameworks: linked.compiled.plugins?.frameworkPaths ?? const [],
+        resourceBundles: linked.compiled.plugins?.resourceBundles ?? const [],
         nativeAssetFrameworks: linked.compiled.nativeAssets.frameworks,
         deploymentTarget: context.deploymentTarget,
         extensions: linked.extensions,
@@ -43,47 +56,54 @@ final class FlutterBundleAssembler<T extends PlatformHostInterface>
     required String xcframework,
     required String runnerBinary,
     required String sdkName,
+    required String? sdkPath,
     required List<String> pluginLibraries,
+    required List<SwiftPmDynamicProduct> pluginProducts,
     required List<String> pluginFrameworks,
+    required List<SwiftPmResourceBundle> resourceBundles,
     required List<String> nativeAssetFrameworks,
     required IosDeploymentTarget deploymentTarget,
     required List<BuiltAppExtension> extensions,
   }) async {
-    // Stage in a temp dir so the destination is only touched once everything
-    // is in place.
-    final tmp = await runtime.host.fileSystem
-        .directory(runtime.host.paths.temporaryRoot)
-        .createTemp('${appName}_app_bundle-');
-
-    await _stageBundle(
-      bundleDir: tmp.path,
-      appFramework: appFramework,
-      flutterFramework: runtime.host.paths.context.join(
-        runtime.policy.selectEngineSlice(xcframework),
-        'Flutter.framework',
-      ),
-      runnerBinary: runnerBinary,
-      sdkName: sdkName,
-      pluginLibraries: pluginLibraries,
-      pluginFrameworks: pluginFrameworks,
-      nativeAssetFrameworks: nativeAssetFrameworks,
-      deploymentTarget: deploymentTarget,
-      extensions: extensions,
-    );
-
     final dest = runtime.host.paths.context.join(
       outputDirectory,
       '$appName.app',
     );
-    final destDir = runtime.host.fileSystem.directory(dest);
-    if (destDir.existsSync()) {
-      await destDir.delete(recursive: true);
+    // Stage beside the destination (same volume) and rename into place, so
+    // the destination only changes once everything is in place and the
+    // finished app is never copied a second time.
+    final swap = StagedDirectorySwap(
+      fileSystem: runtime.host.fileSystem,
+      paths: runtime.host.paths.context,
+      copier: runtime.directoryCopier,
+    );
+    final tmp = await swap.createStaging(dest);
+
+    try {
+      await _stageBundle(
+        bundleDir: tmp.path,
+        appFramework: appFramework,
+        flutterFramework: runtime.host.paths.context.join(
+          runtime.policy.selectEngineSlice(xcframework),
+          'Flutter.framework',
+        ),
+        runnerBinary: runnerBinary,
+        sdkName: sdkName,
+        sdkPath: sdkPath,
+        pluginLibraries: pluginLibraries,
+        pluginProducts: pluginProducts,
+        pluginFrameworks: pluginFrameworks,
+        resourceBundles: resourceBundles,
+        nativeAssetFrameworks: nativeAssetFrameworks,
+        deploymentTarget: deploymentTarget,
+        extensions: extensions,
+      );
+
+      await swap.swap(tmp, dest);
+    } catch (_) {
+      await swap.discard(tmp);
+      rethrow;
     }
-    await runtime.host.fileSystem
-        .directory(runtime.host.paths.context.dirname(dest))
-        .create(recursive: true);
-    await runtime.directoryCopier.copy(tmp.path, dest);
-    await tmp.delete(recursive: true);
     await _publishDebugSymbols(
       appFramework: appFramework,
       engineSlice: runtime.policy.selectEngineSlice(xcframework),
@@ -103,24 +123,62 @@ final class FlutterBundleAssembler<T extends PlatformHostInterface>
     required List<String> nativeAssetFrameworks,
   }) async {
     final paths = runtime.host.paths.context;
-    final output = runtime.host.fileSystem.directory(outputDirectory);
+    final fs = runtime.host.fileSystem;
+    final wanted = <String, String>{
+      if (options.buildMode.isPrecompiled)
+        for (final dsym in [
+          '$appFramework.dSYM',
+          paths.join(engineSlice, 'dSYMs', 'Flutter.framework.dSYM'),
+          for (final framework in nativeAssetFrameworks) '$framework.dSYM',
+        ])
+          if (fs.directory(dsym).existsSync()) paths.basename(dsym): dsym,
+    };
+    final output = fs.directory(outputDirectory);
     await for (final entity in output.list(followLinks: false)) {
-      if (entity.path.endsWith('.framework.dSYM')) {
+      final name = paths.basename(entity.path);
+      if (name.endsWith('.framework.dSYM') && !wanted.containsKey(name)) {
         await entity.delete(recursive: true);
+        await _deleteIfExists(fs.file(_dsymStamp(name)));
       }
     }
-    if (!options.buildMode.isPrecompiled) return;
-    for (final dsym in [
-      '$appFramework.dSYM',
-      paths.join(engineSlice, 'dSYMs', 'Flutter.framework.dSYM'),
-      for (final framework in nativeAssetFrameworks) '$framework.dSYM',
-    ]) {
-      if (!runtime.host.fileSystem.directory(dsym).existsSync()) continue;
-      await runtime.directoryCopier.copy(
-        dsym,
-        paths.join(outputDirectory, paths.basename(dsym)),
+    for (final MapEntry(key: name, value: source) in wanted.entries) {
+      final dest = fs.directory(paths.join(outputDirectory, name));
+      final stamp = fs.file(_dsymStamp(name));
+      final signature = await _treeSignature(source);
+      if (dest.existsSync() &&
+          stamp.existsSync() &&
+          await stamp.readAsString() == signature) {
+        continue;
+      }
+      if (dest.existsSync()) await dest.delete(recursive: true);
+      await runtime.directoryCopier.copy(source, dest.path);
+      await stamp.writeAsString(signature);
+    }
+  }
+
+  String _dsymStamp(String name) =>
+      runtime.host.paths.context.join(outputDirectory, '.$name.stamp');
+
+  static Future<void> _deleteIfExists(File file) async {
+    if (file.existsSync()) await file.delete();
+  }
+
+  /// Cheap change detector for a dSYM: its source path plus every file's
+  /// relative path, size, and mtime (no content reads).
+  Future<String> _treeSignature(String root) async {
+    final paths = runtime.host.paths.context;
+    final lines = <String>[root];
+    await for (final entity
+        in runtime.host.fileSystem.directory(root).list(recursive: true)) {
+      if (entity is! File) continue;
+      final stat = entity.statSync();
+      lines.add(
+        '${paths.relative(entity.path, from: root)}\t${stat.size}\t'
+        '${stat.modified.microsecondsSinceEpoch}',
       );
     }
+    lines.sort();
+    return lines.join('\n');
   }
 
   /// Lay out the `.app` contents under [bundleDir]: the Runner executable,
@@ -131,8 +189,11 @@ final class FlutterBundleAssembler<T extends PlatformHostInterface>
     required String flutterFramework,
     required String runnerBinary,
     required String sdkName,
+    required String? sdkPath,
     required List<String> pluginLibraries,
+    required List<SwiftPmDynamicProduct> pluginProducts,
     required List<String> pluginFrameworks,
+    required List<SwiftPmResourceBundle> resourceBundles,
     required List<String> nativeAssetFrameworks,
     required IosDeploymentTarget deploymentTarget,
     required List<BuiltAppExtension> extensions,
@@ -159,9 +220,26 @@ final class FlutterBundleAssembler<T extends PlatformHostInterface>
       appFramework,
       runtime.host.paths.context.join(frameworksDir, 'App.framework'),
     );
+    final build = sdkPath == null
+        ? null
+        : XcodeBuildMetadata.load(
+            runtime.host.fileSystem,
+            runtime.host.paths.context,
+            sdkPath,
+          );
+    // Dynamic SwiftPM products ship as frameworks, never loose dylibs.
     await runtime.frameworks.copyPluginLibraries(
-      pluginLibraries,
+      pluginProducts,
       frameworksDir,
+      infoPlist: (product) => runtime.policy.transformPlist(
+        swiftPmDynamicProductInfoPlist(
+          product,
+          deploymentTarget: deploymentTarget.version,
+          device: sdkName.startsWith('iphoneos'),
+        ),
+        sdkName: sdkName,
+        build: build,
+      ),
     );
     await runtime.frameworks.copyNativeAssetFrameworks(
       nativeAssetFrameworks,
@@ -175,20 +253,87 @@ final class FlutterBundleAssembler<T extends PlatformHostInterface>
       embedded,
       lipo: () => runtime.nativeTools.locateLlvmTool('llvm-lipo'),
     );
+    // Static SwiftPM binary frameworks: Xcode embeds a stub of each so
+    // their privacy manifests and resource bundles ship.
+    await StaticFrameworkStubs(
+      fileSystem: runtime.host.fileSystem,
+      paths: runtime.host.paths.context,
+      copier: runtime.directoryCopier,
+    ).embedLinked(
+      pluginLibraries,
+      frameworksDir,
+      simulator: !sdkName.startsWith('iphoneos'),
+      sdkVersion: StaticFrameworkStubs.sdkVersionOf(sdkName),
+    );
+    // SwiftPM plugin resource bundles (privacy manifests and other
+    // resources) sit in the app root, as Xcode embeds them.
+    await runtime.frameworks.copyResourceBundles(
+      resourceBundles,
+      bundleDir,
+      warn: runtime.runner.log.logWarn,
+      infoPlist: (bundle, region) => runtime.policy.transformPlist(
+        swiftPmResourceBundleInfoPlist(
+          bundle,
+          developmentRegion: region,
+          deploymentTarget: deploymentTarget.version,
+          device: sdkName.startsWith('iphoneos'),
+          paths: runtime.host.paths.context,
+        ),
+        sdkName: sdkName,
+        build: build,
+      ),
+    );
 
     await _embedAppExtensions(bundleDir, extensions);
-    await runtime.resources.stage(
+    final staged = await runtime.resources.stage(
       projectRoot: projectRoot,
       bundleDir: bundleDir,
+      configuration: _xcodeConfiguration,
     );
     await _writeInfoPlist(
       bundleDir,
       deploymentTarget: deploymentTarget,
       sdkName: sdkName,
+      sdkPath: sdkPath,
+      resources: staged,
     );
+    // After Info.plist is final: the ad-hoc signature hashes it, and carries
+    // the target's entitlements for re-signers and `xcross flutter run`.
+    if (runtime.policy.embedsEntitlements) {
+      final entitled = runtime.entitlements.resolve(
+        projectRoot: projectRoot,
+        bundleDir: bundleDir,
+        configuration: _xcodeConfiguration,
+      );
+      for (final binary in await runtime.entitlements.embed(entitled)) {
+        runtime.runner.log.logTrace('signed ad-hoc with entitlements: $binary');
+      }
+    }
     for (final binary in await runtime.signatures.refresh(bundleDir)) {
       runtime.runner.log.logTrace('refreshed ad-hoc signature of $binary');
     }
+  }
+
+  /// The Xcode build configuration this build corresponds to, as
+  /// `flutter build ios` picks it: `Release-<flavor>` when the project
+  /// declares one for the flavor, otherwise `Debug`/`Profile`/`Release`.
+  String get _xcodeConfiguration {
+    final base = switch (options.buildMode) {
+      FlutterBuildMode.debug => 'Debug',
+      FlutterBuildMode.profile => 'Profile',
+      FlutterBuildMode.release => 'Release',
+    };
+    final flavor = options.flavor;
+    if (flavor == null || flavor.isEmpty) return base;
+    final flavored = '$base-$flavor';
+    final pbxproj = runtime.projects.findPbxproj(projectRoot);
+    final project = pbxproj == null
+        ? null
+        : runtime.projects.parseFile(pbxproj);
+    final declared = project
+        ?.byIsa('XCBuildConfiguration')
+        .any((configuration) => configuration.string('name') == flavored);
+    return declared ?? false ? flavored : base;
   }
 
   /// Copy each built `.appex` into the app's `PlugIns` directory, the only
@@ -212,12 +357,14 @@ final class FlutterBundleAssembler<T extends PlatformHostInterface>
   }
 
   /// Generate and write `Info.plist` into [bundleDir] with `$(VAR)`
-  /// substitution, mandatory iOS keys, storyboard stripping, and ObjC class
-  /// name normalization.
+  /// substitution, mandatory iOS keys, compiled app icon and launch screen,
+  /// storyboard stripping, and ObjC class name normalization.
   Future<void> _writeInfoPlist(
     String bundleDir, {
     required IosDeploymentTarget deploymentTarget,
     required String sdkName,
+    required String? sdkPath,
+    required StagedIosResources resources,
   }) async {
     var plistXml = await _loadPlistTemplate();
 
@@ -249,11 +396,31 @@ final class FlutterBundleAssembler<T extends PlatformHostInterface>
       plistXml,
       bundleId: bundleId,
       deploymentTarget: deploymentTarget,
+      deviceFamily: resources.deviceFamily,
     );
-    plistXml = runtime.policy.transformPlist(plistXml, sdkName: sdkName);
+    plistXml = runtime.policy.transformPlist(
+      plistXml,
+      sdkName: sdkName,
+      build: sdkPath == null
+          ? null
+          : XcodeBuildMetadata.load(
+              runtime.host.fileSystem,
+              runtime.host.paths.context,
+              sdkPath,
+            ),
+    );
     if (options.buildMode != FlutterBuildMode.release) {
       plistXml = InfoPlist.applyDebugVmServiceDiscovery(plistXml);
     }
+    // Before storyboard stripping: a launch storyboard that cannot be
+    // compiled is translated into `UILaunchScreen` here, and stripping then
+    // only removes what could not be translated.
+    plistXml = await _compileAppResources(
+      plistXml,
+      bundleDir: bundleDir,
+      deploymentTarget: deploymentTarget,
+      resources: resources,
+    );
     plistXml = runtime.storyboards.stripUnsatisfiableStoryboards(
       plistXml,
       bundleDir,
@@ -267,6 +434,42 @@ final class FlutterBundleAssembler<T extends PlatformHostInterface>
     await runtime.host.fileSystem
         .file(runtime.host.paths.context.join(bundleDir, 'Info.plist'))
         .writeAsString(plistXml);
+    await runtime.host.fileSystem
+        .file(
+          runtime.host.paths.context.join(bundleDir, BundlePkgInfo.fileName),
+        )
+        .writeAsString(BundlePkgInfo.contentsFor(plistXml));
+  }
+
+  /// Compiles the target's asset catalogs into `Assets.car` and loose app
+  /// icons, and translates an uncompiled launch storyboard into
+  /// `UILaunchScreen`, returning [plistXml] with the matching keys.
+  Future<String> _compileAppResources(
+    String plistXml, {
+    required String bundleDir,
+    required IosDeploymentTarget deploymentTarget,
+    required StagedIosResources resources,
+  }) {
+    final paths = runtime.host.paths.context;
+    final launchName = AppResourceCompiler.launchStoryboardNameOf(plistXml);
+    return runtime.resourceCompiler.compile(
+      bundleDir: bundleDir,
+      infoPlistXml: plistXml,
+      catalogs: resources.assetCatalogs,
+      deploymentTarget: deploymentTarget.version,
+      appIconName: resources.appIconName,
+      alternateAppIconNames: resources.alternateAppIconNames,
+      includeAllAppIcons: resources.includeAllAppIcons,
+      accentColorName: resources.accentColorName,
+      launchStoryboard: launchName == null
+          ? null
+          : resources.storyboard(launchName, paths),
+      deviceFamilies: AppResourceCompiler.deviceFamiliesOf(plistXml),
+      carCacheDirectory: runtime.policy.buildDirectory(
+        projectRoot,
+        'xcross-asset-catalog',
+      ),
+    );
   }
 
   /// App Groups declared by the application target's entitlements file.

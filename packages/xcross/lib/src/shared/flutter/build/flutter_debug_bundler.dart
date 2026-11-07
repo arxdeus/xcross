@@ -132,7 +132,11 @@ final class FlutterDebugBundler<T extends PlatformHostInterface> {
     }
 
     runtime.runner.log.logTrace('writing App.framework Info.plist');
-    _writeAppFrameworkInfoPlist(appFramework);
+    _writeAppFrameworkInfoPlist(
+      appFramework,
+      engineCache.engineMinimumOsVersion ??
+          FlutterAotSnapshotter.fallbackMinimumOsVersion,
+    );
 
     return appFramework;
   }
@@ -241,14 +245,20 @@ final class FlutterDebugBundler<T extends PlatformHostInterface> {
     ];
   }
 
-  void _writeAppFrameworkInfoPlist(String appFramework) {
+  void _writeAppFrameworkInfoPlist(String appFramework, String minimumOs) {
     runtime.host.fileSystem
         .file(p.join(appFramework, 'Info.plist'))
-        .writeAsStringSync(appFrameworkInfoPlist(deploymentTarget));
+        .writeAsStringSync(appFrameworkInfoPlist(minimumOs));
   }
 
+  /// `App.framework/Info.plist`. flutter_tools (`IosAssetBundle` in
+  /// `build_system/targets/ios.dart`) copies `ios/Flutter/AppFrameworkInfo.plist`
+  /// and sets `MinimumOSVersion` with `plutil -replace` to Flutter's own iOS
+  /// deployment floor (`FlutterDarwinPlatform.ios.deploymentTarget()`), not
+  /// the app's `IPHONEOS_DEPLOYMENT_TARGET`. The engine's `Flutter.framework`
+  /// records that same floor, so [minimumOsVersion] comes from it.
   @visibleForTesting
-  static String appFrameworkInfoPlist(IosDeploymentTarget deploymentTarget) {
+  static String appFrameworkInfoPlist(String minimumOsVersion) {
     return '<?xml version="1.0" encoding="UTF-8"?>\n'
         '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"'
         ' "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n'
@@ -273,7 +283,7 @@ final class FlutterDebugBundler<T extends PlatformHostInterface> {
         '\t<key>CFBundleVersion</key>\n'
         '\t<string>1.0</string>\n'
         '\t<key>${IosDeploymentConstants.minimumOsVersionKey}</key>\n'
-        '\t<string>${deploymentTarget.version}</string>\n'
+        '\t<string>$minimumOsVersion</string>\n'
         '</dict>\n'
         '</plist>\n';
   }

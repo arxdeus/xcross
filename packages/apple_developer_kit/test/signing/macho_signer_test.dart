@@ -389,7 +389,83 @@ void main() {
       if (!Platform.isWindows) expect(file.statSync().mode & 0xfff, oldMode);
     },
   );
+
+  test('ad-hoc signs with entitlements and no CMS or team', () {
+    final info = Uint8List.fromList(utf8.encode('<plist/>'));
+    final entitlements = <String, Object?>{
+      'aps-environment': 'production',
+      'com.apple.developer.associated-domains': ['applinks:example.com'],
+    };
+    final signed = MachOSigner.adHoc().signBytes(
+      path: 'adhoc',
+      bytes: _macho(),
+      identifier: 'dev.xcross.adhoc',
+      teamIdentifier: null,
+      entitlements: entitlements,
+      infoPlistBytes: info,
+    );
+    final command = _codeSignatureCommand(signed);
+    final dataOffset = _u32le(signed, command + 8);
+    final slots = _signatureSlots(signed, dataOffset);
+    final directory = slots[0]!;
+    expect(_u32be(directory, 12) & 0x2, 0x2, reason: 'CS_ADHOC');
+    expect(_u32be(directory, 48), 0, reason: 'no team');
+    expect(_u32be(slots[0x10000]!, 4), 8, reason: 'empty CMS wrapper');
+    expect(_u32be(slots[2]!, 8), 0, reason: 'empty requirement set');
+    expect(_u32be(slots[5]!, 0), 0xfade7171);
+    expect(utf8.decode(slots[5]!.sublist(8)), contains('applinks:example.com'));
+    expect(_u32be(slots[7]!, 0), 0xfade7172);
+
+    final hashOffset = _u32be(directory, 16);
+    Uint8List special(int slot) =>
+        directory.sublist(hashOffset - slot * 32, hashOffset - (slot - 1) * 32);
+    expect(special(1), sha256.convert(info).bytes);
+    expect(special(5), sha256.convert(slots[5]!).bytes);
+    expect(special(7), sha256.convert(slots[7]!).bytes);
+    final codeLimit = _u32be(directory, 32);
+    expect(codeLimit, dataOffset);
+    for (var page = 0; page * 4096 < codeLimit; page++) {
+      final end = (page + 1) * 4096 < codeLimit ? (page + 1) * 4096 : codeLimit;
+      expect(
+        directory.sublist(hashOffset + page * 32, hashOffset + page * 32 + 32),
+        sha256.convert(signed.sublist(page * 4096, end)).bytes,
+      );
+    }
+  });
+
+  test('identity re-sign replaces an ad-hoc entitlements signature', () {
+    final adHoc = MachOSigner.adHoc().signBytes(
+      path: 'adhoc',
+      bytes: _macho(),
+      identifier: 'dev.xcross.adhoc',
+      teamIdentifier: null,
+      entitlements: {
+        'aps-environment': 'production',
+        'com.apple.developer.associated-domains': ['applinks:example.com'],
+      },
+      infoPlistBytes: Uint8List.fromList(utf8.encode('<plist/>')),
+    );
+    final resigned = signer.signBytes(
+      path: 'resigned',
+      bytes: adHoc,
+      identifier: 'dev.xcross.Runner',
+      teamIdentifier: 'TESTTEAM123',
+      entitlements: _entitlements(),
+      signingTime: signingTime,
+    );
+    expect(_loadCommandCount(resigned), _loadCommandCount(adHoc));
+    final dataOffset = _u32le(resigned, _codeSignatureCommand(resigned) + 8);
+    final slots = _signatureSlots(resigned, dataOffset);
+    final directory = slots[0]!;
+    expect(_u32be(directory, 12) & 0x2, 0, reason: 'no longer ad-hoc');
+    final xml = utf8.decode(slots[5]!.sublist(8));
+    expect(xml, contains('TESTTEAM123.dev.xcross.Runner'));
+    expect(xml, isNot(contains('applinks:example.com')));
+    expect(_u32be(slots[0x10000]!, 4), greaterThan(8), reason: 'real CMS');
+  });
 }
+
+int _loadCommandCount(Uint8List bytes) => _u32le(bytes, 16);
 
 Map<String, Object?> _entitlements() => <String, Object?>{
   'application-identifier': 'TESTTEAM123.dev.xcross.Runner',

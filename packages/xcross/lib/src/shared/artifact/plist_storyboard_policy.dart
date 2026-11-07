@@ -10,9 +10,25 @@ final class PlistStoryboardPolicy {
   final p.Context paths;
 
   String stripUnsatisfiableStoryboards(String xml, String bundleDir) {
-    bool hasCompiled(String name) => fileSystem
-        .directory(paths.join(bundleDir, '$name.storyboardc'))
-        .existsSync();
+    // NSBundle resolves a storyboard from the bundle root or, as Xcode lays
+    // it out, from `Base.lproj` (and the other `.lproj` directories).
+    bool hasCompiled(String name) {
+      final compiled = '$name.storyboardc';
+      if (fileSystem.directory(paths.join(bundleDir, compiled)).existsSync()) {
+        return true;
+      }
+      final bundle = fileSystem.directory(bundleDir);
+      if (!bundle.existsSync()) return false;
+      return bundle
+          .listSync(followLinks: false)
+          .any(
+            (entity) =>
+                paths.extension(entity.path) == '.lproj' &&
+                fileSystem
+                    .directory(paths.join(entity.path, compiled))
+                    .existsSync(),
+          );
+    }
 
     // Named local reused by Main and Scene patterns (identical predicate).
     String keepIfCompiled(Match m) =>

@@ -142,4 +142,30 @@ void main() {
     );
     expect(linkEntry.content, equals(realBytes));
   });
+
+  test(
+    'streams a large app: sorted entries, byte-identical round trip',
+    () async {
+      final expected = <String, List<int>>{};
+      for (var d = 0; d < 8; d++) {
+        for (var f = 0; f < 16; f++) {
+          final rel = p.join('Dir$d', 'file$f.bin');
+          // ~1 MB per file at the largest, ~40 MB total.
+          final bytes = _bytesFrom(d * 16 + f + 1, 1 << (14 + (f % 7)));
+          await File(p.join(appPath, rel)).create(recursive: true);
+          await File(p.join(appPath, rel)).writeAsBytes(bytes);
+          expected['Payload/MyApp.app/Dir$d/file$f.bin'] = bytes;
+        }
+      }
+
+      final ipaPath = await IpaPackager(host: LinuxHost()).package(appPath);
+      final archive = ZipDecoder().decodeStream(InputFileStream(ipaPath));
+      final names = [for (final f in archive.files) f.name];
+      expect(names, [...names]..sort());
+      expect(names.toSet(), expected.keys.toSet());
+      for (final file in archive.files) {
+        expect(file.content, equals(expected[file.name]), reason: file.name);
+      }
+    },
+  );
 }

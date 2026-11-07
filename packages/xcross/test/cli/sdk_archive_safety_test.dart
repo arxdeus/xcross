@@ -62,6 +62,24 @@ void main() {
       );
     });
 
+    test('keeps only the top-level Xcode version.plist', () {
+      for (final name in [
+        'Xcode.app/Contents/version.plist',
+        './Xcode-beta.app/Contents/version.plist',
+        r'Xcode.app\Contents\version.plist',
+        'version.plist',
+      ]) {
+        expect(SdkInstall.sdkRelativePath(name), 'version.plist', reason: name);
+      }
+      for (final name in [
+        'Xcode.app/Contents/Applications/Simulator.app/Contents/version.plist',
+        'Xcode.app/Contents/Developer/Library/Foo.framework/version.plist',
+        'Xcode.app/Contents/version.plist/child',
+      ]) {
+        expect(SdkInstall.sdkRelativePath(name), isNull, reason: name);
+      }
+    });
+
     test('includes the exact iOS cross-SDK subset', () {
       final names = [
         for (final root in sdkIncludedRoots) 'Xcode.app/Contents/$root/kept',

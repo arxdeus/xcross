@@ -451,9 +451,17 @@ void main() {
       );
       expect(context.processes.commands, hasLength(count));
       expect(
-        context.processes.commands.last.arguments,
+        context.processes.commands
+            .lastWhere(
+              (command) => command.arguments.contains('core.symlinks=true'),
+            )
+            .arguments,
         containsAllInOrder([
           'core.symlinks=true',
+          '-c',
+          'core.autocrlf=false',
+          '-c',
+          'core.eol=lf',
           '-C',
           root.path,
           'checkout',

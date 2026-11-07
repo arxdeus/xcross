@@ -11,6 +11,7 @@ import 'package:xcross/src/shared/flutter/errors.dart';
 import 'package:xcross/src/shared/flutter/extensions/app_extension_plist.dart';
 import 'package:xcross/src/shared/flutter/extensions/app_extension_resources.dart';
 import 'package:xcross/src/shared/flutter/flutter_build_runtime.dart';
+import 'package:xcross/src/target/shared/flutter/xcode_build_metadata.dart';
 
 /// A built `.appex` bundle staged outside the host app.
 @internal
@@ -148,16 +149,14 @@ final class AppExtensionBuilder<T extends PlatformHostInterface> {
       moduleName: extension.moduleName,
     );
 
+    final iosSdk = runtime.sdkRepository.iosSdk(sdk, target: target.platform);
     await _writeInfoPlist(
       extension: extension,
       bundleDir: bundleDir,
       deploymentTarget: target,
       versions: versions,
-      sdkName: p
-          .basenameWithoutExtension(
-            runtime.sdkRepository.iosSdk(sdk, target: target.platform),
-          )
-          .toLowerCase(),
+      sdkName: p.basenameWithoutExtension(iosSdk).toLowerCase(),
+      sdkPath: iosSdk,
     );
     await resources.copyResources(extension: extension, bundleDir: bundleDir);
 
@@ -329,6 +328,7 @@ final class AppExtensionBuilder<T extends PlatformHostInterface> {
     required IosDeploymentTarget deploymentTarget,
     required IosBundleVersions versions,
     String? sdkName,
+    String? sdkPath,
   }) async {
     final source = extension.infoPlistPath;
     var xml =
@@ -359,7 +359,17 @@ final class AppExtensionBuilder<T extends PlatformHostInterface> {
     );
     // Record the target's App Groups so the sign/install stage can provision
     // them without re-reading the Xcode project.
-    xml = runtime.policy.transformPlist(xml, sdkName: sdkName);
+    xml = runtime.policy.transformPlist(
+      xml,
+      sdkName: sdkName,
+      build: sdkPath == null
+          ? null
+          : XcodeBuildMetadata.load(
+              runtime.host.fileSystem,
+              runtime.host.paths.context,
+              sdkPath,
+            ),
+    );
     xml = AppExtensionPlist.setAppGroups(xml, extension.appGroups);
 
     await runtime.host.fileSystem

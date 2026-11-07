@@ -24,7 +24,9 @@ final class SignatureInputs {
 
   final int execSegmentLimit;
   final String identifier;
-  final String teamIdentifier;
+
+  /// Null for an ad-hoc signature, which carries no team.
+  final String? teamIdentifier;
   final Uint8List infoHash;
   final Uint8List resourcesHash;
   final Uint8List requirement;

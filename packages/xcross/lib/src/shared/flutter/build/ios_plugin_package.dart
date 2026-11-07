@@ -22,10 +22,12 @@ import 'package:xcross/src/shared/flutter/swiftpm/checkout.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/checkout_attributes.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/checkout_manifest_normalizer.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/dependency_preparation.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/dynamic_product.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/foundation.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/gate_platform.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/host_policy.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/manifest_dependencies.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/resource_manifest.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/runtime.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/sdk_identity.dart';
 import 'package:xcross/src/target/shared/flutter/flutter_target_build_policy.dart';
@@ -89,11 +91,25 @@ final class GeneratedPluginsBuildResult {
     required this.libraryPath,
     required this.dylibPaths,
     required this.modulesDir,
+    this.dynamicProducts = const [],
     this.frameworkPaths = const [],
+    this.resourceBundlePaths = const [],
+    this.resourceBundles = const [],
   });
   final String libraryPath;
   final List<String> dylibPaths;
+
+  /// [dylibPaths] as the frameworks the app embeds them as.
+  final List<SwiftPmDynamicProduct> dynamicProducts;
   final List<String> frameworkPaths;
+
+  /// SwiftPM resource bundles (`<Package>_<Target>.bundle`, e.g. plugin
+  /// privacy manifests) that Xcode copies into the application root.
+  final List<String> resourceBundlePaths;
+
+  /// [resourceBundlePaths] with the resources SwiftPM's build manifest
+  /// copies into each, so they can be copied from their sources as Xcode does.
+  final List<SwiftPmResourceBundle> resourceBundles;
   final String? modulesDir;
 }
 
@@ -196,6 +212,13 @@ final class GeneratedPluginsPackage<T extends PlatformHostInterface> {
         deploymentTarget.swiftSdkTriple,
         'debug',
       );
+      final pluginIdentities = {
+        for (final MapEntry(:key, :value) in flutterPluginSwiftPmIdentities({
+          for (final plugin in spmPlugins)
+            plugin.name: p.basename(plugin.packageRoot),
+        }).entries)
+          key.toLowerCase(): value,
+      };
       final fingerprint = await runtime.discovery.incrementalBuildFingerprint(
         plugins: spmPlugins,
         flutterXcframework: flutterXcframework,
@@ -217,6 +240,7 @@ final class GeneratedPluginsPackage<T extends PlatformHostInterface> {
         runtime.runner.log.logTrace('reusing unchanged SwiftPM plugin build');
         final reused = await runtime.assembly.discoverAndRewriteDylibs(
           targetDebugDir,
+          pluginIdentities: pluginIdentities,
         );
         return reused;
       }
@@ -314,6 +338,7 @@ final class GeneratedPluginsPackage<T extends PlatformHostInterface> {
 
       final result = await runtime.assembly.discoverAndRewriteDylibs(
         targetDebugDir,
+        pluginIdentities: pluginIdentities,
       );
       await runtime.filesystem.writeStable(fingerprintFile.path, fingerprint);
       return result;

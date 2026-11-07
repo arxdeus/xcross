@@ -7,6 +7,7 @@ import 'package:xcross/src/shared/flutter/build/ios_app_extensions.dart';
 import 'package:xcross/src/shared/flutter/build/ios_bundle_versions.dart';
 import 'package:xcross/src/shared/flutter/build/ios_deployment_target.dart';
 import 'package:xcross/src/shared/flutter/build/ios_plugin_package.dart';
+import 'package:xcross/src/shared/flutter/build/pbxproj.dart';
 import 'package:xcross/src/shared/flutter/build/runner_shim.dart';
 import 'package:xcross/src/shared/flutter/errors.dart';
 import 'package:xcross/src/shared/flutter/extensions/app_extension_resources.dart';
@@ -61,7 +62,11 @@ final class FlutterArtifactLinker<T extends PlatformHostInterface>
     required String flutterXcframework,
     GeneratedPluginsBuildResult? pluginsBuild,
   }) async {
-    final discovered = runtime.extensions.discover(projectRoot);
+    final discovered = runtime.extensions.discover(
+      projectRoot,
+      baseConfiguration: xcodeBaseConfiguration(options.buildMode),
+      flavor: options.flavor,
+    );
     if (discovered.isEmpty) return const [];
 
     final buildable = <IosAppExtension>[];
@@ -128,17 +133,15 @@ final class FlutterArtifactLinker<T extends PlatformHostInterface>
       verbose: verbose,
     );
 
+    final iosSdk = runtime.sdkRepository.iosSdk(
+      darwin,
+      target: deploymentTarget.platform,
+    );
     return RunnerBinary(
       xcframework: xcframework,
       runnerBinary: runnerBinary,
-      sdkName: p
-          .basenameWithoutExtension(
-            runtime.sdkRepository.iosSdk(
-              darwin,
-              target: deploymentTarget.platform,
-            ),
-          )
-          .toLowerCase(),
+      sdkName: p.basenameWithoutExtension(iosSdk).toLowerCase(),
+      sdkPath: iosSdk,
     );
   }
 }

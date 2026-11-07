@@ -22,6 +22,10 @@ const int csMagicEmbeddedEntitlements = 0xFADE_7171;
 @internal
 const int csMagicEmbeddedDerEntitlements = 0xFADE_7172;
 
+/// `CS_ADHOC`: the code directory is not backed by a CMS signature.
+@internal
+const int csAdhocFlag = 0x2;
+
 @internal
 const int csslotCodeDirectory = 0;
 @internal
@@ -226,12 +230,17 @@ Uint8List buildCodeDirectory({
   required int execSegmentLimit,
   required int execSegmentFlags,
   required String identifier,
-  required String teamIdentifier,
+  required String? teamIdentifier,
   required List<Uint8List> specialSlots,
   required String path,
+  int flags = 0,
 }) {
   final identifierBytes = Uint8List.fromList([...utf8.encode(identifier), 0]);
-  final teamBytes = Uint8List.fromList([...utf8.encode(teamIdentifier), 0]);
+  // An ad-hoc signature has no team: `teamOffset` stays 0 and no string is
+  // stored, exactly as `codesign -s -` writes it.
+  final teamBytes = teamIdentifier == null
+      ? Uint8List(0)
+      : Uint8List.fromList([...utf8.encode(teamIdentifier), 0]);
   final codeSlots = (codeLimit + machoPageSize - 1) ~/ machoPageSize;
   final hashOffset = checkedAdd(
     CodeDirectoryField.size + identifierBytes.length + teamBytes.length,
@@ -257,7 +266,8 @@ Uint8List buildCodeDirectory({
     specialSlotCount: specialSlots.length,
     codeSlots: codeSlots,
     codeLimit: codeLimit,
-    teamOffset: teamOffset,
+    teamOffset: teamIdentifier == null ? 0 : teamOffset,
+    flags: flags,
     execSegmentLimit: execSegmentLimit,
     execSegmentFlags: execSegmentFlags,
   );
@@ -276,13 +286,14 @@ void _writeCodeDirectoryHeader(
   required int codeSlots,
   required int codeLimit,
   required int teamOffset,
+  required int flags,
   required int execSegmentLimit,
   required int execSegmentFlags,
 }) {
   writeU32be(output, CodeDirectoryField.magic, csMagicCodeDirectory);
   writeU32be(output, CodeDirectoryField.length, length);
   writeU32be(output, CodeDirectoryField.version, codeDirectoryVersion);
-  writeU32be(output, CodeDirectoryField.flags, 0);
+  writeU32be(output, CodeDirectoryField.flags, flags);
   writeU32be(output, CodeDirectoryField.hashOffset, hashOffset);
   writeU32be(output, CodeDirectoryField.identOffset, CodeDirectoryField.size);
   writeU32be(output, CodeDirectoryField.nSpecialSlots, specialSlotCount);

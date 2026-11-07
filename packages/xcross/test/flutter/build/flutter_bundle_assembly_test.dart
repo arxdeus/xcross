@@ -15,7 +15,7 @@ import 'package:xcross/src/shared/flutter/flutter_build_runtime.dart';
 import 'package:xcross/src/shared/flutter/flutter_build_steps.dart';
 import 'package:xcross/src/shared/flutter/flutter_bundle_assembler.dart';
 import 'package:xcross/src/shared/flutter/models/flutter/flutter_build_options.dart';
-
+import 'package:xcross/src/shared/flutter/swiftpm/dynamic_product.dart';
 import 'package:xcross/src/target/iphone/flutter/iphone_flutter_target.dart';
 import 'package:xcross/src/target/simulator/flutter/simulator_flutter_target.dart';
 
@@ -154,12 +154,31 @@ void main() {
       expect(simPlist, contains('<string>2.3</string>'));
       expect(simPlist, contains('<string>45</string>'));
       final frameworks = Directory(p.join(simulatorBundle, 'Frameworks'));
-      await simulator.frameworks.copyPluginLibraries([
-        library.path,
-      ], frameworks.path);
+      await simulator.frameworks.copyPluginLibraries(
+        [
+          SwiftPmDynamicProduct(
+            libraryPath: library.path,
+            packageIdentity: 'plugin-1.0.0',
+          ),
+        ],
+        frameworks.path,
+        infoPlist: (product) => product.bundleIdentifier,
+      );
       expect(
-        File(p.join(frameworks.path, 'libPlugin.dylib')).readAsStringSync(),
+        File(
+          p.join(frameworks.path, 'Plugin.framework', 'Plugin'),
+        ).readAsStringSync(),
         'plugin',
+      );
+      expect(
+        File(
+          p.join(frameworks.path, 'Plugin.framework', 'Info.plist'),
+        ).readAsStringSync(),
+        'plugin-1.0.0.Plugin',
+      );
+      expect(
+        frameworks.listSync().where((entity) => entity.path.endsWith('.dylib')),
+        isEmpty,
       );
       final dynamicFramework = Directory(
         p.join(project.path, 'products', 'Dynamic.framework'),
@@ -167,6 +186,16 @@ void main() {
       File(
         p.join(dynamicFramework.path, 'Dynamic'),
       ).writeAsStringSync('dynamic');
+      // Xcode strips these from embedded frameworks (native
+      // GoogleCast.framework ships without Headers/ and Modules/).
+      for (final dir in ['Headers', 'PrivateHeaders', 'Modules']) {
+        File(p.join(dynamicFramework.path, dir, 'x.h'))
+          ..createSync(recursive: true)
+          ..writeAsStringSync('h');
+      }
+      File(
+        p.join(dynamicFramework.path, 'Res.bundle', 'Headers', 'keep'),
+      ).createSync(recursive: true);
       final existing = Directory(
         p.join(project.path, 'products', 'Existing.framework'),
       )..createSync(recursive: true);
@@ -186,6 +215,26 @@ void main() {
           p.join(frameworks.path, 'Dynamic.framework', 'Dynamic'),
         ).readAsStringSync(),
         'dynamic',
+      );
+      for (final dir in ['Headers', 'PrivateHeaders', 'Modules']) {
+        expect(
+          Directory(
+            p.join(frameworks.path, 'Dynamic.framework', dir),
+          ).existsSync(),
+          isFalse,
+        );
+      }
+      expect(
+        File(
+          p.join(
+            frameworks.path,
+            'Dynamic.framework',
+            'Res.bundle',
+            'Headers',
+            'keep',
+          ),
+        ).existsSync(),
+        isTrue,
       );
       expect(
         File(
@@ -370,19 +419,26 @@ void main() {
         fileSystem.file('$simulatorBundle/Runner').readAsStringSync(),
         'runner',
       );
-      await simulator.frameworks.copyPluginLibraries([
-        '/selected-input/libPlugin.dylib',
-      ], '$simulatorBundle/Frameworks');
+      await simulator.frameworks.copyPluginLibraries(
+        [
+          const SwiftPmDynamicProduct(
+            libraryPath: '/selected-input/libPlugin.dylib',
+            packageIdentity: null,
+          ),
+        ],
+        '$simulatorBundle/Frameworks',
+        infoPlist: (_) => '<plist/>',
+      );
       expect(
         fileSystem
-            .file('$simulatorBundle/Frameworks/libPlugin.dylib')
+            .file('$simulatorBundle/Frameworks/Plugin.framework/Plugin')
             .readAsStringSync(),
         'plugin',
       );
       expect(fileSystem.touched, contains('$simulatorBundle/Runner'));
       expect(
         fileSystem.touched,
-        contains('$simulatorBundle/Frameworks/libPlugin.dylib'),
+        contains('$simulatorBundle/Frameworks/Plugin.framework/Plugin'),
       );
       expect(fileSystem.directory('/selected-temp').listSync(), isEmpty);
       expect(File('$simulatorBundle/Runner').existsSync(), isFalse);

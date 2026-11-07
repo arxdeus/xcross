@@ -12,6 +12,7 @@ import 'package:xcross/src/shared/flutter/swiftpm/checkout_containment.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/checkout_link_creator.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/checkout_link_policy.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/checkout_stamp.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/process_policy.dart';
 
 @internal
 final class SwiftPmCheckoutLinks<T extends PlatformHostInterface> {
@@ -74,6 +75,7 @@ final class SwiftPmCheckoutLinks<T extends PlatformHostInterface> {
     final checkout = await runner.start(git, [
       '-c',
       'core.symlinks=true',
+      ...SwiftPmProcessPolicy.checkoutLineEndingArguments,
       ...policy.checkoutArguments,
       '-C',
       root,

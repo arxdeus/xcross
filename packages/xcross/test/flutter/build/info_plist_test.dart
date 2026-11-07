@@ -354,6 +354,25 @@ APP[sdk=iphoneos*] = $(inherited).device
   });
 
   group('applyIosRequiredKeys', () {
+    test('writes TARGETED_DEVICE_FAMILY as UIDeviceFamily like Xcode', () {
+      final result = InfoPlist.applyIosRequiredKeys(
+        _minimalPlist,
+        bundleId: 'com.example.app',
+        deploymentTarget: const IosDeploymentTarget(
+          '15.0',
+          platform: IPhoneBuildPlatform(),
+        ),
+        deviceFamily: const [1, 2],
+      );
+      expect(
+        result,
+        contains(
+          '<key>UIDeviceFamily</key>\n'
+          '\t<array><integer>1</integer><integer>2</integer></array>',
+        ),
+      );
+    });
+
     test('inserts all mandatory keys with sensible defaults', () {
       final result = applyIPhoneRequiredKeys(
         _minimalPlist,
@@ -644,6 +663,26 @@ APP[sdk=iphoneos*] = $(inherited).device
       'keeps UIMainStoryboardFile when the storyboard is compiled',
       () {
         const xml = '<key>UIMainStoryboardFile</key>\n\t<string>Main</string>';
+
+        expect(
+          testIPhoneRuntime().storyboards.stripUnsatisfiableStoryboards(
+            xml,
+            tmp.path,
+          ),
+          xml,
+        );
+      },
+    );
+
+    test(
+      testOn: '!windows',
+      'keeps UILaunchStoryboardName compiled into Base.lproj like Xcode',
+      () {
+        Directory(
+          p.join(tmp.path, 'Base.lproj', 'LaunchScreen.storyboardc'),
+        ).createSync(recursive: true);
+        const xml =
+            '<key>UILaunchStoryboardName</key>\n\t<string>LaunchScreen</string>';
 
         expect(
           testIPhoneRuntime().storyboards.stripUnsatisfiableStoryboards(
