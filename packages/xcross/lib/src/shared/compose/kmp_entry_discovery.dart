@@ -76,9 +76,12 @@ final class KmpEntryDiscovery {
     'SwiftData',
     'CoreGraphics',
     'CoreFoundation',
+    'CoreImage',
+    'CoreMotion',
     'Observation',
     'os',
     'Dispatch',
+    'AVFoundation',
   };
 
   ComposeEntryResult classifyEntry(
