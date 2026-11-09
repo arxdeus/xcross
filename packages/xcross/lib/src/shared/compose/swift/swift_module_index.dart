@@ -50,9 +50,17 @@ final class SwiftModuleIndex {
     }
 
     // Swift-native modules: Swift, Darwin, Dispatch, os, Observation, ...
-    found.addAll(
-      _swiftModuleNames(files, p.join(sdkPath, 'usr', 'lib', 'swift')),
-    );
+    // None declares -public-module-name in iOS 26.5, but check like frameworks
+    // so a future SDK cannot slip one past the preflight.
+    final sdkSwift = p.join(sdkPath, 'usr', 'lib', 'swift');
+    for (final module in _swiftModuleNames(files, sdkSwift)) {
+      found.add(module);
+      final owner = _publicModuleName(
+        files,
+        p.join(sdkSwift, '$module.swiftmodule'),
+      );
+      if (owner != null && owner != module) details[module] = owner;
+    }
     // Overlays shipped by the toolchain (Cxx, CxxStdlib).
     found.addAll(
       _swiftModuleNames(files, p.join(resourceDir, platformSdkName)),

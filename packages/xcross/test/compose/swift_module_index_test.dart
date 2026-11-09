@@ -101,6 +101,47 @@ extern module Dispatch "dispatch.modulemap"
     expect(index.missing(['SwiftUICore', 'SwiftUI']), ['SwiftUICore']);
   });
 
+  test('excludes implementation details under usr/lib/swift too', () {
+    file(
+      'sdk/usr/lib/swift/_Detail.swiftmodule/arm64-apple-ios.swiftinterface',
+      '// swift-module-flags: -module-name _Detail '
+          '-public-module-name Owner\n',
+    );
+    dir('sdk/usr/lib/swift/Owner.swiftmodule');
+    final index = scan();
+    expect(index.contains('Owner'), isTrue);
+    expect(index.contains('_Detail'), isFalse);
+    expect(index.implementationDetailOf, {'_Detail': 'Owner'});
+  });
+
+  test('counts symlinked framework directories', () {
+    dir('real/WebKit.framework/Modules');
+    dir('sdk/System/Library/Frameworks');
+    Link(
+      p.join(root.path, 'sdk/System/Library/Frameworks/WebKit.framework'),
+    ).createSync(p.join(root.path, 'real/WebKit.framework'));
+    expect(scan().contains('WebKit'), isTrue);
+  }, testOn: '!windows');
+
+  test('matches module names case-sensitively, like swiftc', () {
+    // swiftc rejects `import uikit` even on case-insensitive filesystems.
+    dir('sdk/System/Library/Frameworks/UIKit.framework/Modules');
+    final index = scan();
+    expect(index.missing(['uikit', 'UIKit']), ['uikit']);
+  });
+
+  test('indexes the simulator resource subdir when asked', () {
+    dir('res/iphoneos/Cxx.swiftmodule');
+    dir('res/iphonesimulator/CxxSim.swiftmodule');
+    final index = SwiftModuleIndex.scan(
+      files: LinuxHost(architecture: 'x64').fileSystem,
+      sdkPath: sdk,
+      resourceDir: resource,
+      platformSdkName: 'iphonesimulator',
+    );
+    expect(index.modules, {'CxxSim'});
+  });
+
   test('parses -public-module-name only from module flag comments', () {
     expect(
       SwiftModuleIndex.publicModuleNameFromInterfaceHeader(
