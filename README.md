@@ -433,6 +433,8 @@ xcross compose run -d <device>
 
 Projects with a Kotlin `ComposeUIViewController` entry or a SwiftUI `@main` host produce an `.app`. Framework-only KMP modules still build the iOS framework, but `xcross compose run` and `--ipa` are unavailable until the project has a runnable app entry. Physical-device launch requires iOS 17 or later.
 
+A SwiftUI host can import the KMP framework and any module of the installed Darwin SDK (`SwiftUI`, `UIKit`, `CoreMotion`, `AVFoundation`, `MapKit`, ...). xcross does not link CocoaPods or Swift packages into the host, so their imports fail the build early with the importing `file:line`, which `xcross compose doctor` also reports. Wrap optional ones in `#if canImport(Module)`, or build just the framework with `xcross compose build --framework` and link it from your own host.
+
 Compose launches use native attached debugging to supervise the process after install. There is no Kotlin source DAP yet.
 
 Compose has no in-place hot reload, and cannot have one the way Flutter does: Kotlin/Native compiles the app ahead of time to a Mach-O binary, and JetBrains' own [Compose Hot Reload](https://kotlinlang.org/docs/multiplatform/compose-hot-reload.html) works only on a JVM target, through JetBrains Runtime class redefinition. What xcross offers instead is a fast restart loop:
