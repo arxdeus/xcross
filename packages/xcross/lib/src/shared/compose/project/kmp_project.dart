@@ -1,5 +1,6 @@
 import 'package:meta/meta.dart';
 import 'package:xcross/src/shared/compose/project/ios_app_config.dart';
+import 'package:xcross/src/shared/compose/swift/swift_import.dart';
 
 @internal
 enum KmpEntryKind { runnableApp, swiftApp, frameworkOnly }
@@ -19,7 +20,7 @@ final class KmpProject {
     this.entrySelector,
     this.swiftAppDir,
     this.swiftSources = const [],
-    this.swiftImports = const {},
+    this.swiftImports = const [],
     this.iosConfig,
   });
 
@@ -40,8 +41,18 @@ final class KmpProject {
   final String? entrySelector;
   final String? swiftAppDir;
   final List<String> swiftSources;
-  final Set<String> swiftImports;
+
+  /// Every `import` in [swiftSources], with its location. Which modules the
+  /// Darwin SDK can resolve is decided at build time against the SDK itself,
+  /// not against a fixed list.
+  final List<SwiftImport> swiftImports;
   final IosAppConfig? iosConfig;
+
+  /// Top-level modules [swiftSources] import outside `#if` blocks.
+  Set<String> get requiredSwiftModules => {
+    for (final import in swiftImports)
+      if (!import.conditional) import.module,
+  };
 
   String get moduleLeaf => moduleName.split(':').last;
 

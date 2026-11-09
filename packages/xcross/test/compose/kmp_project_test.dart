@@ -370,7 +370,7 @@ kotlin {
       expect(project.entryKind, KmpEntryKind.swiftApp);
       expect(project.swiftAppDir, p.join(root.path, 'iosApp'));
       expect(project.swiftSources, [p.join(root.path, 'iosApp', 'App.swift')]);
-      expect(project.swiftImports, {'SwiftUI', 'Shared'});
+      expect(project.requiredSwiftModules, {'SwiftUI', 'Shared'});
     });
 
     test('detects committed Compose smoke examples', () {

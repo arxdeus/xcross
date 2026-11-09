@@ -4,6 +4,7 @@ import 'package:cli_kit/shared/platform/platform_host.dart';
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/shared/compose/project/kmp_project.dart';
+import 'package:xcross/src/shared/compose/swift/swift_import.dart';
 import 'package:xcross/src/shared/errors/errors.dart';
 
 @internal
@@ -28,14 +29,14 @@ final class ComposeEntryResult {
     this.entrySelector,
     this.swiftAppDir,
     this.swiftSources = const [],
-    this.swiftImports = const {},
+    this.swiftImports = const [],
   });
   final KmpEntryKind kind;
   final String? entryClass;
   final String? entrySelector;
   final String? swiftAppDir;
   final List<String> swiftSources;
-  final Set<String> swiftImports;
+  final List<SwiftImport> swiftImports;
 }
 
 @internal
@@ -155,17 +156,24 @@ final class KmpEntryDiscovery {
             .map((f) => f.path)
             .toList()
           ..sort();
-    final imports = <String>{};
+    final imports = <SwiftImport>[];
     final importRe = RegExp(r'^import\s+(\w+)', multiLine: true);
     for (final source in sources) {
-      for (final match in importRe.allMatches(
-        files.file(source).readAsStringSync(),
-      )) {
-        imports.add(match.group(1)!);
+      final text = files.file(source).readAsStringSync();
+      for (final match in importRe.allMatches(text)) {
+        imports.add(
+          SwiftImport(
+            match.group(1)!,
+            path: source,
+            line: '\n'.allMatches(text.substring(0, match.start)).length + 1,
+          ),
+        );
       }
     }
     final allowed = {..._allowedSwiftImports, baseName};
-    if (imports.any((import) => !allowed.contains(import))) return null;
+    if (imports.any((import) => !allowed.contains(import.module))) {
+      return null;
+    }
     return ComposeEntryResult(
       KmpEntryKind.swiftApp,
       swiftAppDir: appDir,
