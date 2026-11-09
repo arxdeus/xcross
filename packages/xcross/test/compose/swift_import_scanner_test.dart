@@ -81,4 +81,13 @@ import Real
       ],
     );
   });
+
+  test('handles a BOM, backticked names and CRLF', () {
+    expect(
+      scan(
+        '\uFEFFimport Foundation\r\nimport `Foo`\r\nimport struct `B`.C\r\n',
+      ),
+      [('Foundation', 1, false), ('Foo', 2, false), ('B', 3, false)],
+    );
+  });
 }

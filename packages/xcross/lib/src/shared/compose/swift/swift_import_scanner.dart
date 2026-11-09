@@ -86,7 +86,8 @@ final class SwiftImportLexer {
       if (c == 0x0a) {
         if (!afterAttribute) prefixOk = true;
         i++;
-      } else if (c == 0x20 || c == 0x09 || c == 0x0d) {
+      } else if (c == 0x20 || c == 0x09 || c == 0x0d || c == 0xfeff) {
+        // 0xFEFF: a UTF-8 BOM decoded at the start of the file is trivia.
         i++;
       } else if (_skipComment()) {
         // Comments are trivia and do not affect statement state.
@@ -251,15 +252,29 @@ final class SwiftImportLexer {
     }
   }
 
+  /// An identifier at [i], or a backticked one (`` import `Foo` `` names
+  /// module `Foo`). Null when neither is there.
+  String? _moduleName() {
+    if (_at(i) == 0x60) {
+      final end = s.indexOf('`', i + 1);
+      if (end < 0 || s.substring(i + 1, end).contains('\n')) return null;
+      final name = s.substring(i + 1, end);
+      i = end + 1;
+      return name.isEmpty ? null : name;
+    }
+    return _isIdentStart(_at(i)) ? _word() : null;
+  }
+
   SwiftImport? _parseImport(int keywordStart) {
     _skipTrivia();
-    if (!_isIdentStart(_at(i))) return null;
-    var word = _word();
+    var word = _moduleName();
+    if (word == null) return null;
     if (_importKinds.contains(word)) {
       final save = i;
       _skipTrivia();
-      if (_isIdentStart(_at(i))) {
-        word = _word();
+      final scoped = _moduleName();
+      if (scoped != null) {
+        word = scoped;
       } else {
         i = save;
       }
