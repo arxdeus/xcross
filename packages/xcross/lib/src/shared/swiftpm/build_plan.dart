@@ -106,7 +106,7 @@ final class SwiftPmBuildPlan<T extends PlatformHostInterface> {
   /// Arguments shared by Linux and Windows SwiftPM builds. SDK-owned compiler
   /// flags stay in SDK metadata; only package-specific flags belong here.
   List<String> swiftBuildArguments({
-    required String pluginsDir,
+    required String packageDir,
     required String scratchPath,
     required String swiftSdksPath,
     required String iosSdk,
@@ -120,7 +120,7 @@ final class SwiftPmBuildPlan<T extends PlatformHostInterface> {
   }) => [
     ...hostPolicy.buildPrefix,
     '--package-path',
-    pluginsDir,
+    packageDir,
     // Swift 6.4 made `swiftbuild` the default build system. It only knows
     // the Apple platforms a host Xcode registers, so on a cross host it
     // rejects this build outright with 'unable to find platform for

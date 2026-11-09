@@ -168,14 +168,14 @@ final class WindowsSwiftPmGatePlatform<T extends PlatformHostInterface>
       );
       final swiftSdksPath = p.dirname(sdkPath);
       final resolve = processPolicy.swiftResolveArguments(
-        pluginsDir: package.path,
+        packageDir: package.path,
         scratchPath: scratch,
         swiftSdksPath: swiftSdksPath,
         toolsetPath: toolset,
         swiftSdkTriple: targetPolicy.target.buildPlatform.swiftSdkTriple,
       );
       final build = buildPlan.swiftBuildArguments(
-        pluginsDir: package.path,
+        packageDir: package.path,
         scratchPath: scratch,
         swiftSdksPath: swiftSdksPath,
         iosSdk: sdkRepository.iosSdk(

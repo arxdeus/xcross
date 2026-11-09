@@ -12,7 +12,11 @@ abstract interface class SwiftPmHostBuildServices<
   IosTarget<T> get target;
   SwiftPmFilesystem<T> get filesystem;
   SwiftPmSdkIdentity get sdkIdentity;
-  Future<void> stageFlutterFramework(
+
+  /// Places the framework directory [source] at [destination]: a copy, or a
+  /// link when [copy] is false (the host decides when it is null). Flutter
+  /// stages `Flutter.xcframework` this way.
+  Future<void> stageBinaryFramework(
     String source,
     String destination, {
     bool? copy,

@@ -134,15 +134,15 @@ import struct Foundation.URL
 
   test('refresh writes the warm-up source for the scanned modules', () async {
     write('Packages/a/Sources/A/A.swift', 'import WebKit\n');
-    final pluginsDir = p.join(temp.path, 'Plugins');
+    final packageDir = p.join(temp.path, 'Plugins');
     final written = <String, String>{};
     await warmup.refresh(
-      pluginsDir: pluginsDir,
+      packageDir: packageDir,
       roots: [p.join(temp.path, 'Packages')],
       iosSdk: sdk,
       write: (path, content) async => written[path] = content,
     );
-    expect(written.keys, [SwiftPmModuleWarmup.sourceFile(pluginsDir)]);
+    expect(written.keys, [SwiftPmModuleWarmup.sourceFile(packageDir)]);
     expect(written.values.single, contains('import WebKit'));
   });
 

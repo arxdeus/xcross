@@ -7,11 +7,11 @@ import 'package:xcross/src/shared/swiftpm/manifest_lexer.dart';
 /// SwiftPM product: the App Store rejects a loose dylib in `Frameworks/`
 /// (ITMS-90171, TN2435).
 ///
-/// The aggregate `libFlutterPluginsGenerated.dylib` xcross links every
-/// SwiftPM plugin into becomes `FlutterPluginsGenerated.framework` too,
-/// rather than being linked statically into Runner as Xcode does: the
-/// plugin registrant, Swift runtime linkage, and app extensions sharing the
-/// plugins all stay as they are, and a framework is a legal bundle layout.
+/// The aggregate product xcross links every package into (for example
+/// Flutter's `libFlutterPluginsGenerated.dylib`) becomes a framework too,
+/// rather than being linked statically into the app binary as Xcode does:
+/// its consumers, Swift runtime linkage, and app extensions sharing the
+/// packages all stay as they are, and a framework is a legal bundle layout.
 @internal
 final class SwiftPmDynamicProduct {
   const SwiftPmDynamicProduct({
@@ -24,7 +24,7 @@ final class SwiftPmDynamicProduct {
   final String libraryPath;
 
   /// The SwiftPM identity of the package declaring the product, as Xcode
-  /// names it (a Flutter plugin's versioned directory, see
+  /// names it (for a Flutter plugin, its versioned directory, see
   /// `flutterPluginSwiftPmIdentities`), or null when unknown.
   final String? packageIdentity;
 
@@ -44,9 +44,10 @@ final class SwiftPmDynamicProduct {
   /// Xcode's `CFBundleIdentifier` for the framework of a dynamic product,
   /// `<package identity>.<product>` with every character outside
   /// `[A-Za-z0-9.-]` replaced by `-` (measured with Xcode 26.6:
-  /// `flutter-soloud-5.1.2.flutter-soloud`). The aggregate plugins product
+  /// `flutter-soloud-5.1.2.flutter-soloud`). Without a known identity the
+  /// lowercased product name stands in for it (Flutter's aggregate product
   /// gets `flutterpluginsgenerated.FlutterPluginsGenerated`, after Xcode's
-  /// `flutterframework.FlutterFramework` for the lowercased package name.
+  /// `flutterframework.FlutterFramework`).
   String get bundleIdentifier =>
       '${packageIdentity ?? name.toLowerCase()}.$name'.replaceAll(
         RegExp('[^A-Za-z0-9.-]'),

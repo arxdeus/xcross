@@ -78,12 +78,11 @@ final class SwiftPmBuildDriver<T extends PlatformHostInterface> {
   final SwiftPmDependencyPreparation<T> dependencyPreparation;
   final SwiftPmCheckout<T> checkout;
 
-  /// Cross-compiles the synthesized packages in [pluginsDir] with
-
+  /// Cross-compiles the synthesized package in [packageDir] with
   /// `swift build --swift-sdk arm64-apple-ios`.
   Future<void> runSwiftBuild({
     required SwiftPmWorkspace workspace,
-    required String pluginsDir,
+    required String packageDir,
     required String scratchPath,
     required String productName,
     required List<String> frameworkSearchPaths,
@@ -134,7 +133,7 @@ final class SwiftPmBuildDriver<T extends PlatformHostInterface> {
     ) => SwiftPmDependencyCommand(
       swiftSdkTriple: target.buildPlatform.swiftSdkTriple,
       swift: swiftPackage,
-      pluginsDir: pluginsDir,
+      packageDir: packageDir,
       scratchPath: scratchPath,
       swiftSdksPath: swiftSdksPath,
       toolsetPath: toolsetPath,
@@ -155,14 +154,14 @@ final class SwiftPmBuildDriver<T extends PlatformHostInterface> {
     final iosSdk = sdkRepository.iosSdk(sdk, target: deploymentTarget.platform);
     if (hostPolicy.warmsImplicitModules) {
       await _refreshModuleWarmup(
-        pluginsDir: pluginsDir,
+        packageDir: packageDir,
         packagesDir: p.join(outputDir, 'Packages'),
         scratchPath: scratchPath,
         iosSdk: iosSdk,
       );
     }
     final baseArguments = buildPlan.swiftBuildArguments(
-      pluginsDir: pluginsDir,
+      packageDir: packageDir,
       scratchPath: scratchPath,
       swiftSdksPath: swiftSdksPath,
       iosSdk: iosSdk,
@@ -220,14 +219,14 @@ final class SwiftPmBuildDriver<T extends PlatformHostInterface> {
   /// Points the warm-up target at every SDK module the resolved plugin graph
   /// imports. Runs after resolution, so the checkouts exist to be scanned.
   Future<void> _refreshModuleWarmup({
-    required String pluginsDir,
+    required String packageDir,
     required String packagesDir,
     required String scratchPath,
     required String iosSdk,
   }) async {
     final modules = await SwiftPmModuleWarmup(fileSystem: planReader.fileSystem)
         .refresh(
-          pluginsDir: pluginsDir,
+          packageDir: packageDir,
           roots: [packagesDir, p.join(scratchPath, 'checkouts')],
           iosSdk: iosSdk,
           write: buildPlan.filesystem.writeStable,

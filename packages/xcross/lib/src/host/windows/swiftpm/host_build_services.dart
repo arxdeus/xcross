@@ -47,12 +47,12 @@ final class WindowsSwiftPmHostBuildServices<T extends PlatformHostInterface>
   final DarwinToolchainResolver<T> toolchainResolver;
   final SwiftPmLibrarianResolver<T> librarianResolver;
   @override
-  Future<void> stageFlutterFramework(
+  Future<void> stageBinaryFramework(
     String source,
     String destination, {
     bool? copy,
   }) =>
-      filesystem.stageFlutterFramework(source, destination, copy: copy ?? true);
+      filesystem.stageBinaryFramework(source, destination, copy: copy ?? true);
   @override
   Future<String?> cCompiler(String sysroot) =>
       toolchainResolver.resolveDarwinClang(sysroot);

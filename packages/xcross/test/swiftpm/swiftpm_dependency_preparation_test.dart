@@ -30,7 +30,7 @@ void main() {
     Map<String, String>? environment,
   }) => SwiftPmDependencyCommand(
     swift: '/fixture/swift-package',
-    pluginsDir: p.join(root.path, 'plugins'),
+    packageDir: p.join(root.path, 'plugins'),
     scratchPath: p.join(root.path, 'scratch'),
     swiftSdksPath: p.join(root.path, 'sdks'),
     toolsetPath: p.join(root.path, 'toolset.json'),
@@ -81,7 +81,7 @@ void main() {
           '-Xmanifest',
           'CRT',
           '--package-path',
-          data.pluginsDir,
+          data.packageDir,
           '--scratch-path',
           data.scratchPath,
           '--swift-sdks-path',
@@ -182,7 +182,7 @@ void main() {
       expect(invocation.arguments, [
         'package',
         '--package-path',
-        data.pluginsDir,
+        data.packageDir,
         '--scratch-path',
         data.scratchPath,
         '--swift-sdks-path',

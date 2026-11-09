@@ -37,13 +37,13 @@ final class SwiftPmModuleWarmup {
     '-no-emit-module-separately-wmo',
   ];
 
-  /// Source directory of the warm-up target inside the plugins package.
-  static String sourcesDir(String pluginsDir) =>
-      p.join(pluginsDir, 'Sources', moduleWarmupTargetName);
+  /// Source directory of the warm-up target inside the package.
+  static String sourcesDir(String packageDir) =>
+      p.join(packageDir, 'Sources', moduleWarmupTargetName);
 
-  /// Source file of the warm-up target inside the plugins package.
-  static String sourceFile(String pluginsDir) =>
-      p.join(sourcesDir(pluginsDir), 'Warmup.swift');
+  /// Source file of the warm-up target inside the package.
+  static String sourceFile(String packageDir) =>
+      p.join(sourcesDir(packageDir), 'Warmup.swift');
 
   /// Modules every Flutter iOS plugin pulls in. Seeds the target before the
   /// plugin graph is resolved, and stays in the list afterwards.
@@ -57,13 +57,13 @@ final class SwiftPmModuleWarmup {
   /// [roots]. A content-stable write, so an unchanged module list does not
   /// invalidate anything.
   Future<List<String>> refresh({
-    required String pluginsDir,
+    required String packageDir,
     required List<String> roots,
     required String iosSdk,
     required Future<void> Function(String path, String content) write,
   }) async {
     final modules = await sdkModules(roots: roots, iosSdk: iosSdk);
-    await write(sourceFile(pluginsDir), source(modules));
+    await write(sourceFile(packageDir), source(modules));
     return modules;
   }
 

@@ -27,15 +27,12 @@ abstract class PosixSwiftPmHostBuildServices<T extends PlatformHostInterface>
   @override
   final SwiftPmSdkIdentity sdkIdentity;
   @override
-  Future<void> stageFlutterFramework(
+  Future<void> stageBinaryFramework(
     String source,
     String destination, {
     bool? copy,
-  }) => filesystem.stageFlutterFramework(
-    source,
-    destination,
-    copy: copy ?? false,
-  );
+  }) =>
+      filesystem.stageBinaryFramework(source, destination, copy: copy ?? false);
   @override
   Future<String?> cCompiler(String sysroot) => Future.value();
   @override

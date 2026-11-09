@@ -12,7 +12,7 @@ abstract interface class SwiftPmDependencyPreparation<
 final class SwiftPmDependencyCommand {
   SwiftPmDependencyCommand({
     required this.swift,
-    required this.pluginsDir,
+    required this.packageDir,
     required this.scratchPath,
     required this.swiftSdksPath,
     required this.toolsetPath,
@@ -24,7 +24,7 @@ final class SwiftPmDependencyCommand {
     required this.swiftSdkTriple,
   }) : environment = environment == null ? null : Map.unmodifiable(environment);
   final String swift;
-  final String pluginsDir;
+  final String packageDir;
   final String scratchPath;
   final String swiftSdksPath;
   final String toolsetPath;

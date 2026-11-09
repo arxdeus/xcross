@@ -23,7 +23,7 @@ final class PosixSwiftPmDependencyPreparation<T extends PlatformHostInterface>
           command.swift,
           processPolicy
               .swiftResolveArguments(
-                pluginsDir: command.pluginsDir,
+                packageDir: command.packageDir,
                 scratchPath: command.scratchPath,
                 swiftSdksPath: command.swiftSdksPath,
                 toolsetPath: command.toolsetPath,

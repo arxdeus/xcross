@@ -163,7 +163,7 @@ void requireSharedSwiftPmServices<T extends PlatformHostInterface>({
       !sharesArtifactFileSystem ||
       !sharesCheckoutFilesystem) {
     throw ArgumentError(
-      'Flutter construction ports must share the selected host and configured services',
+      'SwiftPM construction ports must share the selected host and configured services',
     );
   }
 }

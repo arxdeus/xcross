@@ -68,7 +68,7 @@ final class SwiftPmPackageBuilder<T extends PlatformHostInterface> {
   }) async {
     await engine.buildDriver.runSwiftBuild(
       workspace: workspace,
-      pluginsDir: packageDir,
+      packageDir: packageDir,
       scratchPath: workspace.scratch,
       productName: productName,
       frameworkSearchPaths: frameworkSearchPaths,

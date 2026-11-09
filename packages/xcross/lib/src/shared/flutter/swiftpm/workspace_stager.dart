@@ -230,7 +230,7 @@ final class SwiftPmWorkspaceStager<T extends PlatformHostInterface> {
     );
 
     final frameworkPath = p.join(frameworkDir, 'Flutter.xcframework');
-    await hostBuildServices.stageFlutterFramework(
+    await hostBuildServices.stageBinaryFramework(
       flutterXcframework,
       frameworkPath,
       copy: copyFlutterXcframework,

@@ -21,7 +21,8 @@ final class SwiftPmFilesystem<T extends PlatformHostInterface> {
   final ProcessRunner<T> runner;
   final SwiftPmArtifactFileSystem artifactFileSystem;
 
-  Future<void> stageFlutterFramework(
+  /// Copies or links the framework directory [source] to [destination].
+  Future<void> stageBinaryFramework(
     String source,
     String destination, {
     required bool copy,
@@ -324,10 +325,10 @@ final class SwiftPmFilesystem<T extends PlatformHostInterface> {
     }
   }
 
-  /// Makes the staged Swift package appear directly beside FlutterFramework,
-  /// so every plugin's conventional `../FlutterFramework` dependency resolves
-  /// to the same package path. Directory junctions avoid Windows symlink
-  /// privilege requirements.
+  /// Makes [target] also reachable at [alias], so a relative package
+  /// dependency resolves to the same package path (for example Flutter
+  /// plugins' `../FlutterFramework`). Directory junctions avoid Windows
+  /// symlink privilege requirements.
   Future<void> createDirectoryAlias(String alias, String target) async {
     await deleteEntity(alias);
     await artifactFileSystem.createAlias(alias, p.absolute(target));

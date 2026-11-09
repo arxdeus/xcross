@@ -27,8 +27,8 @@ final class SwiftPmAssembly<T extends PlatformHostInterface> {
   /// `lib<productName>.dylib` must exist in [targetDebugDir].
   ///
   /// [packageIdentities] maps the SwiftPM identity a package was staged under
-  /// to the one Xcode gives it, for resource bundle identifiers (Flutter
-  /// passes its plugin identities here).
+  /// to the one Xcode gives it, for resource bundle identifiers (for
+  /// example the versioned identities of Flutter plugins).
   Future<SwiftPmBuildResult> discoverAndRewriteDylibs(
     String targetDebugDir, {
     required String productName,

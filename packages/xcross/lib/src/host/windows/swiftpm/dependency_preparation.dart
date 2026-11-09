@@ -35,7 +35,7 @@ final class WindowsSwiftPmDependencyPreparation<T extends PlatformHostInterface>
       command.swift,
       processPolicy
           .swiftResolveArguments(
-            pluginsDir: command.pluginsDir,
+            packageDir: command.packageDir,
             scratchPath: command.scratchPath,
             swiftSdksPath: command.swiftSdksPath,
             toolsetPath: command.toolsetPath,
@@ -54,7 +54,7 @@ final class WindowsSwiftPmDependencyPreparation<T extends PlatformHostInterface>
         );
     final attemptState = SwiftPmBinaryAttemptState();
     final packageIdentities = await metadata.packageIdentitiesByDirectory(
-      command.pluginsDir,
+      command.packageDir,
     );
     Future<bool> recover() => extractedArtifacts.stageExtractedBinaryArtifacts(
       scratchPath: command.scratchPath,

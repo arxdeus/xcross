@@ -280,7 +280,7 @@ final class SwiftPmProcessPolicy<T extends PlatformHostInterface> {
   /// Resolves Windows dependencies before tracked symlink placeholders are
   /// materialized and automatic resolution is disabled for the build.
   List<String> swiftResolveArguments({
-    required String pluginsDir,
+    required String packageDir,
     required String scratchPath,
     required String swiftSdksPath,
     required String toolsetPath,
@@ -289,7 +289,7 @@ final class SwiftPmProcessPolicy<T extends PlatformHostInterface> {
     ...hostPolicy.packagePrefix,
     ...hostManifestArguments(),
     '--package-path',
-    pluginsDir,
+    packageDir,
     '--scratch-path',
     scratchPath,
     '--swift-sdks-path',

@@ -89,7 +89,7 @@ void main() {
     'simulator SwiftPM invocation selects simulator target instead of device',
     () {
       final build = _swiftPmRuntime.buildPlan.swiftBuildArguments(
-        pluginsDir: '/plugins',
+        packageDir: '/plugins',
         scratchPath: '/scratch',
         swiftSdksPath: '/sdk',
         iosSdk: '/simulator-sdk',
@@ -103,7 +103,7 @@ void main() {
       expect(build, isNot(contains('arm64-apple-ios')));
       expect(build, contains('/simulator-sdk'));
       final resolve = _swiftPmRuntime.processPolicy.swiftResolveArguments(
-        pluginsDir: '/plugins',
+        packageDir: '/plugins',
         scratchPath: '/scratch',
         swiftSdksPath: '/sdk',
         toolsetPath: '/toolset',
@@ -3820,7 +3820,7 @@ let package = Package(
 
     test('keeps the iOS SDK, package flags, and Windows toolset', () {
       final arguments = _windowsRuntime.buildPlan.swiftBuildArguments(
-        pluginsDir: 'plugins',
+        packageDir: 'plugins',
         scratchPath: 'scratch',
         swiftSdksPath: 'xcross-swift-sdks',
         iosSdk: 'iPhoneOS.sdk',
@@ -4754,7 +4754,7 @@ let package = Package(
 
       expect(
         _swiftPmRuntime.buildPlan.swiftBuildArguments(
-          pluginsDir: 'plugins',
+          packageDir: 'plugins',
           scratchPath: 'scratch',
           swiftSdksPath: 'xcross-swift-sdks',
           iosSdk: 'iPhoneOS.sdk',
@@ -5002,7 +5002,7 @@ module FirebaseFirestore {
     test('drops Clang implicit module locks only on Windows', () {
       List<String> argumentsFor(SwiftPmRuntime runtime) =>
           runtime.buildPlan.swiftBuildArguments(
-            pluginsDir: 'plugins',
+            packageDir: 'plugins',
             scratchPath: 'scratch',
             swiftSdksPath: 'xcross-swift-sdks',
             iosSdk: 'iPhoneOS.sdk',
@@ -5041,7 +5041,7 @@ module FirebaseFirestore {
       () async {
         expect(
           _swiftPmRuntime.processPolicy.swiftResolveArguments(
-            pluginsDir: 'plugins',
+            packageDir: 'plugins',
             scratchPath: 'scratch',
             swiftSdksPath: 'xcross-swift-sdks',
             toolsetPath: 'toolset.json',
@@ -5224,7 +5224,7 @@ module FirebaseFirestore {
         'server#PreviewsMacros',
       ];
       final arguments = _swiftPmRuntime.buildPlan.swiftBuildArguments(
-        pluginsDir: 'plugins',
+        packageDir: 'plugins',
         scratchPath: 'scratch',
         swiftSdksPath: 'xcross-swift-sdks',
         iosSdk: 'iPhoneOS.sdk',
@@ -5238,7 +5238,7 @@ module FirebaseFirestore {
       );
       expect(
         _swiftPmRuntime.buildPlan.swiftBuildArguments(
-          pluginsDir: 'plugins',
+          packageDir: 'plugins',
           scratchPath: 'scratch',
           swiftSdksPath: 'xcross-swift-sdks',
           iosSdk: 'iPhoneOS.sdk',
