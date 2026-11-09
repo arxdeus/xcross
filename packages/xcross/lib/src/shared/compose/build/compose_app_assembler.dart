@@ -58,20 +58,25 @@ Future<void> _copyDirectoryNoSymlinks(
 
 @internal
 final class ComposeAppAssembler<T extends PlatformHostInterface> {
-  ComposeAppAssembler(this.target, this.runner, {required this.log})
-    : _copyDirectory = ((source, destination) => _copyDirectoryNoSymlinks(
-        source,
-        destination,
-        target.host.fileSystem,
-      )),
-      _makeExecutable = runner.makeExecutable,
-      _renameDirectory = ((source, newPath) =>
-          source.rename(target.host.fileSystem.directory(newPath).path)),
-      _finishBundle = ((path) => target.finishBundle(path, runner));
+  ComposeAppAssembler(
+    this.target,
+    this.runner, {
+    required this.log,
+    this.sdkPath,
+  }) : _copyDirectory = ((source, destination) => _copyDirectoryNoSymlinks(
+         source,
+         destination,
+         target.host.fileSystem,
+       )),
+       _makeExecutable = runner.makeExecutable,
+       _renameDirectory = ((source, newPath) =>
+           source.rename(target.host.fileSystem.directory(newPath).path)),
+       _finishBundle = ((path) => target.finishBundle(path, runner));
   ComposeAppAssembler.withSeams(
     this.target,
     this.runner, {
     required this.log,
+    this.sdkPath,
     ComposeCopyDirectory? copyDirectory,
     ComposeMakeExecutable? makeExecutable,
     ComposeRenameDirectory? renameDirectory,
@@ -94,6 +99,11 @@ final class ComposeAppAssembler<T extends PlatformHostInterface> {
   final ComposeTarget<T> target;
   final ProcessRunner<T> runner;
   final Log log;
+
+  /// The platform SDK the app is built against (`<S>.sdk` inside the
+  /// Darwin SDK), the source of the Swift back-deployment libraries. Null
+  /// leaves any the app links unembedded, with a warning.
+  final String? sdkPath;
   final ComposeCopyDirectory _copyDirectory;
   final ComposeMakeExecutable _makeExecutable;
   final ComposeRenameDirectory _renameDirectory;
@@ -276,6 +286,21 @@ final class ComposeAppAssembler<T extends PlatformHostInterface> {
     if (packages != null) {
       await _embedPackages(packages, stagingPath);
     }
+    // After every binary is in place, as Xcode's "Copy Swift Standard
+    // Libraries" step runs after "Embed Frameworks".
+    await SwiftPmProductEmbedder(
+      target.host.fileSystem,
+      p.context,
+      copier: RecursiveDirectoryCopier(
+        fileSystem: target.host.fileSystem,
+        paths: p.context,
+      ),
+    ).embedSwiftBackDeployLibraries(
+      stagingPath,
+      sdkName: target.buildPlatform.sdkName,
+      sdkPath: sdkPath,
+      warn: log.logWarn,
+    );
 
     _makeExecutable(runnerDest);
   }

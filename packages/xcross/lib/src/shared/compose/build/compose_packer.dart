@@ -444,7 +444,12 @@ final class ComposePacker<T extends PlatformHostInterface> {
       'Assembling ${project.appName}.app',
       () =>
           (_assembleApp ??
-          ComposeAppAssembler(target, runner, log: log).assemble)(
+          ComposeAppAssembler(
+            target,
+            runner,
+            log: log,
+            sdkPath: toolchain.darwinSdkPath,
+          ).assemble)(
             project: project,
             runnerPath: runnerPath,
             frameworkPath: frameworkPath,

@@ -451,6 +451,8 @@ Rebuilds are dominated by the Kotlin/Native compile (~133s of a ~147s cycle on t
 
 Swift Package Manager iOS plugins work on both Windows and Linux. Their native code is compiled against the extracted Darwin SDK into `Frameworks/libFlutterPluginsGenerated.dylib` and registered by the generated runner.
 
+Swift runtime back-deployment libraries are embedded as Xcode's "Copy Swift Standard Libraries" step does, for Flutter plugins and Compose host packages alike: when the app or one of its frameworks links one through `@rpath` (such as `libswiftCompatibilitySpan.dylib`, which a package using `Span`, like swift-collections 1.2+, needs below iOS 26), it is copied from the Darwin SDK into `Frameworks/`. SDKs installed before this release do not carry these libraries, so the build warns instead: re-run `xcross sdk install` once.
+
 Plugins that only ship a CocoaPods podspec are currently **skipped with a warning** - prefer plugin releases that include `ios/<package_name>/Package.swift`.
 
 The Runner is also xcross's own (an Objective-C `FlutterAppDelegate` shim), so the project's `AppDelegate.swift` and `SceneDelegate.swift` are **not compiled**. Move native SDK setup into a SwiftPM plugin or initialize it from Dart (for example `firebase_core` initializes from Dart, and `GoogleService-Info.plist` is still copied as a resource).

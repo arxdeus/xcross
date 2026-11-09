@@ -7,6 +7,7 @@ import 'package:xcross/src/shared/apple/interface_builder/xib_compiler.dart';
 import 'package:xcross/src/shared/swiftpm/dynamic_product.dart';
 import 'package:xcross/src/shared/swiftpm/recursive_directory_copy.dart';
 import 'package:xcross/src/shared/swiftpm/resource_manifest.dart';
+import 'package:xcross/src/shared/swiftpm/swift_back_deploy_libraries.dart';
 
 @internal
 final class SwiftPmProductEmbedder {
@@ -50,6 +51,27 @@ final class SwiftPmProductEmbedder {
     }
     return written;
   }
+
+  /// Xcode's "Copy Swift Standard Libraries" step: embeds in
+  /// `<bundleDir>/Frameworks` the Swift back-deployment libraries
+  /// (`libswiftCompatibilitySpan.dylib`, ...) that the app executable or
+  /// its frameworks load through `@rpath`, from the Darwin SDK whose
+  /// platform SDK is [sdkPath]. Run it once every binary is in place. A
+  /// bundle without such references is left untouched; see
+  /// [SwiftBackDeployLibraries].
+  Future<List<String>> embedSwiftBackDeployLibraries(
+    String bundleDir, {
+    required String sdkName,
+    required String? sdkPath,
+    void Function(String message)? warn,
+  }) => SwiftBackDeployLibraries(fileSystem, paths).embed(
+    bundleDir: bundleDir,
+    sdkRoot: sdkPath == null
+        ? null
+        : SwiftBackDeployLibraries.sdkRootOf(paths, sdkPath),
+    platform: SwiftBackDeployLibraries.platformOf(sdkName),
+    warn: warn,
+  );
 
   /// Copies every native-asset framework into the app's Frameworks directory.
   Future<void> copyNativeAssetFrameworks(

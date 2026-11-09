@@ -284,6 +284,16 @@ final class FlutterBundleAssembler<T extends PlatformHostInterface>
       ),
     );
 
+    // Xcode's "Copy Swift Standard Libraries": back-deployment libraries
+    // the app or its frameworks load through `@rpath`. Nothing changes for
+    // an app without such references.
+    await runtime.frameworks.embedSwiftBackDeployLibraries(
+      bundleDir,
+      sdkName: sdkName,
+      sdkPath: sdkPath,
+      warn: runtime.runner.log.logWarn,
+    );
+
     await _embedAppExtensions(bundleDir, extensions);
     final staged = await runtime.resources.stage(
       projectRoot: projectRoot,
