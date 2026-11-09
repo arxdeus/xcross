@@ -5,6 +5,8 @@ import 'package:xcross/src/composition/ios_target.dart';
 import 'package:xcross/src/shared/cli/basic/doctor_environment_checks.dart';
 import 'package:xcross/src/shared/cli/basic/doctor_models.dart';
 import 'package:xcross/src/shared/compose/kmp_project_detector.dart';
+import 'package:xcross/src/shared/compose/project/kmp_project.dart';
+import 'package:xcross/src/shared/compose/swift/swift_import_check.dart';
 import 'package:xcross/src/shared/compose/toolchain/compose_toolchain_resolver.dart';
 import 'package:xcross/src/shared/flutter/gen_snapshot/ios_gen_snapshot_mode.dart';
 import 'package:xcross/src/shared/flutter/gen_snapshot/ios_gen_snapshot_resolver.dart';
@@ -199,10 +201,56 @@ final class DoctorSections<T extends PlatformHostInterface> {
         log: runtime.log,
         root: projectRoot,
       ).detect();
-      return [DoctorCheck.success('Project', project.moduleName)];
+      return [
+        DoctorCheck.success('Project', project.moduleName),
+        if (project.entryKind == KmpEntryKind.swiftApp) _swiftImports(project),
+      ];
     } on Object catch (error) {
       return [DoctorCheck.failure('Project', '$error')];
     }
+  }
+
+  /// Whether the Swift sources import only modules the installed Darwin SDK
+  /// provides. Read-only: a missing SDK is a warning, since the `Darwin SDK`
+  /// row already reports it.
+  DoctorCheck _swiftImports(KmpProject project) {
+    const name = 'Swift imports';
+    final String sdkPath;
+    final String bundle;
+    final repository = environment.repository;
+    final platform = environment.buildPlatform;
+    try {
+      final sdk = repository.current();
+      if (sdk == null) throw StateError('Darwin SDK is not installed.');
+      sdkPath = repository.iosSdk(sdk, target: platform);
+      bundle = sdk.swiftSdkPath;
+    } on Object {
+      return const DoctorCheck.warning(
+        name,
+        'Not checked: the Darwin SDK is not installed '
+        '(see the Darwin SDK row).',
+      );
+    }
+    final index = swiftModuleIndexFor(
+      files: runtime.host.fileSystem,
+      sdkPath: sdkPath,
+      darwinSdkBundle: bundle,
+      platformSdkName: platform.sdkName,
+      baseName: project.baseName,
+    );
+    final missing = unresolvedSwiftImports(project, index);
+    if (missing.isEmpty) {
+      return DoctorCheck.success(
+        name,
+        '${project.requiredSwiftModules.length} modules resolve against '
+        'the Darwin SDK',
+      );
+    }
+    return DoctorCheck.failure(
+      name,
+      'Not provided by the Darwin SDK:\n'
+      '${formatUnresolvedSwiftImports(project, missing).join('\n')}',
+    );
   }
 
   /// One row per tool the Compose build resolves. The Darwin SDK and linker

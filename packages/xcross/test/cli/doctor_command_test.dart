@@ -9,6 +9,7 @@ import 'package:cli_kit/shared/logging/logging.dart';
 import 'package:cli_kit/shared/platform/platform_host.dart';
 import 'package:dart_mobile_device/shared/device/models/device.dart';
 import 'package:dart_mobile_device/shared/diagnostics/device_probe.dart';
+import 'package:darwin_sdk_kit/shared/sdk/darwin_sdk_repository.dart';
 import 'package:darwin_sdk_kit/target/iphone/iphone_build_platform.dart';
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
@@ -237,6 +238,110 @@ void main() {
 
     expect(checks.single.status, DoctorStatus.warning);
     expect(checks.single.message, contains('settings.gradle'));
+  });
+
+  group('Compose doctor Swift imports', () {
+    late DoctorServiceFileSystem files;
+    void write(String path, String content) => files.file(path)
+      ..parent.createSync(recursive: true)
+      ..writeAsStringSync(content);
+
+    void project({required String swift, bool kotlinEntry = false}) {
+      write('/project/settings.gradle.kts', 'include(":shared")');
+      write(
+        '/project/shared/build.gradle.kts',
+        'kotlin { iosArm64() { binaries.framework { baseName = "Shared" } } }',
+      );
+      if (kotlinEntry) {
+        write(
+          '/project/shared/src/iosMain/kotlin/Main.kt',
+          'fun MainViewController() = ComposeUIViewController { }',
+        );
+      }
+      write(
+        '/project/iosApp/App.swift',
+        '@main\nstruct DemoApp: App {}\n$swift',
+      );
+    }
+
+    void installSdk() {
+      for (final m in ['info.json', 'swift-sdk.json', 'toolset.json']) {
+        write('/bundle/$m', '{}');
+      }
+      write(
+        '/bundle/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/'
+            'iphoneos/layouts-arm64.yaml',
+        'x',
+      );
+      write(
+        '/bundle/Developer/Runtimes/XcodeDefault.xctoolchain/usr/bin/'
+            'layouts-arm64.yaml',
+        'x',
+      );
+      const sdk =
+          '/bundle/Developer/Platforms/iPhoneOS.platform/Developer/SDKs'
+          '/iPhoneOS26.0.sdk/System/Library/Frameworks';
+      files
+          .directory('$sdk/UIKit.framework/Modules')
+          .createSync(recursive: true);
+    }
+
+    Future<List<DoctorCheck>> run() {
+      final runtime = testRuntime(fileSystem: files);
+      final sections = DoctorSections(
+        runtime,
+        projectRoot: '/project',
+        environment: DoctorEnvironmentChecks(
+          hostPlatform: runtime.host,
+          buildPlatform: const IPhoneBuildPlatform(),
+          appleHostServices: runtime.appleHostServices,
+          runner: runtime.runner,
+          repository: DarwinSdkRepository(
+            runtime.host,
+            log: testLog(),
+            installBundle: '/bundle',
+          ),
+          toolchain: runtime.darwinToolchain,
+          deviceDiagnostics: DoctorNamespaceDiagnostics(),
+          sdkMismatch: (_) async => null,
+          sdkToolchainIdentity: () async => {},
+          createAppleHttpClient: () => throw StateError('Unexpected HTTP'),
+        ),
+      );
+      return sections.composeProject();
+    }
+
+    setUp(() => files = logicalProjectFiles());
+
+    test('succeeds when every import resolves', () async {
+      project(swift: 'import UIKit\nimport Shared');
+      installSdk();
+      final check = (await run()).singleWhere((c) => c.name == 'Swift imports');
+      expect(check.status, DoctorStatus.success);
+      expect(check.message, contains('resolve'));
+    });
+
+    test('fails naming module and file:line', () async {
+      project(swift: 'import UIKit\nimport Firebase');
+      installSdk();
+      final check = (await run()).singleWhere((c) => c.name == 'Swift imports');
+      expect(check.status, DoctorStatus.failure);
+      expect(check.message, contains('Firebase'));
+      expect(check.message, contains('iosApp/App.swift:'));
+    });
+
+    test('warns when the Darwin SDK is absent', () async {
+      project(swift: 'import UIKit');
+      final check = (await run()).singleWhere((c) => c.name == 'Swift imports');
+      expect(check.status, DoctorStatus.warning);
+    });
+
+    test('non-Swift projects get no row', () async {
+      project(swift: 'import Firebase', kotlinEntry: true);
+      installSdk();
+      final checks = await run();
+      expect(checks.map((c) => c.name), isNot(contains('Swift imports')));
+    });
   });
 
   test('Windows host checks resolve PATHEXT executable names', () async {

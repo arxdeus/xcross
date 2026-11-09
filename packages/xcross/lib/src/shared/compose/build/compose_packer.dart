@@ -5,7 +5,6 @@ import 'package:cli_kit/shared/process/process.dart';
 import 'package:darwin_sdk_kit/shared/sdk/darwin_sdk_repository.dart';
 import 'package:darwin_sdk_kit/shared/toolchain/darwin_toolchain_resolver.dart';
 import 'package:meta/meta.dart';
-import 'package:path/path.dart' as p;
 import 'package:xcross/src/shared/compose/build/compose_app_assembler.dart';
 import 'package:xcross/src/shared/compose/build/gradle_klib_builder.dart';
 import 'package:xcross/src/shared/compose/build/kotlin_framework_builder.dart';
@@ -14,7 +13,7 @@ import 'package:xcross/src/shared/compose/build/swift_runner_builder.dart';
 import 'package:xcross/src/shared/compose/compose_build_context.dart';
 import 'package:xcross/src/shared/compose/models/compose_build_options.dart';
 import 'package:xcross/src/shared/compose/project/kmp_project.dart';
-import 'package:xcross/src/shared/compose/swift/swift_module_index.dart';
+import 'package:xcross/src/shared/compose/swift/swift_import_check.dart';
 import 'package:xcross/src/shared/compose/toolchain/compose_toolchain.dart';
 import 'package:xcross/src/shared/compose/toolchain/compose_toolchain_resolver.dart';
 import 'package:xcross/src/shared/errors/errors.dart';
@@ -169,25 +168,16 @@ final class ComposePacker<T extends PlatformHostInterface> {
   /// Fails fast, before the slow Kotlin compile, when the Swift sources
   /// import a module swiftc cannot resolve against the Darwin SDK.
   void checkSwiftImports(ComposeToolchain<T> toolchain) {
-    final index = SwiftModuleIndex.scan(
+    final index = swiftModuleIndexFor(
       files: runner.host.fileSystem,
       sdkPath: toolchain.darwinSdkPath,
-      resourceDir: swiftResourceDir(toolchain.darwinSdkBundle),
+      darwinSdkBundle: toolchain.darwinSdkBundle,
       platformSdkName: toolchain.target.buildPlatform.sdkName,
-      extraModules: {project.baseName},
+      baseName: project.baseName,
     );
-    final missing = index.missing(project.requiredSwiftModules);
+    final missing = unresolvedSwiftImports(project, index);
     if (missing.isEmpty) return;
-    final lines = <String>[];
-    for (final module in missing) {
-      final first = project.swiftImports.firstWhere(
-        (i) => !i.conditional && i.module == module,
-      );
-      final rel = p.isWithin(project.root, first.path)
-          ? p.relative(first.path, from: project.root)
-          : first.path;
-      lines.add('  - $module (imported at $rel:${first.line})');
-    }
+    final lines = formatUnresolvedSwiftImports(project, missing);
     throw XcrossError(
       'Swift sources import modules the Darwin SDK does not provide:\n'
       '${lines.join('\n')}\n'
