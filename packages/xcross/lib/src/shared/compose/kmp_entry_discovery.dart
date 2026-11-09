@@ -128,7 +128,7 @@ final class KmpEntryDiscovery {
     File? mainFile;
     for (final file in allSwift) {
       final source = file.readAsStringSync();
-      if (_isSwiftAppHost(source)) {
+      if (isSwiftAppHost(source)) {
         mainFile = file;
         break;
       }
@@ -163,15 +163,45 @@ final class KmpEntryDiscovery {
     );
   }
 
-  /// `@main` (same or previous line) on a type conforming to `App`, ignoring
-  /// matches inside comments.
-  static bool _isSwiftAppHost(String source) {
-    final code = source
-        .replaceAll(RegExp(r'/\*[\s\S]*?\*/'), '')
-        .replaceAll(RegExp(r'//[^\n]*'), '');
-    return RegExp(
-      r'@main\b[^{;]*?\b(?:struct|class|final\s+class)\s+\w+\s*:[^{]*\bApp\b',
-    ).hasMatch(code);
+  /// `@main` type declaration conforming to `App` (or `SwiftUI.App`), ignoring
+  /// comments and string literals. UIKit delegates do not match.
+  @visibleForTesting
+  static bool isSwiftAppHost(String source) {
+    final t = tokenizeSwiftCode(source);
+    const decls = {'struct', 'class', 'enum', 'actor'};
+    for (var i = 0; i < t.length; i++) {
+      if (t[i] != '@' || i + 1 >= t.length || t[i + 1] != 'main') continue;
+      var j = i + 2;
+      // Skip further attributes and modifiers until the declaration keyword.
+      while (j < t.length && !decls.contains(t[j])) {
+        if (t[j] == '{' || t[j] == '}' || t[j] == ';') {
+          break;
+        }
+        if (t[j] == '(') {
+          var depth = 0;
+          for (; j < t.length; j++) {
+            if (t[j] == '(') depth++;
+            if (t[j] == ')' && --depth == 0) break;
+          }
+        }
+        j++;
+      }
+      if (j >= t.length || !decls.contains(t[j])) continue;
+      j += 2; // keyword and name
+      if (j < t.length && t[j] == '<') {
+        var depth = 0;
+        for (; j < t.length; j++) {
+          if (t[j] == '<') depth++;
+          if (t[j] == '>' && --depth == 0) break;
+        }
+        j++;
+      }
+      if (j >= t.length || t[j] != ':') continue;
+      for (j++; j < t.length && t[j] != '{' && t[j] != 'where'; j++) {
+        if (t[j] == 'App' || t[j] == 'SwiftUI.App') return true;
+      }
+    }
+    return false;
   }
 
   bool _excludeSwiftPath(String path) => path
@@ -182,4 +212,76 @@ final class KmpEntryDiscovery {
             segment.endsWith('Tests') ||
             segment.endsWith('UITests'),
       );
+}
+
+/// Splits Swift [source] into identifier (dotted) and single-char punctuation
+/// tokens, dropping comments (nested) and string literals.
+@internal
+List<String> tokenizeSwiftCode(String source) {
+  final out = <String>[];
+  final n = source.length;
+  var i = 0;
+  bool isId(int c) =>
+      c == 0x5f ||
+      (c >= 0x30 && c <= 0x39) ||
+      (c >= 0x41 && c <= 0x5a) ||
+      (c >= 0x61 && c <= 0x7a) ||
+      c > 0x7f;
+  while (i < n) {
+    final c = source[i];
+    if (c == '/' && i + 1 < n && source[i + 1] == '/') {
+      while (i < n && source[i] != '\n') {
+        i++;
+      }
+    } else if (c == '/' && i + 1 < n && source[i + 1] == '*') {
+      var depth = 1;
+      i += 2;
+      while (i < n && depth > 0) {
+        if (source.startsWith('/*', i)) {
+          depth++;
+          i += 2;
+        } else if (source.startsWith('*/', i)) {
+          depth--;
+          i += 2;
+        } else {
+          i++;
+        }
+      }
+    } else if (c == '"' || c == '#') {
+      var hashes = 0;
+      var k = i;
+      while (k < n && source[k] == '#') {
+        hashes++;
+        k++;
+      }
+      if (k >= n || source[k] != '"') {
+        i = k;
+        continue;
+      }
+      final multi = source.startsWith('"""', k);
+      final quote = multi ? '"""' : '"';
+      final close = quote + '#' * hashes;
+      i = k + quote.length;
+      while (i < n && !source.startsWith(close, i)) {
+        if (source[i] == r'\' && hashes == 0) i++;
+        if (!multi && i < n && source[i] == '\n') break;
+        i++;
+      }
+      i += close.length;
+    } else if (isId(c.codeUnitAt(0))) {
+      final start = i;
+      while (i < n &&
+          (isId(source.codeUnitAt(i)) ||
+              (source[i] == '.' &&
+                  i + 1 < n &&
+                  isId(source.codeUnitAt(i + 1))))) {
+        i++;
+      }
+      out.add(source.substring(start, i));
+    } else {
+      if (c.trim().isNotEmpty) out.add(c);
+      i++;
+    }
+  }
+  return out;
 }
