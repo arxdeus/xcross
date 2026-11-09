@@ -23,7 +23,6 @@ import 'package:xcross/src/shared/flutter/build/ios_bundle_resources.dart';
 import 'package:xcross/src/shared/flutter/build/ios_engine_cache.dart';
 import 'package:xcross/src/shared/flutter/build/ios_plugin_package.dart';
 import 'package:xcross/src/shared/flutter/flutter_build_options_resolver.dart';
-import 'package:xcross/src/shared/flutter/flutter_framework_copier.dart';
 import 'package:xcross/src/shared/flutter/flutter_project_resolver.dart';
 import 'package:xcross/src/shared/flutter/models/flutter/flutter_build_mode.dart';
 import 'package:xcross/src/shared/flutter/project/dart_defines_reader.dart';
@@ -34,6 +33,7 @@ import 'package:xcross/src/shared/flutter/project/pubspec_info_reader.dart';
 import 'package:xcross/src/shared/packages/package_config_resolver.dart';
 import 'package:xcross/src/shared/swiftpm/apple_tool_shim_renderer.dart';
 import 'package:xcross/src/shared/swiftpm/apple_tool_shims.dart';
+import 'package:xcross/src/shared/swiftpm/product_embedder.dart';
 import 'package:xcross/src/shared/swiftpm/recursive_directory_copy.dart';
 import 'package:xcross/src/shared/swiftpm/swiftpm_services.dart';
 import 'package:xcross/src/target/shared/flutter/flutter_target_build_policy.dart';
@@ -132,7 +132,7 @@ final class FlutterBuildRuntime<T extends PlatformHostInterface> {
         runner: runner,
         copier: directoryCopier,
       );
-  late final FlutterFrameworkCopier frameworks = FlutterFrameworkCopier(
+  late final SwiftPmProductEmbedder frameworks = SwiftPmProductEmbedder(
     host.fileSystem,
     host.paths.context,
     copier: directoryCopier,

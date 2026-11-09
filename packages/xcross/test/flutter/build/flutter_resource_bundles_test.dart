@@ -4,7 +4,7 @@ import 'dart:typed_data';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 import 'package:xcross/src/shared/apple/interface_builder/xib_compiler.dart';
-import 'package:xcross/src/shared/flutter/flutter_framework_copier.dart';
+import 'package:xcross/src/shared/swiftpm/product_embedder.dart';
 import 'package:xcross/src/shared/swiftpm/recursive_directory_copy.dart';
 import 'package:xcross/src/shared/swiftpm/resource_manifest.dart';
 
@@ -17,7 +17,7 @@ void main() {
 
   test('copies SwiftPM resource bundles into the app root', () async {
     const fileSystem = NativeTestFileSystem();
-    final copier = FlutterFrameworkCopier(
+    final copier = SwiftPmProductEmbedder(
       fileSystem,
       p.context,
       copier: RecursiveDirectoryCopier(
@@ -58,7 +58,7 @@ void main() {
     'without a manifest, resolves the built bundle links that resolve',
     () async {
       const fileSystem = NativeTestFileSystem();
-      final copier = FlutterFrameworkCopier(
+      final copier = SwiftPmProductEmbedder(
         fileSystem,
         p.context,
         copier: RecursiveDirectoryCopier(
@@ -147,8 +147,8 @@ void main() {
       warnings = [];
     });
 
-    FlutterFrameworkCopier copierWith(XibCompilation Function(String) result) =>
-        FlutterFrameworkCopier(
+    SwiftPmProductEmbedder copierWith(XibCompilation Function(String) result) =>
+        SwiftPmProductEmbedder(
           fileSystem,
           p.context,
           copier: RecursiveDirectoryCopier(

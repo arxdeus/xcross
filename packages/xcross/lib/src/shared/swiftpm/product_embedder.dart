@@ -9,8 +9,8 @@ import 'package:xcross/src/shared/swiftpm/recursive_directory_copy.dart';
 import 'package:xcross/src/shared/swiftpm/resource_manifest.dart';
 
 @internal
-final class FlutterFrameworkCopier {
-  FlutterFrameworkCopier(
+final class SwiftPmProductEmbedder {
+  SwiftPmProductEmbedder(
     this.fileSystem,
     this.paths, {
     required this.copier,
@@ -560,7 +560,7 @@ ResourceCoverage resourceCoverage(
   return ResourceCoverage.none;
 }
 
-/// What [FlutterFrameworkCopier.planResourceBundle] writes at one
+/// What [SwiftPmProductEmbedder.planResourceBundle] writes at one
 /// bundle-relative path.
 @internal
 @immutable
