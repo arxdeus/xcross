@@ -1,12 +1,12 @@
 import 'package:cli_kit/shared/platform/platform_host.dart';
 import 'package:meta/meta.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/apple_host_tools.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/open_apple_macros.dart';
 
 @internal
-typedef HostCompiler = ({String executable, List<String> arguments});
-
-@internal
-abstract interface class NativeHostTools<T extends PlatformHostInterface> {
+abstract interface class NativeHostTools<T extends PlatformHostInterface>
+    implements AppleHostTools<T> {
+  @override
   T get host;
   String get artifactPlatform;
   String get engineCacheDirectory;
@@ -18,8 +18,11 @@ abstract interface class NativeHostTools<T extends PlatformHostInterface> {
   /// nothing, yet updating it still rewrites `ios-sdk.stamp` to the current
   /// engine. That stamp then says nothing about the files on disk.
   bool get flutterManagesIosEngineArtifacts;
+  @override
   ToolchainPluginLayoutInterface get toolchainPluginLayout;
+  @override
   Future<HostCompiler> compiler(String clang);
+  @override
   Future<String> forwarder(String executable, String? launcher);
 
   /// Makes [path] read the existing [target]: a link where the host can make

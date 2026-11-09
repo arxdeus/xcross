@@ -5,8 +5,8 @@ import 'package:darwin_sdk_kit/shared/toolchain/darwin_toolchain_resolver.dart';
 import 'package:darwin_sdk_kit/target/shared/ios_build_platform.dart';
 import 'package:darwin_sdk_kit/target/shared/ios_target.dart';
 import 'package:meta/meta.dart';
-import 'package:xcross/src/host/shared/flutter/apple_tool_shim_renderer.dart';
-import 'package:xcross/src/host/shared/flutter/native_host_tools.dart';
+import 'package:xcross/src/shared/flutter/build/internal/apple_tool_shim_renderer.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/apple_host_tools.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/errors.dart';
 
 @internal
@@ -84,7 +84,7 @@ final class AppleToolShimResolver<T extends PlatformHostInterface> {
   final ProcessRunner<T> runner;
   final DarwinSdkRepository<T> repository;
   final DarwinToolchainResolver<T> toolchain;
-  final NativeHostTools<T> hostTools;
+  final AppleHostTools<T> hostTools;
   final String? launcher;
   final String? xcrun;
   final String? openAppleMacrosServer;

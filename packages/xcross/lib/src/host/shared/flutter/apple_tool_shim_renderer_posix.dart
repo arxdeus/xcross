@@ -1,7 +1,7 @@
 import 'package:cli_kit/shared/platform/platform_host.dart';
 import 'package:meta/meta.dart';
-import 'package:xcross/src/host/shared/flutter/apple_tool_shim_renderer.dart';
 import 'package:xcross/src/host/shared/flutter/apple_tool_shim_templates_posix.dart';
+import 'package:xcross/src/shared/flutter/build/internal/apple_tool_shim_renderer.dart';
 import 'package:xcross/src/shared/flutter/build/internal/apple_tool_shims.dart';
 import 'package:xcross/src/shared/tool/tool_alias_operation.dart';
 
