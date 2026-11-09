@@ -1,5 +1,8 @@
+import 'dart:convert';
+
 import 'package:cli_kit/shared/logging/logging.dart';
 import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:crypto/crypto.dart';
 import 'package:darwin_sdk_kit/target/shared/ios_build_platform.dart';
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
@@ -52,13 +55,20 @@ final class HostPackagesBuilder<T extends PlatformHostInterface> {
       environment: environment,
     );
     final packageDir = await stage(workspace, packages);
+    final debugDir = builder.targetDebugDirectory(workspace, deploymentTarget);
+    await pruneStaleHostPackageProducts(
+      files: files,
+      log: log,
+      packageDir: packageDir,
+      packages: packages,
+      debugDirectory: debugDir,
+    );
     final result = await builder.build(
       workspace: workspace,
       packageDir: packageDir,
       productName: productName,
       deploymentTarget: deploymentTarget,
     );
-    final debugDir = builder.targetDebugDirectory(workspace, deploymentTarget);
     final debugYaml = files.file(p.join(workspace.scratch, 'debug.yaml'));
     final moduleMaps = debugYaml.existsSync()
         ? swiftPmModuleMapFiles(debugYaml.readAsStringSync())
@@ -114,4 +124,74 @@ final class HostPackagesBuilder<T extends PlatformHostInterface> {
     await files.directory(p.dirname(path)).create(recursive: true);
     await file.writeAsString(content);
   }
+}
+
+/// Name of the file in the debug directory recording which package graph
+/// its products were built from.
+@internal
+const hostPackagesGraphFingerprintFile = '.xcross-host-packages-graph';
+
+/// Deletes [debugDirectory] when the package graph changed since the
+/// products in it were built.
+///
+/// SwiftPM never removes the products of targets that left the graph, and
+/// assembly collects every `*.bundle` and `*.build` there, so a removed
+/// package (or a resource target dropped by a new version or by an edited
+/// local `Package.swift`) would otherwise keep shipping its bundle. The
+/// graph is the staged aggregate `Package.swift`, the staged
+/// `Package.resolved` and every local package's `Package.swift`. When it
+/// is unchanged the directory is kept and `swift build` stays incremental.
+@internal
+Future<void> pruneStaleHostPackageProducts({
+  required HostFileSystemInterface files,
+  required Log log,
+  required String packageDir,
+  required HostSwiftPackages packages,
+  required String debugDirectory,
+}) async {
+  final fingerprint = _graphFingerprint(files, packageDir, packages);
+  final directory = files.directory(debugDirectory);
+  final record = files.file(
+    p.join(debugDirectory, hostPackagesGraphFingerprintFile),
+  );
+  if (record.existsSync() && record.readAsStringSync() == fingerprint) {
+    return;
+  }
+  if (directory.existsSync()) {
+    log.logTrace(
+      'Swift package graph changed, removing stale SwiftPM products in '
+      '$debugDirectory',
+    );
+    await directory.delete(recursive: true);
+  }
+  await directory.create(recursive: true);
+  await record.writeAsString(fingerprint);
+}
+
+String _graphFingerprint(
+  HostFileSystemInterface files,
+  String packageDir,
+  HostSwiftPackages packages,
+) {
+  final buffer = StringBuffer();
+  void add(String label, String path) {
+    final file = files.file(path);
+    final content = file.existsSync() ? file.readAsStringSync() : '';
+    buffer
+      ..write(label)
+      ..write('\u0000')
+      ..write(content.length)
+      ..write('\u0000')
+      ..write(content)
+      ..write('\u0000');
+  }
+
+  add('aggregate', p.join(packageDir, 'Package.swift'));
+  add('resolved', p.join(packageDir, 'Package.resolved'));
+  for (final package in packages.packages) {
+    if (package is LocalSwiftPackage) {
+      add(package.path, p.join(package.path, 'Package.swift'));
+    }
+  }
+  return sha256.convert(utf8.encode(buffer.toString())).toString();
 }
