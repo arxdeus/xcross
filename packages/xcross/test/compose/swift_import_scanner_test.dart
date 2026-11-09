@@ -90,4 +90,31 @@ import Real
       [('Foundation', 1, false), ('Foo', 2, false), ('B', 3, false)],
     );
   });
+
+  // Regressions found by differential testing against swiftc -dump-parse.
+  test('import inside a body is not a file-scope import', () {
+    expect(
+      mods(
+        'func f() {\n  import X\n}\nimport A\nenum E { case a; import B }\n',
+      ),
+      ['A'],
+    );
+  });
+
+  test('multi-line extended regex literal hides its contents', () {
+    expect(
+      scan('let r = #/\n import Foo\n /#\nlet q = ##/a/#b/##\nimport A\n'),
+      [('A', 5, false)],
+    );
+  });
+
+  test('kinded import needs Module.symbol with an adjacent dot', () {
+    expect(
+      mods(
+        'import struct\n  A.B\nimport class\n B\n  .C\n'
+        'import struct E\nimport struct `J`.K\n',
+      ),
+      ['A', 'J'],
+    );
+  });
 }

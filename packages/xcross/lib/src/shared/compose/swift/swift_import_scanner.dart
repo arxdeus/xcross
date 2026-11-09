@@ -36,6 +36,13 @@ const _importKinds = {
 /// Imports inside any `#if` block are reported `conditional`, because the
 /// common `#if canImport(X)` pattern means the module may legitimately not
 /// exist on the target SDK.
+///
+/// Differentially tested against `swiftc -frontend -dump-parse`. Known,
+/// intentional differences: lines are physical lines (swiftc honours
+/// `#sourceLocation`), and in invalid code where `import` follows an
+/// expression on the same line without `;` (`let x = 1 import A`) swiftc's
+/// error recovery still records the import while this scanner does not.
+/// Such a file fails to compile anyway.
 @internal
 List<SwiftImport> scanSwiftImports(String source, {required String path}) =>
     SwiftImportLexer(source, path).scan();
@@ -60,6 +67,10 @@ final class SwiftImportLexer {
   int _lineAt = 0;
   int _line = 1;
   int ifDepth = 0;
+
+  /// `{` nesting. swiftc only accepts imports at file scope, so an `import`
+  /// inside a body is an error and is not recorded.
+  int braceDepth = 0;
 
   /// Only attributes and access modifiers seen since the statement started,
   /// so an `import` word here really begins an import declaration.
@@ -92,6 +103,8 @@ final class SwiftImportLexer {
       } else if (_skipComment()) {
         // Comments are trivia and do not affect statement state.
       } else if (c == 0x3b || c == 0x7b || c == 0x7d) {
+        if (c == 0x7b) braceDepth++;
+        if (c == 0x7d && braceDepth > 0) braceDepth--;
         prefixOk = true;
         afterAttribute = false;
         i++;
@@ -107,7 +120,7 @@ final class SwiftImportLexer {
         final word = _word();
         if (word == 'import' && prefixOk && !_afterDot(start)) {
           final imp = _parseImport(start);
-          if (imp != null) out.add(imp);
+          if (imp != null && braceDepth == 0) out.add(imp);
           prefixOk = false;
           afterAttribute = false;
         } else if (prefixOk && _accessModifiers.contains(word)) {
@@ -205,6 +218,14 @@ final class SwiftImportLexer {
       _other();
       return;
     }
+    if (j > i && _at(j) == 0x2f) {
+      // Extended regex literal `#/.../#`, which may span lines.
+      final closer = '/${'#' * (j - i)}';
+      final end = s.indexOf(closer, j + 1);
+      i = end < 0 ? _n : end + closer.length;
+      _other();
+      return;
+    }
     i = j;
     final word = _word();
     switch (word) {
@@ -274,6 +295,9 @@ final class SwiftImportLexer {
       _skipTrivia();
       final scoped = _moduleName();
       if (scoped != null) {
+        // A kinded import needs `Module.symbol` with the dot right after
+        // the module name; swiftc rejects `import struct A` or `A\n.B`.
+        if (_at(i) != 0x2e) return null;
         word = scoped;
       } else {
         i = save;
