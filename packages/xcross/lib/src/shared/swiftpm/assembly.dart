@@ -48,8 +48,8 @@ final class SwiftPmAssembly<T extends PlatformHostInterface> {
         .firstOrNull;
     if (aggregatePath == null) {
       throw SwiftPmError(
-        'GeneratedPluginsPackage: swift build did not produce the plugins '
-        'library in $targetDebugDir',
+        'swift build did not produce the $productName library '
+        '($aggregateName) in $targetDebugDir',
       );
     }
 
