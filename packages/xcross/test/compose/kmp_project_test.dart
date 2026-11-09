@@ -526,6 +526,53 @@ kotlin {
       expect(project.moduleName, 'shared');
     });
 
+    test('detects Swift app with arbitrary SDK imports and conditionals', () {
+      final root = _fixture();
+      _settings(root, 'include(":shared")');
+      _framework(root, 'shared', baseName: 'Shared');
+      _swift(
+        root,
+        p.join('iosApp', 'App.swift'),
+        'import SwiftUI\nimport CoreMotion\nimport AVFoundation\n'
+        'import MapKit\nimport FirebaseCore\nimport Shared\n'
+        '#if canImport(UIKit)\nimport UIKit\n#endif\n'
+        '// import Hidden\n'
+        '@main\nstruct Demo: App { var body: some Scene { WindowGroup { Text("Hi") } } }',
+      );
+
+      final project = session.detectKmpProject(root.path);
+
+      expect(project.entryKind, KmpEntryKind.swiftApp);
+      expect(project.requiredSwiftModules, {
+        'SwiftUI',
+        'CoreMotion',
+        'AVFoundation',
+        'MapKit',
+        'FirebaseCore',
+        'Shared',
+      });
+      expect(
+        project.swiftImports
+            .singleWhere((i) => i.module == 'UIKit')
+            .conditional,
+        isTrue,
+      );
+    });
+
+    test('Swift import disambiguation is exact and ignores comments', () {
+      final root = _fixture();
+      _settings(root, 'include(":shared")\ninclude(":other")');
+      _framework(root, 'shared', baseName: 'Shared');
+      _framework(root, 'other', baseName: 'Other');
+      _swift(
+        root,
+        p.join('iosApp', 'App.swift'),
+        'import SharedUI\n// import Shared\nimport Other',
+      );
+
+      expect(session.detectKmpProject(root.path).moduleName, 'other');
+    });
+
     test('resolves identity from explicit options before xcconfig', () {
       final root = _fixture();
       _settings(root, 'include(":shared")');

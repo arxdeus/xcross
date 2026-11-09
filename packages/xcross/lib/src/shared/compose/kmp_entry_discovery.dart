@@ -5,6 +5,7 @@ import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/shared/compose/project/kmp_project.dart';
 import 'package:xcross/src/shared/compose/swift/swift_import.dart';
+import 'package:xcross/src/shared/compose/swift/swift_import_scanner.dart';
 import 'package:xcross/src/shared/errors/errors.dart';
 
 @internal
@@ -58,9 +59,14 @@ final class KmpEntryDiscovery {
                 (f) => f.path.endsWith('.swift') && !_excludeSwiftPath(f.path),
               )) {
         final source = file.readAsStringSync();
-        supported.addAll(
-          candidates.where((c) => source.contains('import ${c.baseName}')),
-        );
+        // Exact top-level module match: `import SharedUI` must not select a
+        // `Shared` candidate, and commented-out imports do not count.
+        // Conditional imports still count: the app names the framework even
+        // if only some platforms import it.
+        final modules = {
+          for (final i in scanSwiftImports(source, path: file.path)) i.module,
+        };
+        supported.addAll(candidates.where((c) => modules.contains(c.baseName)));
       }
     }
     if (supported.length == 1) return supported.single;
@@ -68,22 +74,6 @@ final class KmpEntryDiscovery {
       'Found multiple KMP iOS framework modules: ${candidates.map((c) => c.moduleName).join(', ')}. Add an iosApp Swift import to disambiguate.',
     );
   }
-
-  static const _allowedSwiftImports = {
-    'SwiftUI',
-    'UIKit',
-    'Foundation',
-    'Combine',
-    'SwiftData',
-    'CoreGraphics',
-    'CoreFoundation',
-    'CoreImage',
-    'CoreMotion',
-    'Observation',
-    'os',
-    'Dispatch',
-    'AVFoundation',
-  };
 
   ComposeEntryResult classifyEntry(
     String modulePath,
@@ -138,7 +128,7 @@ final class KmpEntryDiscovery {
     File? mainFile;
     for (final file in allSwift) {
       final source = file.readAsStringSync();
-      if (source.contains('@main') && RegExp(r':\s*App\b').hasMatch(source)) {
+      if (_isSwiftAppHost(source)) {
         mainFile = file;
         break;
       }
@@ -156,30 +146,32 @@ final class KmpEntryDiscovery {
             .map((f) => f.path)
             .toList()
           ..sort();
-    final imports = <SwiftImport>[];
-    final importRe = RegExp(r'^import\s+(\w+)', multiLine: true);
-    for (final source in sources) {
-      final text = files.file(source).readAsStringSync();
-      for (final match in importRe.allMatches(text)) {
-        imports.add(
-          SwiftImport(
-            match.group(1)!,
-            path: source,
-            line: '\n'.allMatches(text.substring(0, match.start)).length + 1,
-          ),
-        );
-      }
-    }
-    final allowed = {..._allowedSwiftImports, baseName};
-    if (imports.any((import) => !allowed.contains(import.module))) {
-      return null;
-    }
+    // Whether each imported module exists is decided at build time against
+    // the real SDK, so discovery only records them instead of allowlisting.
+    final imports = [
+      for (final source in sources)
+        ...scanSwiftImports(
+          files.file(source).readAsStringSync(),
+          path: source,
+        ),
+    ];
     return ComposeEntryResult(
       KmpEntryKind.swiftApp,
       swiftAppDir: appDir,
       swiftSources: sources,
       swiftImports: imports,
     );
+  }
+
+  /// `@main` (same or previous line) on a type conforming to `App`, ignoring
+  /// matches inside comments.
+  static bool _isSwiftAppHost(String source) {
+    final code = source
+        .replaceAll(RegExp(r'/\*[\s\S]*?\*/'), '')
+        .replaceAll(RegExp(r'//[^\n]*'), '');
+    return RegExp(
+      r'@main\b[^{;]*?\b(?:struct|class|final\s+class)\s+\w+\s*:[^{]*\bApp\b',
+    ).hasMatch(code);
   }
 
   bool _excludeSwiftPath(String path) => path
