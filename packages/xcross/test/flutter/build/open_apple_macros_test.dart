@@ -6,7 +6,7 @@ import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 import 'package:xcross/src/host/shared/flutter/posix_toolchain_plugin_layout.dart';
 import 'package:xcross/src/host/windows/flutter/windows_toolchain_plugin_layout.dart';
-import 'package:xcross/src/shared/flutter/errors.dart';
+import 'package:xcross/src/shared/errors/build_error.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/open_apple_macros.dart';
 
 import '../../host_operations_fixtures.dart';
@@ -125,7 +125,7 @@ void main() {
     );
     expect(
       () => server(configured: p.join(root.path, 'missing')).bundledServer(),
-      throwsA(isA<FlutterBuildError>()),
+      throwsA(isA<XcrossBuildError>()),
     );
   });
 

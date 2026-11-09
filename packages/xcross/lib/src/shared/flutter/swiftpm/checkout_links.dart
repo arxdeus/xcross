@@ -5,13 +5,13 @@ import 'package:cli_kit/shared/platform/platform_host.dart';
 import 'package:cli_kit/shared/process/process.dart';
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
-import 'package:xcross/src/shared/flutter/errors.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_filesystem.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/checkout_attributes.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/checkout_containment.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/checkout_link_creator.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/checkout_link_policy.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/checkout_stamp.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/errors.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/process_policy.dart';
 
 @internal
@@ -96,7 +96,7 @@ final class SwiftPmCheckoutLinks<T extends PlatformHostInterface> {
     final stderr = await stderrFuture;
     await outputFuture;
     if (await checkout.exitCode != 0) {
-      throw FlutterBuildError(
+      throw SwiftPmError(
         'Could not restore symlinks in SwiftPM checkout $root: $stderr',
       );
     }
@@ -116,7 +116,7 @@ final class SwiftPmCheckoutLinks<T extends PlatformHostInterface> {
       }
       linkCreator.create(link, linkText(link));
       if (!intact(link)) {
-        throw FlutterBuildError(
+        throw SwiftPmError(
           'Could not create symlink in SwiftPM checkout: $link -> '
           '${linkText(link)}',
         );

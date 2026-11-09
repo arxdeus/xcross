@@ -7,7 +7,7 @@ import 'package:darwin_sdk_kit/target/shared/ios_target.dart';
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/shared/flutter/build/macho_dylib_rewriter.dart';
-import 'package:xcross/src/shared/flutter/errors.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/errors.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/filesystem.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/host_build_services.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/librarian_resolver.dart';
@@ -89,7 +89,7 @@ final class WindowsSwiftPmHostBuildServices<T extends PlatformHostInterface>
   @override
   Future<Map<String, Object>> buildToolchainIdentity(DarwinSdk? sdk) async {
     if (sdk == null) {
-      throw FlutterBuildError(
+      throw SwiftPmError(
         'Darwin Swift SDK not found. Run `xcross sdk install <Xcode.xip>` first.',
       );
     }

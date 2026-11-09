@@ -4,7 +4,7 @@ import 'dart:typed_data';
 import 'package:meta/meta.dart';
 import 'package:xcross/src/shared/apple/mach_o.dart';
 import 'package:xcross/src/shared/flutter/build/objc_fast_stub_rewriter.dart';
-import 'package:xcross/src/shared/flutter/errors.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/errors.dart';
 
 /// Rewrites install names in 64-bit little-endian Mach-O dynamic libraries.
 @internal
@@ -187,5 +187,5 @@ abstract final class MachODylibRewriter {
   }
 
   static Never _invalid(String source, String message) =>
-      throw FlutterBuildError('$source: invalid Mach-O: $message');
+      throw SwiftPmError('$source: invalid Mach-O: $message');
 }

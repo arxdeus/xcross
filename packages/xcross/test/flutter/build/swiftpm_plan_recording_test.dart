@@ -4,7 +4,7 @@ import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 import 'package:xcross/src/host/windows/flutter/swiftpm/build_execution.dart';
 import 'package:xcross/src/host/windows/flutter/swiftpm/windows_swift_plan_repair.dart';
-import 'package:xcross/src/shared/flutter/errors.dart';
+import 'package:xcross/src/shared/errors/build_error.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/build_execution.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/build_plan.dart';
 
@@ -60,7 +60,7 @@ void main() {
         label: 'plan',
       ),
       throwsA(
-        isA<FlutterBuildError>().having(
+        isA<XcrossBuildError>().having(
           (error) => error.message,
           'message',
           contains('manifest parse'),

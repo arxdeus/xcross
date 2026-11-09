@@ -4,8 +4,8 @@ import 'dart:io';
 import 'package:cli_kit/shared/platform/platform_host.dart';
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
-import 'package:xcross/src/shared/flutter/errors.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/clang_modules.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/errors.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/filesystem.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/manifest_lexer.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/module_files.dart';
@@ -72,7 +72,7 @@ final class SwiftPmSourceFallback<T extends PlatformHostInterface> {
       r'^[A-Za-z_][A-Za-z0-9_]*$',
     ).hasMatch(product);
     if (!isClangIdentifier) {
-      throw FlutterBuildError(
+      throw SwiftPmError(
         'Cannot synthesize SwiftPM Clang module "$product": the binary '
         'product name is not a Clang module identifier.',
       );
@@ -101,7 +101,7 @@ final class SwiftPmSourceFallback<T extends PlatformHostInterface> {
         ? sourceProducts.single
         : null;
     if (sourceProduct == null) {
-      throw FlutterBuildError(
+      throw SwiftPmError(
         'Cannot synthesize SwiftPM module "$product": the fallback product '
         'is ambiguous (${sourceProducts.map((entry) => entry.name).join(', ')}).',
       );
@@ -283,7 +283,7 @@ final class SwiftPmSourceFallback<T extends PlatformHostInterface> {
       visit(target);
     }
     if (closure.isEmpty) {
-      throw FlutterBuildError(
+      throw SwiftPmError(
         'Cannot synthesize SwiftPM module "$product": its fallback target '
         'closure is empty.',
       );
@@ -337,7 +337,7 @@ final class SwiftPmSourceFallback<T extends PlatformHostInterface> {
       }
     }
     if (canonicalMaps.length != 1) {
-      throw FlutterBuildError(
+      throw SwiftPmError(
         'Cannot synthesize SwiftPM module "$product": expected one canonical '
         'module map, found ${canonicalMaps.length}.',
       );
@@ -383,7 +383,7 @@ final class SwiftPmSourceFallback<T extends PlatformHostInterface> {
     final isUnambiguous =
         publicModules.length == 1 && publicModules.single.modules.length == 1;
     if (!isUnambiguous) {
-      throw FlutterBuildError(
+      throw SwiftPmError(
         'Cannot synthesize SwiftPM module "$product": the fallback public '
         'header module is ambiguous.',
       );

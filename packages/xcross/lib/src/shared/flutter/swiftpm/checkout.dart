@@ -7,13 +7,13 @@ import 'package:crypto/crypto.dart';
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/host/shared/flutter/swiftpm/host_symlink_capability.dart';
-import 'package:xcross/src/shared/flutter/errors.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_filesystem.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/checkout_git_repository.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/checkout_graph.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/checkout_link_policy.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/checkout_links.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/checkout_stamp.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/errors.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/process_policy.dart';
 
 @internal
@@ -95,7 +95,7 @@ final class SwiftPmCheckout<T extends PlatformHostInterface> {
 
     final index = await runner.run(git, ['-C', root, 'ls-files', '-s', '-z']);
     if (index.exitCode != 0) {
-      throw FlutterBuildError(
+      throw SwiftPmError(
         'Could not inspect SwiftPM checkout $root: ${index.stderr}',
       );
     }
@@ -144,7 +144,7 @@ final class SwiftPmCheckout<T extends PlatformHostInterface> {
       '-z',
     ]);
     if (listing.exitCode != 0) {
-      throw FlutterBuildError(
+      throw SwiftPmError(
         'Could not inspect line endings in SwiftPM checkout $root: '
         '${listing.stderr}',
       );
@@ -170,7 +170,7 @@ final class SwiftPmCheckout<T extends PlatformHostInterface> {
     final stderr = await stderrFuture;
     await outputFuture;
     if (await checkout.exitCode != 0) {
-      throw FlutterBuildError(
+      throw SwiftPmError(
         'Could not restore line endings in SwiftPM checkout $root: $stderr',
       );
     }

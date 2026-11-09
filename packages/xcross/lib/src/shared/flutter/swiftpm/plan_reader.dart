@@ -3,8 +3,8 @@ import 'dart:io';
 
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
-import 'package:xcross/src/shared/flutter/errors.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_filesystem.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/errors.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/response_arguments.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/response_file_reader.dart';
 
@@ -76,7 +76,7 @@ final class SwiftPmPlanReader {
         for (final include in sorted) ...['-Xcc', '-I', '-Xcc', include],
       ];
     } on Object catch (error) {
-      throw FlutterBuildError(
+      throw SwiftPmError(
         'Cannot read planned Swift interop headers from '
         '${description.path}: $error',
       );
@@ -145,7 +145,7 @@ final class SwiftPmPlanReader {
     void visit(String target) {
       if (!eligible.contains(target) || visited.contains(target)) return;
       if (!visiting.add(target)) {
-        throw FlutterBuildError(
+        throw SwiftPmError(
           'SwiftPM interop target dependency cycle at $target',
         );
       }

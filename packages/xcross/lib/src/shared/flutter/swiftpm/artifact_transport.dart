@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:meta/meta.dart';
-import 'package:xcross/src/shared/flutter/errors.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/errors.dart';
 
 @internal
 abstract interface class SwiftPmArchiveTransport {
@@ -55,7 +55,7 @@ final class HttpSwiftPmArchiveTransport implements SwiftPmArchiveTransport {
         );
       }
       if (response.contentLength > maximumBytes) {
-        throw FlutterBuildError(_archiveByteLimitMessage);
+        throw SwiftPmError(_archiveByteLimitMessage);
       }
       await destination.parent.create(recursive: true);
       output = destination.openWrite();
@@ -72,7 +72,7 @@ final class HttpSwiftPmArchiveTransport implements SwiftPmArchiveTransport {
       );
       await for (final chunk in chunks) {
         if (downloadedBytes + chunk.length > maximumBytes) {
-          throw FlutterBuildError(_archiveByteLimitMessage);
+          throw SwiftPmError(_archiveByteLimitMessage);
         }
         if (total.elapsed > totalTimeout) {
           throw TimeoutException(

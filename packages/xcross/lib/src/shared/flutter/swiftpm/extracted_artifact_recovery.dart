@@ -5,11 +5,11 @@ import 'dart:io';
 import 'package:cli_kit/shared/platform/platform_host.dart';
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
+import 'package:xcross/src/shared/errors/build_error.dart';
 import 'package:xcross/src/shared/flutter/build/ios_plugin_package.dart';
 import 'package:xcross/src/shared/flutter/build/swiftpm_binary_artifact_preparer.dart';
 import 'package:xcross/src/shared/flutter/build/swiftpm_binary_artifact_store.dart';
 import 'package:xcross/src/shared/flutter/build/swiftpm_binary_target.dart';
-import 'package:xcross/src/shared/flutter/errors.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_copy_policy.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_destination_publisher.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_filesystem.dart';
@@ -143,7 +143,7 @@ final class SwiftPmExtractedArtifactRecovery<T extends PlatformHostInterface> {
                     archive: archive,
                   ),
                 );
-              } on FlutterBuildError catch (error) {
+              } on XcrossBuildError catch (error) {
                 if (error.isSecurityFailure) rethrow;
               }
             }
@@ -160,7 +160,7 @@ final class SwiftPmExtractedArtifactRecovery<T extends PlatformHostInterface> {
                 verified.add(
                   (await (prepare ?? preparer.prepare)(candidate.target)).entry,
                 );
-              } on FlutterBuildError catch (error) {
+              } on XcrossBuildError catch (error) {
                 if (error.isSecurityFailure) rethrow;
               }
             }

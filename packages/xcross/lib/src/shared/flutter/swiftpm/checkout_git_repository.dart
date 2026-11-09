@@ -6,8 +6,8 @@ import 'package:cli_kit/shared/platform/platform_host.dart';
 import 'package:cli_kit/shared/process/process.dart';
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
-import 'package:xcross/src/shared/flutter/errors.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_filesystem.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/errors.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/filesystem.dart';
 
 @internal
@@ -96,13 +96,13 @@ final class SwiftPmGitRepository<T extends PlatformHostInterface> {
       timer.cancel();
     }
     if (timedOut) {
-      throw FlutterBuildError(
+      throw SwiftPmError(
         'Timed out after ${timeout.inMinutes} minutes reading symlink targets '
         'in SwiftPM checkout $repoPath.',
       );
     }
     if (exitCode != 0) {
-      throw FlutterBuildError(
+      throw SwiftPmError(
         'Could not read symlink targets in SwiftPM checkout $repoPath: $error',
       );
     }
@@ -112,28 +112,28 @@ final class SwiftPmGitRepository<T extends PlatformHostInterface> {
     for (final requested in objectIds) {
       final newline = output.indexOf(10, offset);
       if (newline < 0) {
-        throw FlutterBuildError(
+        throw SwiftPmError(
           'Malformed Git object response in SwiftPM checkout $repoPath.',
         );
       }
       final header = utf8.decode(output.sublist(offset, newline));
       final fields = header.split(' ');
       if (fields.length != 3 || fields[1] != 'blob') {
-        throw FlutterBuildError(
+        throw SwiftPmError(
           'Could not read symlink target $requested in SwiftPM checkout '
           '$repoPath: $header',
         );
       }
       final size = int.tryParse(fields[2]);
       if (size == null || size < 0 || newline + 1 + size >= output.length) {
-        throw FlutterBuildError(
+        throw SwiftPmError(
           'Malformed Git object response in SwiftPM checkout $repoPath.',
         );
       }
       final end = newline + 1 + size;
       blobs[requested] = output.sublist(newline + 1, end);
       if (output[end] != 10) {
-        throw FlutterBuildError(
+        throw SwiftPmError(
           'Malformed Git object response in SwiftPM checkout $repoPath.',
         );
       }

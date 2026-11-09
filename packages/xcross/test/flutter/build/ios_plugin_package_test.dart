@@ -12,6 +12,7 @@ import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:propertylistserialization/propertylistserialization.dart';
 import 'package:test/test.dart';
+import 'package:xcross/src/shared/errors/build_error.dart';
 import 'package:xcross/src/shared/flutter/build/internal/swiftpm_binary_fixture.dart';
 import 'package:xcross/src/shared/flutter/build/internal/swiftpm_workspace.dart';
 import 'package:xcross/src/shared/flutter/build/ios_deployment_target.dart';
@@ -495,7 +496,7 @@ let package = Package(
               const CapturedProcess(128, '', 'not a repository'),
         ),
         throwsA(
-          isA<FlutterBuildError>().having(
+          isA<XcrossBuildError>().having(
             (error) => error.message,
             'message',
             contains('not a repository'),
@@ -1099,7 +1100,7 @@ framework module PublicSDK {
           consumedProducts: {'PublicSDK'},
         ),
         throwsA(
-          isA<FlutterBuildError>().having(
+          isA<XcrossBuildError>().having(
             (error) => error.toString(),
             'message',
             contains('fallback product is ambiguous'),
@@ -1738,7 +1739,7 @@ framework module FallbackKit {
             ),
           ),
           throwsA(
-            isA<FlutterBuildError>().having(
+            isA<XcrossBuildError>().having(
               (error) => error.isSecurityFailure,
               'isSecurityFailure',
               isTrue,
@@ -1987,7 +1988,7 @@ framework module FallbackKit {
             writeManifest: (_, _) async => writes++,
           ),
           throwsA(
-            isA<FlutterBuildError>().having(
+            isA<XcrossBuildError>().having(
               (error) => error.isSecurityFailure,
               'isSecurityFailure',
               isTrue,
@@ -2389,7 +2390,7 @@ framework module FallbackKit {
             scratch,
             symlinks: true,
           ),
-          throwsA(isA<FlutterBuildError>()),
+          throwsA(isA<XcrossBuildError>()),
         );
       },
     );
@@ -3779,7 +3780,7 @@ let package = Package(
           outputDir: p.join(tmp.path, 'empty output'),
           linkerPath: 'ld64.lld',
         ),
-        throwsA(isA<FlutterBuildError>()),
+        throwsA(isA<XcrossBuildError>()),
       );
     });
 
@@ -4501,7 +4502,7 @@ let package = Package(
       void check() => expect(
         () =>
             _swiftPmRuntime.planReader.plannedSwiftInteropSearchPaths(buildDir),
-        throwsA(isA<FlutterBuildError>()),
+        throwsA(isA<XcrossBuildError>()),
       );
       check();
       for (final value in [
@@ -5611,7 +5612,7 @@ module FirebaseFirestore {
           ),
         ),
         throwsA(
-          isA<FlutterBuildError>().having(
+          isA<XcrossBuildError>().having(
             (error) => error.message,
             'message',
             allOf(contains('xcross sdk install'), contains('switching Swift')),

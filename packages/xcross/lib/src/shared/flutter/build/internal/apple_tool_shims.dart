@@ -7,7 +7,7 @@ import 'package:darwin_sdk_kit/target/shared/ios_target.dart';
 import 'package:meta/meta.dart';
 import 'package:xcross/src/host/shared/flutter/apple_tool_shim_renderer.dart';
 import 'package:xcross/src/host/shared/flutter/native_host_tools.dart';
-import 'package:xcross/src/shared/flutter/errors.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/errors.dart';
 
 @internal
 @immutable
@@ -94,7 +94,7 @@ final class AppleToolShimResolver<T extends PlatformHostInterface> {
   Future<AppleToolShimConfig> resolve(String deploymentTarget) async {
     final sdk = repository.current();
     if (sdk == null) {
-      throw FlutterBuildError(
+      throw SwiftPmError(
         'Native assets require an installed Darwin SDK. Run `xcross sdk install <Xcode.xip|Xcode.app>` first.',
       );
     }
@@ -136,7 +136,7 @@ final class AppleToolShimResolver<T extends PlatformHostInterface> {
     );
     if (host.fileSystem.file(sibling).existsSync()) return sibling;
     if (declarative) {
-      throw FlutterBuildError(
+      throw SwiftPmError(
         'xcrun not configured. Set tools.xcrun or configure an xcross launcher with a bundled xcrun sibling.',
       );
     }
@@ -165,7 +165,7 @@ final class AppleToolShimResolver<T extends PlatformHostInterface> {
   Future<String> locateLlvmTool(String name) async {
     final tool = await findLlvmTool(name);
     if (tool != null) return tool;
-    throw FlutterBuildError("Could not find '$name'. Install LLVM and retry.");
+    throw SwiftPmError("Could not find '$name'. Install LLVM and retry.");
   }
 
   Future<OtoolConfig?> resolveOtool() async {

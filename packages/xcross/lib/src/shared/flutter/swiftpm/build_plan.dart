@@ -5,7 +5,7 @@ import 'package:cli_kit/shared/process/process.dart';
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/shared/flutter/build/ios_linker_compatibility.dart';
-import 'package:xcross/src/shared/flutter/errors.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/errors.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/filesystem.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/host_policy.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/open_apple_macros.dart';
@@ -73,7 +73,7 @@ final class SwiftPmBuildPlan<T extends PlatformHostInterface> {
         output.contains("no target named '$planOnlyTarget'")) {
       return;
     }
-    throw FlutterBuildError(
+    throw SwiftPmError(
       'swift build planning failed (exit ${result.exitCode})\n$output',
     );
   }

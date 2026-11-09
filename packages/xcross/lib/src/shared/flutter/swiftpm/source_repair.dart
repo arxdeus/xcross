@@ -4,7 +4,7 @@ import 'package:cli_kit/shared/platform/platform_host.dart';
 import 'package:cli_kit/shared/process/process.dart';
 import 'package:cli_kit/shared/process/process_models.dart';
 import 'package:meta/meta.dart';
-import 'package:xcross/src/shared/flutter/errors.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/errors.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/filesystem.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/host_policy.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/process_policy.dart';
@@ -71,7 +71,7 @@ final class SwiftPmSourceRepair<T extends PlatformHostInterface> {
       await build();
     } on Object catch (error) {
       if (!'$error'.contains(swiftSdkMismatchMarker)) rethrow;
-      throw FlutterBuildError(sdkIdentity.mismatchGuidance(null));
+      throw SwiftPmError(sdkIdentity.mismatchGuidance(null));
     }
   }
 
@@ -97,7 +97,7 @@ final class SwiftPmSourceRepair<T extends PlatformHostInterface> {
       'resolve',
     ], environment: await processPolicy.swiftProcessEnvironment());
     if (result.exitCode != 0) {
-      throw FlutterBuildError(
+      throw SwiftPmError(
         'Cannot resolve SwiftPM dependencies in $directory:\n'
         '${SwiftPmSourceRepair.resolveDiagnostics(result)}',
       );

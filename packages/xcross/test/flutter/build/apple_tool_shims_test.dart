@@ -27,8 +27,8 @@ import 'package:xcross/src/host/shared/flutter/apple_tool_shim_renderer_posix.da
 import 'package:xcross/src/host/shared/flutter/native_host_tools.dart';
 import 'package:xcross/src/host/windows/flutter/apple_tool_shim_renderer.dart';
 import 'package:xcross/src/host/windows/flutter/native_host_tools.dart';
+import 'package:xcross/src/shared/errors/build_error.dart';
 import 'package:xcross/src/shared/flutter/build/internal/apple_tool_shims.dart';
-import 'package:xcross/src/shared/flutter/errors.dart';
 
 import 'support/native_flutter_fixtures.dart';
 
@@ -252,7 +252,7 @@ void main() {
         ),
       ).forwarder('/dart', null),
       throwsA(
-        isA<FlutterBuildError>().having(
+        isA<XcrossBuildError>().having(
           (error) => error.toString(),
           'message',
           contains('No xcross.exe was found'),
@@ -283,7 +283,7 @@ void main() {
           renderer: WindowsAppleToolShimRenderer(windowsFixtureHost()),
         ),
         throwsA(
-          isA<FlutterBuildError>().having(
+          isA<XcrossBuildError>().having(
             (e) => e.toString(),
             'message',
             contains('clang.exe'),
@@ -334,7 +334,7 @@ void main() {
     final resolver = appleToolResolver(declarative: true);
     await expectLater(
       resolver.resolveXcrun(),
-      throwsA(isA<FlutterBuildError>()),
+      throwsA(isA<XcrossBuildError>()),
     );
   });
 
@@ -696,7 +696,7 @@ void declarativeXcrunTests<T extends PlatformHostInterface>(
         await expectLater(
           resolver().resolveXcrun(),
           throwsA(
-            isA<FlutterBuildError>().having(
+            isA<XcrossBuildError>().having(
               (error) => error.toString(),
               'message',
               contains('xcrun not configured'),
@@ -711,7 +711,7 @@ void declarativeXcrunTests<T extends PlatformHostInterface>(
       Directory(files.map(currentSibling)).createSync(recursive: true);
       await expectLater(
         resolver().resolveXcrun(),
-        throwsA(isA<FlutterBuildError>()),
+        throwsA(isA<XcrossBuildError>()),
       );
       expect(files.lookups, [currentSibling]);
     });

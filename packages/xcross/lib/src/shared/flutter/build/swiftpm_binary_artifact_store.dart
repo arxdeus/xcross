@@ -5,10 +5,10 @@ import 'package:cli_kit/shared/platform/platform_host.dart';
 import 'package:crypto/crypto.dart';
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
-import 'package:xcross/src/shared/flutter/errors.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_filesystem.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_publication_coordinator.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_tree.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/errors.dart';
 
 @internal
 final class SwiftPmBinaryArtifactEntry {
@@ -78,7 +78,7 @@ final class SwiftPmBinaryArtifactStore {
             await for (final chunk in stagingArchive.openRead()) {
               copiedBytes += chunk.length;
               if (copiedBytes > maximumBytes) {
-                throw FlutterBuildError(
+                throw SwiftPmError(
                   'SwiftPM binary artifact exceeds compressed archive byte limit',
                 );
               }
@@ -114,13 +114,13 @@ final class SwiftPmBinaryArtifactStore {
       final file = fileSystem.file(path);
       final bytes = await file.readAsBytes();
       if (maximumBytes != null && bytes.length > maximumBytes) {
-        throw FlutterBuildError(
+        throw SwiftPmError(
           'SwiftPM binary artifact exceeds compressed archive byte limit',
         );
       }
       final actual = sha256.convert(bytes).toString();
       if (actual != expected) {
-        throw FlutterBuildError(
+        throw SwiftPmError(
           'SwiftPM binary artifact checksum mismatch: expected $expected, got $actual',
           isSecurityFailure: true,
         );
@@ -155,7 +155,7 @@ final class SwiftPmBinaryArtifactStore {
     await destination.parent.create(recursive: true);
     if (fileSystem.typeSync(stagingRoot.path, followLinks: false) !=
         FileSystemEntityType.directory) {
-      throw FlutterBuildError(
+      throw SwiftPmError(
         'SwiftPM binary artifact staging root must be a real directory',
       );
     }
@@ -175,13 +175,13 @@ final class SwiftPmBinaryArtifactStore {
         final artifactPath = p.join(staging.path, safeArtifact);
         if (fileSystem.typeSync(artifactPath, followLinks: false) !=
             FileSystemEntityType.directory) {
-          throw FlutterBuildError(
+          throw SwiftPmError(
             'SwiftPM binary artifact root must be a real directory: '
             '$safeArtifact',
           );
         }
         if (await _tree.containsLink(staging)) {
-          throw FlutterBuildError(
+          throw SwiftPmError(
             'SwiftPM binary artifact target trees must not contain links or reparse points',
             isSecurityFailure: true,
           );
@@ -209,7 +209,7 @@ final class SwiftPmBinaryArtifactStore {
             safeTarget,
           );
           if (racedWinner != null) return racedWinner;
-          throw FlutterBuildError(
+          throw SwiftPmError(
             'SwiftPM binary artifact destination changed during publication '
             'for $safeTarget',
           );
@@ -217,7 +217,7 @@ final class SwiftPmBinaryArtifactStore {
         await staging.rename(destination.path);
         final published = await findCompleteTarget(safeChecksum, safeTarget);
         if (published == null) {
-          throw FlutterBuildError(
+          throw SwiftPmError(
             'SwiftPM binary artifact publication is incomplete for $safeTarget',
           );
         }
@@ -325,7 +325,7 @@ final class SwiftPmBinaryArtifactStore {
   static Future<void> _verifyArchive(File file, String checksum) async {
     final actual = await sha256.bind(file.openRead()).first;
     if (actual.toString().toLowerCase() != checksum.toLowerCase()) {
-      throw FlutterBuildError(
+      throw SwiftPmError(
         'SwiftPM binary artifact checksum mismatch: expected $checksum, '
         'got $actual',
         isSecurityFailure: true,
@@ -349,7 +349,7 @@ final class SwiftPmBinaryArtifactStore {
       case FileSystemEntityType.notFound:
       case FileSystemEntityType.pipe:
       case FileSystemEntityType.unixDomainSock:
-        throw FlutterBuildError(
+        throw SwiftPmError(
           'Cannot preserve incomplete SwiftPM binary artifact destination',
         );
     }

@@ -3,7 +3,7 @@ import 'dart:io';
 
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
-import 'package:xcross/src/shared/flutter/errors.dart';
+import 'package:xcross/src/shared/errors/build_error.dart';
 
 import 'support/checkout_test_context.dart';
 
@@ -35,7 +35,7 @@ void main() {
       ]) {
         expect(
           () => context.graph.indexLinks(root.path, '120000 cd 0\t$path\u0000'),
-          throwsA(isA<FlutterBuildError>()),
+          throwsA(isA<XcrossBuildError>()),
         );
       }
     },
@@ -59,17 +59,17 @@ void main() {
         first: 'second',
         second: 'first',
       }),
-      throwsA(isA<FlutterBuildError>()),
+      throwsA(isA<XcrossBuildError>()),
     );
     expect(
       () => context.graph.resolveTargets(root.path, {first: '../outside'}),
-      throwsA(isA<FlutterBuildError>()),
+      throwsA(isA<XcrossBuildError>()),
     );
     expect(
       () => context.graph.resolveTargets(root.path, {
         first: p.join(p.dirname(root.path), 'outside'),
       }),
-      throwsA(isA<FlutterBuildError>()),
+      throwsA(isA<XcrossBuildError>()),
     );
   });
 
@@ -96,7 +96,7 @@ void main() {
           {optional: target},
           symlinks: false,
         ),
-        throwsA(isA<FlutterBuildError>()),
+        throwsA(isA<XcrossBuildError>()),
       );
       final required = p.join(root.path, 'Sources', 'Core', 'header.h');
       expect(
@@ -106,7 +106,7 @@ void main() {
           {required: target},
           symlinks: true,
         ),
-        throwsA(isA<FlutterBuildError>()),
+        throwsA(isA<XcrossBuildError>()),
       );
     },
   );
@@ -132,7 +132,7 @@ void main() {
           {link: target},
           symlinks: true,
         ),
-        throwsA(isA<FlutterBuildError>()),
+        throwsA(isA<XcrossBuildError>()),
       );
       await Link(target).delete();
       await Link(target).create(outside.path);
@@ -143,7 +143,7 @@ void main() {
           {link: p.join(target, 'missing')},
           symlinks: true,
         ),
-        throwsA(isA<FlutterBuildError>()),
+        throwsA(isA<XcrossBuildError>()),
       );
       expect(external.readAsStringSync(), 'safe');
     },
@@ -171,7 +171,7 @@ void main() {
           {destination: payload.path},
           symlinks: false,
         ),
-        throwsA(isA<FlutterBuildError>()),
+        throwsA(isA<XcrossBuildError>()),
       );
       expect(sentinel.readAsStringSync(), 'outside sentinel');
     },
@@ -224,7 +224,7 @@ void main() {
       expect(order, [nested, outer]);
       expect(
         () => context.graph.order({outer: 'one'}, {outer: root.path}),
-        throwsA(isA<FlutterBuildError>()),
+        throwsA(isA<XcrossBuildError>()),
       );
     },
   );

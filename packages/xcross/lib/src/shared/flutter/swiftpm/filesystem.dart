@@ -7,8 +7,8 @@ import 'package:cli_kit/shared/process/process.dart';
 import 'package:crypto/crypto.dart';
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
-import 'package:xcross/src/shared/flutter/errors.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_filesystem.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/errors.dart';
 
 @internal
 const String flutterFrameworkPackageName = 'FlutterFramework';
@@ -208,7 +208,7 @@ final class SwiftPmFilesystem<T extends PlatformHostInterface> {
         ),
       );
       if (!p.equals(root, resolved) && !p.isWithin(root, resolved)) {
-        throw FlutterBuildError(
+        throw SwiftPmError(
           'SwiftPM binary artifact link escapes its artifact root',
           isSecurityFailure: true,
         );
@@ -223,7 +223,7 @@ final class SwiftPmFilesystem<T extends PlatformHostInterface> {
       } else if (artifactFileSystem.file(resolved).existsSync()) {
         await artifactFileSystem.file(resolved).copy(target);
       } else {
-        throw FlutterBuildError(
+        throw SwiftPmError(
           'SwiftPM binary artifact contains an unresolved link',
           isSecurityFailure: true,
         );

@@ -10,6 +10,7 @@ import 'package:meta/meta.dart';
 import 'package:propertylistserialization/propertylistserialization.dart';
 import 'package:xcross/src/host/shared/flutter/engine_archive_writer.dart';
 import 'package:xcross/src/host/shared/flutter/native_host_tools.dart';
+import 'package:xcross/src/shared/errors/build_error.dart';
 import 'package:xcross/src/shared/flutter/constants.dart';
 import 'package:xcross/src/shared/flutter/errors.dart';
 import 'package:xcross/src/shared/flutter/models/flutter/flutter_build_mode.dart';
@@ -142,7 +143,7 @@ final class IosEngineCache<T extends PlatformHostInterface> {
     if (revision == null) return false;
     try {
       return revision != engineHash;
-    } on FlutterBuildError {
+    } on XcrossBuildError {
       return false;
     }
   }
@@ -151,7 +152,7 @@ final class IosEngineCache<T extends PlatformHostInterface> {
     if (revision == null) return false;
     try {
       return revision == engineHash;
-    } on FlutterBuildError {
+    } on XcrossBuildError {
       return false;
     }
   }
@@ -482,7 +483,7 @@ final class IosEngineCache<T extends PlatformHostInterface> {
     final String hash;
     try {
       hash = engineHash;
-    } on FlutterBuildError {
+    } on XcrossBuildError {
       return; // The download below reports the missing engine hash.
     }
     final ios = sdkIosEngineRevision;

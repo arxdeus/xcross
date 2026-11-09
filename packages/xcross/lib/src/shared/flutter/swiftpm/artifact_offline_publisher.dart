@@ -3,10 +3,11 @@ import 'dart:io';
 
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
-import 'package:xcross/src/shared/flutter/errors.dart';
+import 'package:xcross/src/shared/errors/build_error.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_filesystem.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_publication_coordinator.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_tree.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/errors.dart';
 
 @internal
 final class SwiftPmOfflineArtifactPublisher {
@@ -34,7 +35,7 @@ final class SwiftPmOfflineArtifactPublisher {
             FileSystemEntityType.directory ||
         await fileSystem.isLinkOrReparsePoint(source.path) ||
         await _tree.containsLink(stagingRoot)) {
-      throw FlutterBuildError(
+      throw SwiftPmError(
         'SwiftPM offline binary artifact must contain a real, link-free tree',
         isSecurityFailure: true,
       );
@@ -115,7 +116,7 @@ final class SwiftPmOfflineArtifactPublisher {
       return false;
     } on FileSystemException {
       return false;
-    } on FlutterBuildError {
+    } on XcrossBuildError {
       return false;
     }
   }

@@ -5,7 +5,7 @@ import 'package:cli_kit/shared/process/process.dart';
 import 'package:crypto/crypto.dart';
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
-import 'package:xcross/src/shared/flutter/errors.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/errors.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/response_arguments.dart';
 
 /// Win32 extended-length path prefix. Foundation mishandles it in some
@@ -210,7 +210,7 @@ final class WindowsSwiftPlanRepair {
     }
     final shortened = [args.first, '@${p.absolute(file.path)}'];
     if (windowsCommandLineLength(shortened) >= _maxCommandLineLength) {
-      throw FlutterBuildError('Compiler response-file path is too long');
+      throw SwiftPmError('Compiler response-file path is too long');
     }
     return _encodeLlbuildArgs(shortened);
   }
@@ -341,7 +341,7 @@ final class WindowsSwiftPlanRepair {
       );
       await _ensureWindowsDirectoryCopyAlias(alias, source);
       if (!_windowsCopyTreeFitsLegacyPaths(alias)) {
-        throw FlutterBuildError(
+        throw SwiftPmError(
           'SwiftPM directory copy path remains too long after staging: $alias',
         );
       }
@@ -407,7 +407,7 @@ final class WindowsSwiftPlanRepair {
         'New-Item -ItemType Junction -Path ${literal(alias)} -Target ${literal(literalTarget)} | Out-Null',
       ]);
       if (result.exitCode != 0 && !_entryExists(alias)) {
-        throw FlutterBuildError(
+        throw SwiftPmError(
           'Could not stage long SwiftPM directory copy: ${result.stderr}',
         );
       }
@@ -428,7 +428,7 @@ final class WindowsSwiftPlanRepair {
           target,
         );
     if (!isExpectedMountPoint) {
-      throw FlutterBuildError(
+      throw SwiftPmError(
         'Refusing a changed SwiftPM directory copy alias: $alias',
       );
     }

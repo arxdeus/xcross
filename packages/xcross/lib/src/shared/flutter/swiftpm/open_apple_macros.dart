@@ -6,7 +6,7 @@ import 'package:cli_kit/shared/process/process.dart';
 import 'package:crypto/crypto.dart';
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
-import 'package:xcross/src/shared/flutter/errors.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/errors.dart';
 
 /// Apple-only macro modules implemented by the OpenAppleMacros server.
 ///
@@ -145,7 +145,7 @@ final class OpenAppleMacrosServer<T extends PlatformHostInterface> {
   String? bundledServer() {
     if (configured case final path? when path.isNotEmpty) {
       if (!host.fileSystem.file(path).existsSync()) {
-        throw FlutterBuildError(
+        throw SwiftPmError(
           'Configured $openAppleMacrosProduct does not exist: $path',
         );
       }
@@ -220,14 +220,14 @@ final class OpenAppleMacrosServer<T extends PlatformHostInterface> {
         .convert(binPath.stdout)
         .where((line) => line.trim().isNotEmpty);
     if (binPath.exitCode != 0 || lines.isEmpty) {
-      throw FlutterBuildError(
+      throw SwiftPmError(
         'Could not locate the built $openAppleMacrosProduct: '
         '${binPath.stderr.trim()}',
       );
     }
     final built = host.fileSystem.file(_paths.join(lines.last.trim(), _name));
     if (!built.existsSync() || await built.length() == 0) {
-      throw FlutterBuildError('Swift build did not produce ${built.path}');
+      throw SwiftPmError('Swift build did not produce ${built.path}');
     }
     await _publish(built, published, stamp, identity);
     return published.path;
@@ -295,7 +295,7 @@ final class OpenAppleMacrosServer<T extends PlatformHostInterface> {
     }) {
       return (compilerVersion: '${version ?? ''}', resourcePath: resourcePath);
     }
-    throw FlutterBuildError(
+    throw SwiftPmError(
       'Could not read the Swift toolchain layout from '
       '`${swiftDriver.executable} -print-target-info`: '
       '${result.stderr.trim().isEmpty ? result.stdout.trim() : result.stderr.trim()}',

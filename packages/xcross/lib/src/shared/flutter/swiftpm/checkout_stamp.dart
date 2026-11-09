@@ -3,7 +3,7 @@ import 'dart:io';
 
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
-import 'package:xcross/src/shared/flutter/errors.dart';
+import 'package:xcross/src/shared/errors/build_error.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_filesystem.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/checkout_containment.dart';
 
@@ -59,7 +59,7 @@ final class SwiftPmCheckoutStampValidator {
           if (include == null) return false;
           containment.validateLinkTarget(root, path, include[1]!);
         }
-      } on FlutterBuildError {
+      } on XcrossBuildError {
         return false;
       } on FileSystemException {
         return false;

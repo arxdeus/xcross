@@ -7,8 +7,8 @@ import 'package:cli_kit/shared/platform/platform_host.dart';
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
+import 'package:xcross/src/shared/errors/build_error.dart';
 import 'package:xcross/src/shared/flutter/build/internal/native_assets_hook_discovery.dart';
-import 'package:xcross/src/shared/flutter/errors.dart';
 import 'package:xcross/src/shared/packages/package_config_resolver.dart';
 
 void _writePackageConfig(String directory) {
@@ -115,7 +115,7 @@ void main() {
         await expectLater(
           resolver.require(temp.path),
           throwsA(
-            isA<FlutterBuildError>()
+            isA<XcrossBuildError>()
                 .having(
                   (error) => error.message,
                   'message',

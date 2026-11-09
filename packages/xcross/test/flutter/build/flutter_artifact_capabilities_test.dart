@@ -6,8 +6,8 @@ import 'package:cli_kit/shared/process/process_models.dart';
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
+import 'package:xcross/src/shared/errors/build_error.dart';
 import 'package:xcross/src/shared/flutter/build/internal/swiftpm_workspace.dart';
-import 'package:xcross/src/shared/flutter/errors.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_capabilities.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_identity.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/gate_evidence.dart';
@@ -52,7 +52,7 @@ void main() {
         workspace: workspace,
       ),
       throwsA(
-        isA<FlutterBuildError>().having(
+        isA<XcrossBuildError>().having(
           (error) => error.message,
           'message',
           allOf(

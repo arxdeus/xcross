@@ -1,8 +1,8 @@
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
-import 'package:xcross/src/shared/flutter/errors.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_filesystem.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/checkout_containment.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/errors.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/manifest_lexer.dart';
 
 @internal
@@ -21,7 +21,7 @@ final class SwiftPmCheckoutGraph {
       if (relative.isEmpty ||
           p.isAbsolute(relative) ||
           !p.isWithin(root, link)) {
-        throw FlutterBuildError(
+        throw SwiftPmError(
           'Symlink index path escapes SwiftPM checkout: $relative',
           isSecurityFailure: true,
         );
@@ -35,18 +35,18 @@ final class SwiftPmCheckoutGraph {
     final resolved = <String, String>{};
     String resolve(String source, Set<String> chain) {
       if (!chain.add(source)) {
-        throw FlutterBuildError('Symlink cycle in SwiftPM checkout: $source');
+        throw SwiftPmError('Symlink cycle in SwiftPM checkout: $source');
       }
       final text = targets[source]!;
       if (p.isAbsolute(text)) {
-        throw FlutterBuildError(
+        throw SwiftPmError(
           'Symlink escapes SwiftPM checkout: $source -> $text',
           isSecurityFailure: true,
         );
       }
       final target = p.normalize(p.absolute(p.dirname(source), text));
       if (target != root && !p.isWithin(root, target)) {
-        throw FlutterBuildError(
+        throw SwiftPmError(
           'Symlink escapes SwiftPM checkout: $source -> $text',
           isSecurityFailure: true,
         );
@@ -85,7 +85,7 @@ final class SwiftPmCheckoutGraph {
           !fileSystem.directory(target).existsSync() &&
           !fileSystem.file(target).existsSync();
       if (targetMissing && (!symlinks || requiredPackageLink(root, link))) {
-        throw FlutterBuildError(
+        throw SwiftPmError(
           'Symlink target does not exist in SwiftPM checkout: $link -> $target',
         );
       }
@@ -98,7 +98,7 @@ final class SwiftPmCheckoutGraph {
     void orderLink(String link) {
       if (ordered.contains(link)) return;
       if (!visiting.add(link)) {
-        throw FlutterBuildError('Symlink cycle in SwiftPM checkout: $link');
+        throw SwiftPmError('Symlink cycle in SwiftPM checkout: $link');
       }
       final target = resolved[link]!;
       if (fileSystem.directory(target).existsSync()) {

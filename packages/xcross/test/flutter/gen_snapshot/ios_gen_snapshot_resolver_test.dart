@@ -26,7 +26,7 @@ import 'package:xcross/src/host/macos/flutter/ios_gen_snapshot_host.dart';
 import 'package:xcross/src/host/shared/flutter/ios_gen_snapshot_host.dart';
 import 'package:xcross/src/host/windows/flutter/ios_gen_snapshot_host.dart';
 import 'package:xcross/src/shared/config/config.dart';
-import 'package:xcross/src/shared/flutter/errors.dart';
+import 'package:xcross/src/shared/errors/build_error.dart';
 import 'package:xcross/src/shared/flutter/gen_snapshot/flutter_sdk_release.dart';
 import 'package:xcross/src/shared/flutter/gen_snapshot/ios_gen_snapshot_manifest.dart';
 import 'package:xcross/src/shared/flutter/gen_snapshot/ios_gen_snapshot_mode.dart';
@@ -81,7 +81,7 @@ void main() {
       expect(
         () => FlutterSdkReleaseReader(LinuxHost()).read(flutterRoot),
         throwsA(
-          isA<FlutterBuildError>().having(
+          isA<XcrossBuildError>().having(
             (error) => error.message,
             'message',
             contains('engine revision'),
@@ -180,7 +180,7 @@ void main() {
         () => LinuxIosGenSnapshotHost(
           LinuxHost(architecture: 'riscv64'),
         ).prebuiltPlatform,
-        throwsA(isA<FlutterBuildError>()),
+        throwsA(isA<XcrossBuildError>()),
       );
     });
 
@@ -230,7 +230,7 @@ void main() {
           host,
         ).flutterCompiler(engineDirectory, IosGenSnapshotMode.release),
         throwsA(
-          isA<FlutterBuildError>().having(
+          isA<XcrossBuildError>().having(
             (error) => error.message,
             'message',
             allOf(
@@ -407,7 +407,7 @@ void main() {
           mode: IosGenSnapshotMode.release,
         ),
         throwsA(
-          isA<FlutterBuildError>().having(
+          isA<XcrossBuildError>().having(
             (error) => error.message,
             'message',
             allOf(
@@ -436,7 +436,7 @@ void main() {
           mode: IosGenSnapshotMode.release,
         ),
         throwsA(
-          isA<FlutterBuildError>().having(
+          isA<XcrossBuildError>().having(
             (error) => error.message,
             'message',
             allOf(contains('engine aaaaaaaa'), contains('modified')),
@@ -455,7 +455,7 @@ void main() {
           mode: IosGenSnapshotMode.release,
         ),
         throwsA(
-          isA<FlutterBuildError>().having(
+          isA<XcrossBuildError>().having(
             (error) => error.message,
             'message',
             contains('gen_snapshot-release-linux-x64.zip'),
@@ -482,7 +482,7 @@ void main() {
             mode: IosGenSnapshotMode.release,
           ),
           throwsA(
-            isA<FlutterBuildError>()
+            isA<XcrossBuildError>()
                 .having((error) => error.isSecurityFailure, 'security', true)
                 .having(
                   (error) => error.message,
@@ -511,7 +511,7 @@ void main() {
           mode: IosGenSnapshotMode.release,
         ),
         throwsA(
-          isA<FlutterBuildError>().having(
+          isA<XcrossBuildError>().having(
             (error) => error.message,
             'message',
             contains('manifest'),
@@ -526,7 +526,7 @@ void main() {
           mode: IosGenSnapshotMode.release,
         ),
         throwsA(
-          isA<FlutterBuildError>().having(
+          isA<XcrossBuildError>().having(
             (error) => error.message,
             'message',
             contains('HTTP 503'),
@@ -570,7 +570,7 @@ void main() {
           mode: IosGenSnapshotMode.release,
         ),
         throwsA(
-          isA<FlutterBuildError>().having(
+          isA<XcrossBuildError>().having(
             (error) => error.message,
             'message',
             contains('flutter --version'),
@@ -725,7 +725,7 @@ void main() {
           mode: IosGenSnapshotMode.release,
         ),
         throwsA(
-          isA<FlutterBuildError>().having(
+          isA<XcrossBuildError>().having(
             (error) => error.message,
             'message',
             allOf(contains('schema 2'), contains('xcross update')),
@@ -992,7 +992,7 @@ void main() {
               mode: IosGenSnapshotMode.release,
             ),
             throwsA(
-              isA<FlutterBuildError>().having(
+              isA<XcrossBuildError>().having(
                 (error) => error.message,
                 'message',
                 allOf(

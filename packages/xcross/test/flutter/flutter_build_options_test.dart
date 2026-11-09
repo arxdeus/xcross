@@ -3,7 +3,7 @@ import 'dart:io';
 import 'package:cli_kit/host/linux/linux_host.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
-import 'package:xcross/src/shared/flutter/errors.dart';
+import 'package:xcross/src/shared/errors/build_error.dart';
 import 'package:xcross/src/shared/flutter/flutter_build_options_resolver.dart';
 import 'package:xcross/src/shared/flutter/models/flutter/flutter_build_mode.dart';
 import 'package:xcross/src/shared/flutter/models/flutter/flutter_build_options.dart';
@@ -26,7 +26,7 @@ void main() {
       expect(
         () => options.validate(supportsPrecompiledModes: false),
         throwsA(
-          isA<FlutterBuildError>().having(
+          isA<XcrossBuildError>().having(
             (e) => e.message,
             'message',
             contains('not supported for simulators'),
@@ -42,7 +42,7 @@ void main() {
         buildMode: FlutterBuildMode.release,
         obfuscate: true,
       ).validate(supportsPrecompiledModes: true),
-      throwsA(isA<FlutterBuildError>()),
+      throwsA(isA<XcrossBuildError>()),
     );
     expect(
       () => const FlutterBuildOptions(
@@ -56,7 +56,7 @@ void main() {
       () => const FlutterBuildOptions(
         splitDebugInfo: 'symbols',
       ).validate(supportsPrecompiledModes: true),
-      throwsA(isA<FlutterBuildError>()),
+      throwsA(isA<XcrossBuildError>()),
     );
   });
 

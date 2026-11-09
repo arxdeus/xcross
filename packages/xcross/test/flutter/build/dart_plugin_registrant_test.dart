@@ -13,9 +13,9 @@ import 'package:darwin_sdk_kit/target/iphone/iphone_target.dart';
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
+import 'package:xcross/src/shared/errors/build_error.dart';
 import 'package:xcross/src/shared/flutter/build/dart_plugin_registrant.dart';
 import 'package:xcross/src/shared/flutter/build/internal/kernel_compiler.dart';
-import 'package:xcross/src/shared/flutter/errors.dart';
 import 'package:xcross/src/shared/flutter/flutter_kernel_compiler.dart';
 import 'package:xcross/src/target/iphone/flutter/iphone_flutter_target.dart';
 
@@ -284,7 +284,7 @@ void main() {
       await expectLater(
         generate(app),
         throwsA(
-          isA<FlutterBuildError>().having(
+          isA<XcrossBuildError>().having(
             (e) => e.message,
             'message',
             'Plugin chooser:linux has conflicting direct dependency '
@@ -314,7 +314,7 @@ void main() {
       await expectLater(
         generate(app),
         throwsA(
-          isA<FlutterBuildError>().having(
+          isA<XcrossBuildError>().having(
             (e) => e.message,
             'message',
             'Plugin fed:ios which provides an inline implementation cannot '

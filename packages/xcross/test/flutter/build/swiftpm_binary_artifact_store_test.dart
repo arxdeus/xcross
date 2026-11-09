@@ -6,8 +6,8 @@ import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 import 'package:xcross/src/host/shared/flutter/swiftpm/artifact_publication_lock.dart';
+import 'package:xcross/src/shared/errors/build_error.dart';
 import 'package:xcross/src/shared/flutter/build/swiftpm_binary_artifact_store.dart';
-import 'package:xcross/src/shared/flutter/errors.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_publication_coordinator.dart';
 
 import 'swiftpm_test_context.dart';
@@ -137,7 +137,7 @@ void main() {
 
     await expectLater(
       store.publishArchive(archive, '0' * 64),
-      throwsA(isA<FlutterBuildError>()),
+      throwsA(isA<XcrossBuildError>()),
     );
   });
 
@@ -310,7 +310,7 @@ void main() {
         artifactDirectoryName: 'A.artifactbundle',
         metadata: const {},
       ),
-      throwsA(isA<FlutterBuildError>()),
+      throwsA(isA<XcrossBuildError>()),
     );
   });
 
@@ -329,7 +329,7 @@ void main() {
         artifactDirectoryName: 'A.artifactbundle',
         metadata: const {},
       ),
-      throwsA(isA<FlutterBuildError>()),
+      throwsA(isA<XcrossBuildError>()),
     );
     expect(await store.findCompleteTarget(_abcChecksum, 'A'), isNull);
   });
@@ -384,7 +384,7 @@ void main() {
         metadata: const {},
       ),
       throwsA(
-        isA<FlutterBuildError>().having(
+        isA<XcrossBuildError>().having(
           (error) => error.isSecurityFailure,
           'isSecurityFailure',
           isTrue,

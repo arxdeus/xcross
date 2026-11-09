@@ -5,11 +5,11 @@ import 'dart:io';
 import 'package:cli_kit/shared/platform/platform_host.dart';
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
+import 'package:xcross/src/shared/errors/build_error.dart';
 import 'package:xcross/src/shared/flutter/build/ios_plugin_package.dart';
 import 'package:xcross/src/shared/flutter/build/swiftpm_binary_artifact_preparer.dart';
 import 'package:xcross/src/shared/flutter/build/swiftpm_binary_artifact_store.dart';
 import 'package:xcross/src/shared/flutter/build/swiftpm_binary_target.dart';
-import 'package:xcross/src/shared/flutter/errors.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_copy_policy.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_destination_publisher.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_filesystem.dart';
@@ -184,7 +184,7 @@ final class SwiftPmBinaryPreparation<T extends PlatformHostInterface> {
               }
               localPaths[target] = relative;
             }
-          } on FlutterBuildError catch (error) {
+          } on XcrossBuildError catch (error) {
             if (error.isSecurityFailure) rethrow;
             localPaths.remove(target);
             if (createdDestination != null) {

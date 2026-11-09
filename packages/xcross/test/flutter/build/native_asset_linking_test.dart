@@ -7,9 +7,9 @@ import 'package:cli_kit/shared/platform/platform_host.dart';
 import 'package:darwin_sdk_kit/target/iphone/iphone_build_platform.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
+import 'package:xcross/src/shared/errors/build_error.dart';
 import 'package:xcross/src/shared/flutter/build/ios_deployment_target.dart';
 import 'package:xcross/src/shared/flutter/build/runner_shim.dart';
-import 'package:xcross/src/shared/flutter/errors.dart';
 
 import '../../host_operations_fixtures.dart';
 import 'support/native_asset_framework_fixtures.dart';
@@ -316,7 +316,7 @@ void main() {
       expect(
         () =>
             frameworkService.collect(manifest, output, projectRoot: root.path),
-        throwsA(isA<FlutterBuildError>()),
+        throwsA(isA<XcrossBuildError>()),
       );
       final current = p.join(output, 'native_assets', 'Shared.framework');
       final stale = p.join(
@@ -389,7 +389,7 @@ void main() {
     await expectLater(
       service.requiredByPlugins([provider], [plugin]),
       throwsA(
-        isA<FlutterBuildError>().having(
+        isA<XcrossBuildError>().having(
           (e) => e.message,
           'message',
           contains(plugin),

@@ -3,7 +3,7 @@ import 'package:cli_kit/shared/process/process.dart';
 import 'package:darwin_sdk_kit/shared/toolchain/darwin_toolchain_resolver.dart';
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
-import 'package:xcross/src/shared/flutter/errors.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/errors.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/filesystem.dart';
 
 @internal
@@ -66,7 +66,7 @@ final class SwiftPmLibrarianResolver<T extends PlatformHostInterface> {
           ? SwiftPmFilesystem.jsonPath(sibling)
           : archiver;
     }
-    throw FlutterBuildError(
+    throw SwiftPmError(
       'No Darwin-capable archiver found (${librarians.join(' or ')}). Install LLVM and retry.',
     );
   }

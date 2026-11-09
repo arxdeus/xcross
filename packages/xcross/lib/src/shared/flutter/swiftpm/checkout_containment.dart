@@ -2,8 +2,8 @@ import 'dart:io';
 
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
-import 'package:xcross/src/shared/flutter/errors.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_filesystem.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/errors.dart';
 
 @internal
 final class SwiftPmCheckoutContainment {
@@ -12,7 +12,7 @@ final class SwiftPmCheckoutContainment {
 
   void validateDestination(String root, String destination) {
     if (!p.isWithin(root, destination)) {
-      throw FlutterBuildError(
+      throw SwiftPmError(
         'Symlink destination escapes SwiftPM checkout: $destination',
         isSecurityFailure: true,
       );
@@ -29,7 +29,7 @@ final class SwiftPmCheckoutContainment {
   void validateTarget(String root, String target) {
     final isContained = p.equals(root, target) || p.isWithin(root, target);
     if (!isContained) {
-      throw FlutterBuildError(
+      throw SwiftPmError(
         'Symlink target escapes SwiftPM checkout: $target',
         isSecurityFailure: true,
       );
@@ -44,7 +44,7 @@ final class SwiftPmCheckoutContainment {
     Map<String, String> indexedTargets = const {},
   }) {
     if (p.isAbsolute(target)) {
-      throw FlutterBuildError(
+      throw SwiftPmError(
         'Absolute symlink target in SwiftPM checkout: $target',
         isSecurityFailure: true,
       );
@@ -74,7 +74,7 @@ final class SwiftPmCheckoutContainment {
     final canonicalRoot = fileSystem.directory(root).resolveSymbolicLinksSync();
     final activeLinks = <String>{};
     var hops = 0;
-    Never reject(String path) => throw FlutterBuildError(
+    Never reject(String path) => throw SwiftPmError(
       'Symlink path escapes SwiftPM checkout or cycles: $path',
       isSecurityFailure: true,
     );

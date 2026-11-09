@@ -11,12 +11,12 @@ import 'package:path/path.dart' as p;
 import 'package:xcross/src/shared/flutter/build/internal/apple_tool_shims.dart';
 import 'package:xcross/src/shared/flutter/build/internal/swiftpm_workspace.dart';
 import 'package:xcross/src/shared/flutter/build/ios_deployment_target.dart';
-import 'package:xcross/src/shared/flutter/errors.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/build_execution.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/build_plan.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/build_session.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/checkout.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/dependency_preparation.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/errors.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/host_build_services.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/host_policy.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/interop_build_recovery.dart';
@@ -275,7 +275,7 @@ final class SwiftPmBuildDriver<T extends PlatformHostInterface> {
   Future<DarwinSdk> _requireCompatibleSdk() async {
     final sdk = sdkRepository.current();
     if (sdk == null) {
-      throw FlutterBuildError(
+      throw SwiftPmError(
         'Darwin Swift SDK not found. Run '
         '`xcross sdk install <Xcode.xip>` first.',
       );
@@ -285,7 +285,7 @@ final class SwiftPmBuildDriver<T extends PlatformHostInterface> {
     // hundreds of "this SDK is not supported by the compiler" errors.
     final mismatch = await sdkIdentity.hostToolchainMismatch(sdk.swiftSdkPath);
     if (mismatch != null) {
-      throw FlutterBuildError(sdkIdentity.mismatchGuidance(mismatch));
+      throw SwiftPmError(sdkIdentity.mismatchGuidance(mismatch));
     }
     return sdk;
   }

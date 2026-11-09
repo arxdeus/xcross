@@ -8,9 +8,9 @@ import 'package:path/path.dart' as p;
 import 'package:xcross/src/shared/apple/mach_o.dart';
 import 'package:xcross/src/shared/flutter/build/ios_plugin_package.dart';
 import 'package:xcross/src/shared/flutter/build/macho_dylib_rewriter.dart';
-import 'package:xcross/src/shared/flutter/errors.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_filesystem.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/dynamic_product.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/errors.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/host_build_services.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/resource_manifest.dart';
 
@@ -48,7 +48,7 @@ final class SwiftPmAssembly<T extends PlatformHostInterface> {
         .where((path) => p.basename(path) == aggregateName)
         .firstOrNull;
     if (aggregatePath == null) {
-      throw FlutterBuildError(
+      throw SwiftPmError(
         'GeneratedPluginsPackage: swift build did not produce the plugins '
         'library in $targetDebugDir',
       );

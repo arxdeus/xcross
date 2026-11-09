@@ -12,11 +12,11 @@ import 'package:xcross/src/host/shared/flutter/swiftpm/artifact_publication_lock
 import 'package:xcross/src/host/shared/flutter/swiftpm/posix_artifact_copy_policy.dart';
 import 'package:xcross/src/host/windows/flutter/swiftpm/artifact_copy_policy.dart';
 import 'package:xcross/src/host/windows/flutter/swiftpm/artifact_filesystem.dart';
+import 'package:xcross/src/shared/errors/build_error.dart';
 import 'package:xcross/src/shared/flutter/build/internal/swiftpm_binary_fixture.dart';
 import 'package:xcross/src/shared/flutter/build/swiftpm_binary_artifact_preparer.dart';
 import 'package:xcross/src/shared/flutter/build/swiftpm_binary_artifact_store.dart';
 import 'package:xcross/src/shared/flutter/build/swiftpm_binary_target.dart';
-import 'package:xcross/src/shared/flutter/errors.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_copy_policy.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_destination_publisher.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_filesystem.dart';
@@ -958,7 +958,7 @@ void main() {
         target: target('Malformed', checksum),
         archive: file,
       ),
-      throwsA(isA<FlutterBuildError>()),
+      throwsA(isA<XcrossBuildError>()),
     );
   });
 
@@ -1713,7 +1713,7 @@ Map<Object?, Object?> readPlist(String path) =>
 
 @internal
 Matcher throwsBuildErrorContaining(String text) => throwsA(
-  isA<FlutterBuildError>().having(
+  isA<XcrossBuildError>().having(
     (error) => error.toString().toLowerCase(),
     'message',
     contains(text.toLowerCase()),

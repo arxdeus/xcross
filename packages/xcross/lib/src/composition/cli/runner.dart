@@ -29,8 +29,8 @@ import 'package:xcross/src/shared/cli/ide/xcross_executable.dart';
 import 'package:xcross/src/shared/cli/internal/xcross_runner.dart';
 import 'package:xcross/src/shared/config/config.dart';
 import 'package:xcross/src/shared/config/config_store.dart';
+import 'package:xcross/src/shared/errors/build_error.dart';
 import 'package:xcross/src/shared/errors/errors.dart';
-import 'package:xcross/src/shared/flutter/errors.dart';
 import 'package:xcross/src/shared/update/install_layout.dart';
 import 'package:xcross/src/shared/update/self_update.dart';
 import 'package:xcross/src/shared/update/update_check.dart';
@@ -245,7 +245,7 @@ abstract final class XcrossCli {
       AppleError(:final message) ||
       DarwinSdkError(:final message) ||
       TunnelError(:final message) ||
-      FlutterBuildError(:final message) ||
+      XcrossBuildError(:final message) ||
       XcrossError(:final message) => 'error: $message',
       XcrossConfigException(:final message, :final path) =>
         'error: ${path == null ? message : '$path: $message'}',

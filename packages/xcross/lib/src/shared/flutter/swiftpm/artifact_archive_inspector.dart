@@ -6,9 +6,10 @@ import 'package:archive/archive.dart';
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:propertylistserialization/propertylistserialization.dart';
+import 'package:xcross/src/shared/errors/build_error.dart';
 import 'package:xcross/src/shared/flutter/build/swiftpm_binary_target.dart';
-import 'package:xcross/src/shared/flutter/errors.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_filesystem.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/errors.dart';
 import 'package:xcross/src/target/shared/flutter/flutter_target_build_policy.dart';
 
 @internal
@@ -28,10 +29,10 @@ final class SwiftPmArtifactArchiveInspector {
     try {
       _rejectRawDuplicateEntries(bytes);
       return ZipDecoder().decodeBytes(bytes);
-    } on FlutterBuildError {
+    } on XcrossBuildError {
       rethrow;
     } on Object {
-      throw FlutterBuildError('SwiftPM binary artifact is not a valid ZIP');
+      throw SwiftPmError('SwiftPM binary artifact is not a valid ZIP');
     }
   }
 
@@ -45,7 +46,7 @@ final class SwiftPmArtifactArchiveInspector {
         centralSize == 0xffffffff ||
         centralOffset == 0xffffffff;
     if (usesZip64Markers || centralOffset + centralSize != eocd) {
-      throw FlutterBuildError(
+      throw SwiftPmError(
         'SwiftPM binary artifact uses unsupported ZIP metadata',
       );
     }
@@ -68,11 +69,11 @@ final class SwiftPmArtifactArchiveInspector {
       }
     }
     if (eocd < 0) {
-      throw FlutterBuildError('SwiftPM binary artifact is not a valid ZIP');
+      throw SwiftPmError('SwiftPM binary artifact is not a valid ZIP');
     }
     final commentLength = _uint16(bytes, eocd + 20);
     if (eocd + 22 + commentLength != bytes.length) {
-      throw FlutterBuildError('SwiftPM binary artifact is not a valid ZIP');
+      throw SwiftPmError('SwiftPM binary artifact is not a valid ZIP');
     }
     return eocd;
   }
@@ -87,31 +88,31 @@ final class SwiftPmArtifactArchiveInspector {
     var offset = centralOffset;
     for (var index = 0; index < count; index++) {
       if (offset + 46 > eocd) {
-        throw FlutterBuildError('SwiftPM binary artifact is not a valid ZIP');
+        throw SwiftPmError('SwiftPM binary artifact is not a valid ZIP');
       }
       final isCentralHeader = _uint32(bytes, offset) == 0x02014b50;
       if (!isCentralHeader) {
-        throw FlutterBuildError('SwiftPM binary artifact is not a valid ZIP');
+        throw SwiftPmError('SwiftPM binary artifact is not a valid ZIP');
       }
       final nameLength = _uint16(bytes, offset + 28);
       final extraLength = _uint16(bytes, offset + 30);
       final commentLength = _uint16(bytes, offset + 32);
       final end = offset + 46 + nameLength + extraLength + commentLength;
       if (end > eocd) {
-        throw FlutterBuildError('SwiftPM binary artifact is not a valid ZIP');
+        throw SwiftPmError('SwiftPM binary artifact is not a valid ZIP');
       }
       final name = utf8.decode(
         bytes.sublist(offset + 46, offset + 46 + nameLength),
       );
       if (!names.add(name)) {
-        throw FlutterBuildError(
+        throw SwiftPmError(
           'SwiftPM binary artifact has duplicate ZIP path: $name',
         );
       }
       offset = end;
     }
     if (offset != eocd) {
-      throw FlutterBuildError('SwiftPM binary artifact is not a valid ZIP');
+      throw SwiftPmError('SwiftPM binary artifact is not a valid ZIP');
     }
   }
 
@@ -126,7 +127,7 @@ final class SwiftPmArtifactArchiveInspector {
     SwiftPmRemoteBinaryTarget target,
   ) {
     if (archive.files.length > _maxEntries) {
-      throw FlutterBuildError(
+      throw SwiftPmError(
         'SwiftPM binary artifact exceeds ZIP entry limit',
       );
     }
@@ -142,7 +143,7 @@ final class SwiftPmArtifactArchiveInspector {
           entry.name.startsWith(selectedPrefix) && entry.file.isSymbolicLink,
     );
     if (selectionHasSymlinks) {
-      throw FlutterBuildError(
+      throw SwiftPmError(
         'Unsupported SwiftPM binary artifact: selected device slice requires '
         'symlinks',
       );
@@ -165,20 +166,20 @@ final class SwiftPmArtifactArchiveInspector {
     for (final entry in archive.files) {
       expandedBytes += entry.size;
       if (expandedBytes > _maxExpandedBytes) {
-        throw FlutterBuildError(
+        throw SwiftPmError(
           'SwiftPM binary artifact exceeds ZIP expanded byte limit',
         );
       }
       final name = _safeArchiveName(entry.name);
       if (!names.add(name)) {
-        throw FlutterBuildError(
+        throw SwiftPmError(
           'SwiftPM binary artifact has duplicate ZIP path: $name',
         );
       }
       final folded = name.toLowerCase();
       final foldedWinner = foldedNames[folded];
       if (foldedWinner != null && foldedWinner != name) {
-        throw FlutterBuildError(
+        throw SwiftPmError(
           'SwiftPM binary artifact has case-folded ZIP path collision: '
           '$foldedWinner and $name',
         );
@@ -200,7 +201,7 @@ final class SwiftPmArtifactArchiveInspector {
         plistEntries.single.file.isFile &&
         !plistEntries.single.file.isSymbolicLink;
     if (!hasSingleRegularPlist) {
-      throw FlutterBuildError(
+      throw SwiftPmError(
         'SwiftPM binary artifact must contain exactly one root plist for '
         '${target.name}.xcframework',
       );
@@ -214,7 +215,7 @@ final class SwiftPmArtifactArchiveInspector {
   XcFrameworkLibrary _selectLibrary(Map<Object?, Object?> plist) {
     final librariesValue = plist['AvailableLibraries'];
     if (librariesValue is! List) {
-      throw FlutterBuildError(
+      throw SwiftPmError(
         'SwiftPM XCFramework AvailableLibraries must be an array',
       );
     }
@@ -231,7 +232,7 @@ final class SwiftPmArtifactArchiveInspector {
         )
         .toList();
     if (eligible.length != 1) {
-      throw FlutterBuildError(
+      throw SwiftPmError(
         'SwiftPM XCFramework must contain exactly one eligible arm64 iOS '
         '${policy.target.buildPlatform.platformName} library; found ${eligible.length}',
       );
@@ -289,7 +290,7 @@ final class SwiftPmArtifactArchiveInspector {
           fileSystem.typeSync(path, followLinks: false) ==
           FileSystemEntityType.notFound;
       if (isMissing) {
-        throw FlutterBuildError(
+        throw SwiftPmError(
           'SwiftPM XCFramework declared ${declared.key} does not exist: '
           '${declared.value}',
         );
@@ -304,15 +305,15 @@ final class SwiftPmArtifactArchiveInspector {
     try {
       final bytes = entry.content;
       if (bytes.length > remainingBytes) {
-        throw FlutterBuildError(
+        throw SwiftPmError(
           'SwiftPM binary artifact exceeds ZIP expanded byte limit',
         );
       }
       return bytes;
-    } on FlutterBuildError {
+    } on XcrossBuildError {
       rethrow;
     } on Object {
-      throw FlutterBuildError(
+      throw SwiftPmError(
         'SwiftPM binary artifact content could not be decompressed',
       );
     }
@@ -325,10 +326,10 @@ final class SwiftPmArtifactArchiveInspector {
         utf8.decode(bytes),
       );
     } on Object {
-      throw FlutterBuildError('SwiftPM XCFramework Info.plist is malformed');
+      throw SwiftPmError('SwiftPM XCFramework Info.plist is malformed');
     }
     if (value is! Map) {
-      throw FlutterBuildError(
+      throw SwiftPmError(
         'SwiftPM XCFramework Info.plist root must be a dictionary',
       );
     }
@@ -337,7 +338,7 @@ final class SwiftPmArtifactArchiveInspector {
 
   static XcFrameworkLibrary _parseLibrary(Object? value) {
     if (value is! Map) {
-      throw FlutterBuildError(
+      throw SwiftPmError(
         'SwiftPM XCFramework library metadata must be a dictionary',
       );
     }
@@ -347,7 +348,7 @@ final class SwiftPmArtifactArchiveInspector {
     final platform = _requiredString(raw, 'SupportedPlatform');
     final variant = raw['SupportedPlatformVariant'];
     if (variant != null && variant is! String) {
-      throw FlutterBuildError(
+      throw SwiftPmError(
         'SwiftPM XCFramework SupportedPlatformVariant must be a string',
       );
     }
@@ -356,7 +357,7 @@ final class SwiftPmArtifactArchiveInspector {
         architecturesValue is List &&
         architecturesValue.every((value) => value is String);
     if (!isStringList) {
-      throw FlutterBuildError(
+      throw SwiftPmError(
         'SwiftPM XCFramework SupportedArchitectures must be a string array',
       );
     }
@@ -375,7 +376,7 @@ final class SwiftPmArtifactArchiveInspector {
   static String _requiredString(Map<Object?, Object?> map, String key) {
     final value = map[key];
     if (value is! String || value.isEmpty) {
-      throw FlutterBuildError('SwiftPM XCFramework $key must be a string');
+      throw SwiftPmError('SwiftPM XCFramework $key must be a string');
     }
     return value;
   }
@@ -387,48 +388,48 @@ final class SwiftPmArtifactArchiveInspector {
     final value = map[key];
     if (value == null) return null;
     if (value is! String || value.isEmpty) {
-      throw FlutterBuildError('SwiftPM XCFramework $key must be a string');
+      throw SwiftPmError('SwiftPM XCFramework $key must be a string');
     }
     return _safeRelativePath(value, key);
   }
 
   static String _safeRelativePath(String value, String label) {
     if (value.contains(r'\') || p.url.isAbsolute(value)) {
-      throw FlutterBuildError('SwiftPM XCFramework $label is unsafe');
+      throw SwiftPmError('SwiftPM XCFramework $label is unsafe');
     }
     for (final component in p.url.split(value)) {
       if (!_isWindowsSafeComponent(component)) {
-        throw FlutterBuildError('SwiftPM XCFramework $label is unsafe');
+        throw SwiftPmError('SwiftPM XCFramework $label is unsafe');
       }
     }
     if (RegExp('^[A-Za-z]:').hasMatch(value)) {
-      throw FlutterBuildError('SwiftPM XCFramework $label is unsafe');
+      throw SwiftPmError('SwiftPM XCFramework $label is unsafe');
     }
     final normalized = p.url.normalize(value);
     if (_escapesOrDenormalizes(normalized, value)) {
-      throw FlutterBuildError('SwiftPM XCFramework $label is unsafe');
+      throw SwiftPmError('SwiftPM XCFramework $label is unsafe');
     }
     return normalized;
   }
 
   static String _safeArchiveName(String value) {
     if (value.isEmpty || value.contains(r'\') || value.startsWith('/')) {
-      throw FlutterBuildError('SwiftPM binary artifact has unsafe ZIP path');
+      throw SwiftPmError('SwiftPM binary artifact has unsafe ZIP path');
     }
     final withoutTrailingSlash = value.endsWith('/')
         ? value.substring(0, value.length - 1)
         : value;
     for (final component in p.url.split(withoutTrailingSlash)) {
       if (!_isWindowsSafeComponent(component)) {
-        throw FlutterBuildError('SwiftPM binary artifact has unsafe ZIP path');
+        throw SwiftPmError('SwiftPM binary artifact has unsafe ZIP path');
       }
     }
     if (RegExp('^[A-Za-z]:').hasMatch(value)) {
-      throw FlutterBuildError('SwiftPM binary artifact has unsafe ZIP path');
+      throw SwiftPmError('SwiftPM binary artifact has unsafe ZIP path');
     }
     final normalized = p.url.normalize(withoutTrailingSlash);
     if (_escapesOrDenormalizes(normalized, withoutTrailingSlash)) {
-      throw FlutterBuildError('SwiftPM binary artifact has unsafe ZIP path');
+      throw SwiftPmError('SwiftPM binary artifact has unsafe ZIP path');
     }
     return normalized;
   }

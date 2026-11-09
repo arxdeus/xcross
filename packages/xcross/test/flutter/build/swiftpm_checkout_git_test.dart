@@ -3,7 +3,7 @@ import 'dart:io';
 
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
-import 'package:xcross/src/shared/flutter/errors.dart';
+import 'package:xcross/src/shared/errors/build_error.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/checkout_containment.dart';
 
 import 'support/checkout_test_context.dart';
@@ -93,7 +93,7 @@ void main() {
       );
       await expectLater(
         context.repository.readGitBlobs(root.path, {'aa'}, '/fixture/git'),
-        throwsA(isA<FlutterBuildError>()),
+        throwsA(isA<XcrossBuildError>()),
       );
     });
   }
@@ -149,7 +149,7 @@ void main() {
           git: '/fixture/git',
           symlinks: true,
         ),
-        throwsA(isA<FlutterBuildError>()),
+        throwsA(isA<XcrossBuildError>()),
       );
       expect(context.processes.commands, hasLength(count + 2));
       expect(sentinel.readAsStringSync(), 'outside sentinel');
@@ -236,7 +236,7 @@ void main() {
         () => SwiftPmCheckoutContainment(
           context.fileSystem,
         ).validateTarget(root.path, p.join(root.path, 'chain')),
-        throwsA(isA<FlutterBuildError>()),
+        throwsA(isA<XcrossBuildError>()),
       );
     },
   );
@@ -305,7 +305,7 @@ void main() {
             git: '/fixture/git',
             symlinks: true,
           ),
-          throwsA(isA<FlutterBuildError>()),
+          throwsA(isA<XcrossBuildError>()),
         );
         expect(context.processes.commands, hasLength(count + 2));
         expect(sentinel.readAsStringSync(), 'sentinel');
@@ -346,7 +346,7 @@ void main() {
           git: '/fixture/git',
           symlinks: true,
         ),
-        throwsA(isA<FlutterBuildError>()),
+        throwsA(isA<XcrossBuildError>()),
       );
       expect(context.processes.commands, hasLength(2));
       expect(File(p.join(root.path, 'a')).readAsStringSync(), '.');
@@ -384,7 +384,7 @@ void main() {
           '/fixture/git',
           records,
         ),
-        throwsA(isA<FlutterBuildError>()),
+        throwsA(isA<XcrossBuildError>()),
       );
       expect(context.processes.commands, isEmpty);
       expect(records, isEmpty);
@@ -404,7 +404,7 @@ void main() {
         () => SwiftPmCheckoutContainment(
           context.fileSystem,
         ).validateTarget(root.path, p.join(root.path, 'a')),
-        throwsA(isA<FlutterBuildError>()),
+        throwsA(isA<XcrossBuildError>()),
       );
     },
   );

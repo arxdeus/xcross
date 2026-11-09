@@ -3,14 +3,15 @@ import 'dart:typed_data';
 
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
+import 'package:xcross/src/shared/errors/build_error.dart';
 import 'package:xcross/src/shared/flutter/build/swiftpm_binary_artifact_store.dart';
 import 'package:xcross/src/shared/flutter/build/swiftpm_binary_target.dart';
-import 'package:xcross/src/shared/flutter/errors.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_archive_inspector.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_copy_policy.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_destination_publisher.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_filesystem.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_transport.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/errors.dart';
 import 'package:xcross/src/target/shared/flutter/flutter_target_build_policy.dart';
 
 @internal
@@ -139,10 +140,10 @@ final class SwiftPmBinaryArtifactPreparer {
       try {
         try {
           await transport.download(target.url, downloaded, _maxArchiveBytes);
-        } on FlutterBuildError {
+        } on XcrossBuildError {
           rethrow;
         } on Object {
-          throw FlutterBuildError(
+          throw SwiftPmError(
             'Failed to download SwiftPM binary artifact from '
             '${_redactedUrl(target.url)}',
           );
@@ -197,10 +198,10 @@ final class SwiftPmBinaryArtifactPreparer {
       await artifact.create(recursive: true);
       try {
         await _inspector.extractSelected(inspected, artifact);
-      } on FlutterBuildError {
+      } on XcrossBuildError {
         rethrow;
       } on Object {
-        throw FlutterBuildError(
+        throw SwiftPmError(
           'SwiftPM binary artifact selected content could not be decompressed',
         );
       }

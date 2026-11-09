@@ -4,8 +4,8 @@ import 'dart:io';
 import 'package:crypto/crypto.dart';
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
-import 'package:xcross/src/shared/flutter/errors.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_filesystem.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/errors.dart';
 
 @internal
 final class SwiftPmArtifactTree {
@@ -41,14 +41,14 @@ final class SwiftPmArtifactTree {
     ).list(followLinks: false)) {
       final name = p.basename(entity.path);
       if (!isSafeComponent(name) || !names.add(name.toLowerCase())) {
-        throw FlutterBuildError(
+        throw SwiftPmError(
           'SwiftPM binary artifact target tree contains an unsafe or case-fold-colliding path',
           isSecurityFailure: true,
         );
       }
       final target = p.join(destination.path, name);
       if (await _isLinkOrReparsePoint(entity.path)) {
-        throw FlutterBuildError(
+        throw SwiftPmError(
           'SwiftPM binary artifact target trees must not contain links or reparse points',
           isSecurityFailure: true,
         );
@@ -59,7 +59,7 @@ final class SwiftPmArtifactTree {
         final child = await _ioDirectory(target).create();
         await copyDirectoryContents(entity, child);
       } else {
-        throw FlutterBuildError(
+        throw SwiftPmError(
           'SwiftPM binary artifact target trees must not contain symlinks',
         );
       }
@@ -103,7 +103,7 @@ final class SwiftPmArtifactTree {
     final foldedPaths = <String>{};
     for (final entity in entries) {
       if (await _isLinkOrReparsePoint(entity.path)) {
-        throw FlutterBuildError(
+        throw SwiftPmError(
           'SwiftPM binary artifact target trees must not contain links or reparse points',
           isSecurityFailure: true,
         );
@@ -113,7 +113,7 @@ final class SwiftPmArtifactTree {
           .replaceAll(r'\', '/');
 
       if (!foldedPaths.add(relative.toLowerCase())) {
-        throw FlutterBuildError(
+        throw SwiftPmError(
           'SwiftPM binary artifact target tree contains an unsafe or case-fold-colliding path',
           isSecurityFailure: true,
         );
@@ -131,7 +131,7 @@ final class SwiftPmArtifactTree {
         case FileSystemEntityType.directory:
           addFrame('0');
         default:
-          throw FlutterBuildError(
+          throw SwiftPmError(
             'SwiftPM binary artifact target trees contain an unsupported entry type',
             isSecurityFailure: true,
           );

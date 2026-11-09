@@ -2,8 +2,8 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:test/test.dart';
+import 'package:xcross/src/shared/errors/build_error.dart';
 import 'package:xcross/src/shared/flutter/build/macho_dylib_rewriter.dart';
-import 'package:xcross/src/shared/flutter/errors.dart';
 
 const _idDylib = 0x0d;
 const _loadDylib = 0x0c;
@@ -139,7 +139,7 @@ void main() {
         producedDylibNames: const {},
       ),
       throwsA(
-        isA<FlutterBuildError>().having(
+        isA<XcrossBuildError>().having(
           (error) => error.message,
           'message',
           contains('does not fit'),
@@ -327,7 +327,7 @@ void main() {
         repairObjCFastStubs: true,
       ),
       throwsA(
-        isA<FlutterBuildError>().having(
+        isA<XcrossBuildError>().having(
           (error) => error.message,
           'message',
           contains('no safe selref repair'),
@@ -385,7 +385,7 @@ void main() {
         dylibName: 'libAggregate.dylib',
         producedDylibNames: const {},
       ),
-      throwsA(isA<FlutterBuildError>()),
+      throwsA(isA<XcrossBuildError>()),
     );
   });
 }

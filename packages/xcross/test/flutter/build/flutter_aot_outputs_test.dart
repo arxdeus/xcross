@@ -9,12 +9,12 @@ import 'package:darwin_sdk_kit/target/iphone/iphone_build_platform.dart';
 import 'package:path/path.dart' as p;
 import 'package:propertylistserialization/propertylistserialization.dart';
 import 'package:test/test.dart';
+import 'package:xcross/src/shared/errors/build_error.dart';
 import 'package:xcross/src/shared/flutter/build/flutter_aot_snapshotter.dart';
 import 'package:xcross/src/shared/flutter/build/impeller_shader_compiler.dart';
 import 'package:xcross/src/shared/flutter/build/internal/runner_binary.dart';
 import 'package:xcross/src/shared/flutter/build/ios_deployment_target.dart';
 import 'package:xcross/src/shared/flutter/build/ios_native_assets.dart';
-import 'package:xcross/src/shared/flutter/errors.dart';
 import 'package:xcross/src/shared/flutter/flutter_artifact_compiler.dart';
 import 'package:xcross/src/shared/flutter/flutter_assets_compiler.dart';
 import 'package:xcross/src/shared/flutter/flutter_build_runtime.dart';
@@ -300,7 +300,7 @@ done
         expect(
           () => compiler(mode).aotSnapshotter(),
           throwsA(
-            isA<FlutterBuildError>().having(
+            isA<XcrossBuildError>().having(
               (error) => error.message,
               'message',
               contains('${mode.name} builds need the iOS AOT compiler'),
