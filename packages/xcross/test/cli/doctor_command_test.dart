@@ -364,6 +364,74 @@ void main() {
       expect(check.status, DoctorStatus.warning);
     });
 
+    void packageProject() =>
+        write('/project/iosApp/iosApp.xcodeproj/project.pbxproj', r'''
+// !$*UTF8*$!
+{
+  archiveVersion = 1;
+  objectVersion = 77;
+  objects = {
+    APP = {
+      isa = PBXNativeTarget;
+      name = iosApp;
+      packageProductDependencies = (PROD);
+      productType = "com.apple.product-type.application";
+    };
+    PROD = {
+      isa = XCSwiftPackageProductDependency;
+      package = PKG;
+      productName = Alamofire;
+    };
+    PKG = {
+      isa = XCRemoteSwiftPackageReference;
+      repositoryURL = "https://github.com/Alamofire/Alamofire.git";
+      requirement = {
+        kind = upToNextMajorVersion;
+        minimumVersion = 5.9.0;
+      };
+    };
+    ROOT = {
+      isa = PBXProject;
+      packageReferences = (PKG);
+      targets = (APP);
+    };
+  };
+  rootObject = ROOT;
+}
+''');
+
+    test('counts modules from the SDK and from Swift packages', () async {
+      project(swift: 'import UIKit\nimport Alamofire');
+      packageProject();
+      installSdk();
+      final check = (await run()).singleWhere((c) => c.name == 'Swift imports');
+      expect(check.status, DoctorStatus.success);
+      expect(
+        check.message,
+        '2 modules resolve: 1 from the Darwin SDK, 1 from Swift packages',
+      );
+    });
+
+    test('names Swift packages when an import is still missing', () async {
+      project(swift: 'import Alamofire\nimport FirebaseCore');
+      packageProject();
+      installSdk();
+      final check = (await run()).singleWhere((c) => c.name == 'Swift imports');
+      expect(check.status, DoctorStatus.failure);
+      expect(check.message, contains('or the Swift packages'));
+      expect(check.message, contains('FirebaseCore'));
+      expect(check.message, isNot(contains('Alamofire (')));
+    });
+
+    test('an unreadable Xcode project is a warning, not a crash', () async {
+      project(swift: 'import UIKit');
+      write('/project/iosApp/iosApp.xcodeproj/project.pbxproj', '{ objects = ');
+      installSdk();
+      final check = (await run()).singleWhere((c) => c.name == 'Swift imports');
+      expect(check.status, DoctorStatus.warning);
+      expect(check.message, contains('Swift packages'));
+    });
+
     test('non-Swift projects get no row', () async {
       project(swift: 'import Firebase', kotlinEntry: true);
       installSdk();

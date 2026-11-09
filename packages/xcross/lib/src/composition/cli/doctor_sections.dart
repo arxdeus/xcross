@@ -6,7 +6,11 @@ import 'package:xcross/src/shared/cli/basic/doctor_environment_checks.dart';
 import 'package:xcross/src/shared/cli/basic/doctor_models.dart';
 import 'package:xcross/src/shared/compose/kmp_project_detector.dart';
 import 'package:xcross/src/shared/compose/project/kmp_project.dart';
+import 'package:xcross/src/shared/compose/swift/swift_host_paths.dart';
 import 'package:xcross/src/shared/compose/swift/swift_import_check.dart';
+import 'package:xcross/src/shared/compose/swiftpm/host_package_link.dart';
+import 'package:xcross/src/shared/compose/swiftpm/host_swift_packages_reader.dart';
+import 'package:xcross/src/shared/compose/swiftpm/swift_package_model.dart';
 import 'package:xcross/src/shared/compose/toolchain/compose_toolchain_resolver.dart';
 import 'package:xcross/src/shared/flutter/gen_snapshot/ios_gen_snapshot_mode.dart';
 import 'package:xcross/src/shared/flutter/gen_snapshot/ios_gen_snapshot_resolver.dart';
@@ -232,13 +236,42 @@ final class DoctorSections<T extends PlatformHostInterface> {
       );
     }
     final List<UnresolvedSwiftImport> missing;
+    final HostSwiftPackages declared;
     try {
+      declared = readHostSwiftPackages(
+        files: runtime.host.fileSystem,
+        paths: runtime.host.paths.context,
+        iosAppDir: runtime.host.paths.context.join(
+          project.root,
+          swiftHostDirectory,
+        ),
+      );
+    } on Object catch (error) {
+      return DoctorCheck.warning(
+        name,
+        'Not checked: could not read the Swift packages of the Xcode '
+        'project ($error).',
+      );
+    }
+    final int fromSdk;
+    try {
+      final sdkIndex = swiftModuleIndexFor(
+        files: runtime.host.fileSystem,
+        sdkPath: sdkPath,
+        darwinSdkBundle: bundle,
+        platformSdkName: platform.sdkName,
+        baseName: project.baseName,
+      );
+      fromSdk = project.requiredSwiftModules.where(sdkIndex.contains).length;
+      // Without building, a package provides its product names and the
+      // targets of a local package; `compose build` checks the built ones.
       final index = swiftModuleIndexFor(
         files: runtime.host.fileSystem,
         sdkPath: sdkPath,
         darwinSdkBundle: bundle,
         platformSdkName: platform.sdkName,
         baseName: project.baseName,
+        extraModules: declaredPackageModules(declared, runtime.host.fileSystem),
       );
       missing = unresolvedSwiftImports(project, index);
     } on Object catch (error) {
@@ -249,10 +282,15 @@ final class DoctorSections<T extends PlatformHostInterface> {
     }
     if (missing.isEmpty) {
       final count = project.requiredSwiftModules.length;
+      final fromPackages = count - fromSdk;
+      String modules(int n) => n == 1 ? '1 module' : '$n modules';
       return DoctorCheck.success(
         name,
         count == 0
             ? 'No unconditional imports to check'
+            : fromPackages > 0
+            ? '${modules(count)} resolve: $fromSdk from the Darwin SDK, '
+                  '$fromPackages from Swift packages'
             : count == 1
             ? '1 module resolves against the Darwin SDK'
             : '$count modules resolve against the Darwin SDK',
@@ -260,7 +298,7 @@ final class DoctorSections<T extends PlatformHostInterface> {
     }
     return DoctorCheck.failure(
       name,
-      'Not provided by the Darwin SDK:\n'
+      '${declared.isEmpty ? 'Not provided by the Darwin SDK' : 'Not provided by the Darwin SDK or the Swift packages'}:\n'
       '${formatUnresolvedSwiftImports(project, missing).join('\n')}',
     );
   }
