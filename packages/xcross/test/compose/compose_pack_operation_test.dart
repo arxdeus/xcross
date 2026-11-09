@@ -676,6 +676,40 @@ kotlin {
         await packer.pack();
         expect(events, contains('gradle-klib'));
       });
+
+      for (final kind in [
+        KmpEntryKind.runnableApp,
+        KmpEntryKind.frameworkOnly,
+      ]) {
+        test('is skipped for ${kind.name} projects', () async {
+          final base = _project('/proj', kind);
+          final events = <String>[];
+          final packer = _packer(
+            session,
+            events: events,
+            objcRunner:
+                ({
+                  required project,
+                  required frameworkPath,
+                  required toolchain,
+                }) async => 'Runner',
+            project: KmpProject(
+              root: base.root,
+              modulePath: base.modulePath,
+              moduleName: base.moduleName,
+              baseName: base.baseName,
+              entryKind: kind,
+              bundleId: base.bundleId,
+              appName: base.appName,
+              swiftImports: const [
+                SwiftImport('Sparkle', path: '/proj/App.swift', line: 1),
+              ],
+            ),
+          );
+          await packer.pack();
+          expect(events, contains('framework'));
+        });
+      }
     });
 
     test(
