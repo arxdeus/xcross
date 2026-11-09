@@ -3,8 +3,8 @@ import 'package:xcross/src/shared/artifact/plist_mutations.dart';
 import 'package:xcross/src/shared/artifact/plist_xml.dart';
 import 'package:xcross/src/shared/flutter/build/internal/required_plist_key.dart';
 import 'package:xcross/src/shared/flutter/build/internal/xcconfig_resolver.dart';
-import 'package:xcross/src/shared/flutter/build/ios_deployment_target.dart';
 import 'package:xcross/src/shared/flutter/constants.dart';
+import 'package:xcross/src/shared/swiftpm/ios_deployment_target.dart';
 import 'package:xml/xml.dart';
 
 /// Plist / xcconfig text manipulation for the generated app bundle.

@@ -4,9 +4,9 @@ import 'package:cli_kit/shared/platform/platform_host.dart';
 import 'package:darwin_sdk_kit/target/shared/ios_build_platform.dart';
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
-import 'package:xcross/src/shared/flutter/build/ios_deployment_target.dart';
 import 'package:xcross/src/shared/flutter/build/ios_plugins.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/manifest_lexer.dart';
+import 'package:xcross/src/shared/swiftpm/ios_deployment_target.dart';
+import 'package:xcross/src/shared/swiftpm/manifest_lexer.dart';
 
 @internal
 final class IosDeploymentTargetResolver {

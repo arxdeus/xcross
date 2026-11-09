@@ -3,8 +3,8 @@ import 'package:meta/meta.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/discovery.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/manifest.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/plugin_overlay.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/runtime.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/workspace_stager.dart';
+import 'package:xcross/src/shared/swiftpm/runtime.dart';
 import 'package:xcross/src/target/shared/flutter/flutter_target_build_policy.dart';
 
 /// Flutter-specific SwiftPM staging on top of the generic [SwiftPmRuntime]:

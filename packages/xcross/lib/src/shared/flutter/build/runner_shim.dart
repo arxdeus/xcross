@@ -3,10 +3,10 @@ import 'package:darwin_sdk_kit/shared/sdk/darwin_sdk.dart';
 import 'package:darwin_sdk_kit/shared/tbd/tbd_linker_diagnostic.dart';
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
-import 'package:xcross/src/shared/flutter/build/ios_deployment_target.dart';
 import 'package:xcross/src/shared/flutter/constants.dart';
 import 'package:xcross/src/shared/flutter/errors.dart';
 import 'package:xcross/src/shared/flutter/flutter_build_runtime.dart';
+import 'package:xcross/src/shared/swiftpm/ios_deployment_target.dart';
 
 /// Embeds the ObjC Runner.m source, compiles it with clang, and links it with
 /// ld64.lld to produce the `Runner` executable for an iOS `.app` bundle.

@@ -28,7 +28,7 @@ import 'package:xcross/src/host/shared/flutter/native_host_tools.dart';
 import 'package:xcross/src/host/windows/flutter/apple_tool_shim_renderer.dart';
 import 'package:xcross/src/host/windows/flutter/native_host_tools.dart';
 import 'package:xcross/src/shared/errors/build_error.dart';
-import 'package:xcross/src/shared/flutter/build/internal/apple_tool_shims.dart';
+import 'package:xcross/src/shared/swiftpm/apple_tool_shims.dart';
 
 import 'support/native_flutter_fixtures.dart';
 

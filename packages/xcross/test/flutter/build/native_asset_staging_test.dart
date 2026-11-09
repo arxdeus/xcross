@@ -6,7 +6,7 @@ import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 import 'package:xcross/src/shared/errors/build_error.dart';
 import 'package:xcross/src/shared/flutter/build/internal/native_asset_frameworks.dart';
-import 'package:xcross/src/shared/flutter/build/internal/recursive_directory_copy.dart';
+import 'package:xcross/src/shared/swiftpm/recursive_directory_copy.dart';
 
 import '../../host_operations_fixtures.dart';
 import 'macho_linkedit_aligner_test.dart';

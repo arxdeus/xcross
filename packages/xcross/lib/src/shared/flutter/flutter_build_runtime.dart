@@ -14,11 +14,8 @@ import 'package:xcross/src/shared/flutter/build/apple_debug_symbols.dart';
 import 'package:xcross/src/shared/flutter/build/bundle_entitlements.dart';
 import 'package:xcross/src/shared/flutter/build/flutter_aot_snapshotter.dart';
 import 'package:xcross/src/shared/flutter/build/flutter_notice_artifact.dart';
-import 'package:xcross/src/shared/flutter/build/internal/apple_tool_shim_renderer.dart';
-import 'package:xcross/src/shared/flutter/build/internal/apple_tool_shims.dart';
 import 'package:xcross/src/shared/flutter/build/internal/native_asset_frameworks.dart';
 import 'package:xcross/src/shared/flutter/build/internal/native_assets_hook_discovery.dart';
-import 'package:xcross/src/shared/flutter/build/internal/recursive_directory_copy.dart';
 import 'package:xcross/src/shared/flutter/build/internal/xcconfig_resolver.dart';
 import 'package:xcross/src/shared/flutter/build/ios_app_extensions.dart';
 import 'package:xcross/src/shared/flutter/build/ios_bundle_id.dart';
@@ -35,6 +32,9 @@ import 'package:xcross/src/shared/flutter/project/ios_deployment_target_resolver
 import 'package:xcross/src/shared/flutter/project/pbx_project_reader.dart';
 import 'package:xcross/src/shared/flutter/project/pubspec_info_reader.dart';
 import 'package:xcross/src/shared/packages/package_config_resolver.dart';
+import 'package:xcross/src/shared/swiftpm/apple_tool_shim_renderer.dart';
+import 'package:xcross/src/shared/swiftpm/apple_tool_shims.dart';
+import 'package:xcross/src/shared/swiftpm/recursive_directory_copy.dart';
 import 'package:xcross/src/target/shared/flutter/flutter_target_build_policy.dart';
 
 @internal

@@ -3,12 +3,12 @@ import 'dart:io';
 import 'package:darwin_sdk_kit/target/iphone/iphone_build_platform.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
-import 'package:xcross/src/host/shared/flutter/swiftpm/posix_artifact_filesystem.dart';
-import 'package:xcross/src/shared/flutter/build/ios_deployment_target.dart';
+import 'package:xcross/src/host/shared/swiftpm/posix_artifact_filesystem.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/manifest.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/module_warmup.dart';
+import 'package:xcross/src/shared/swiftpm/ios_deployment_target.dart';
+import 'package:xcross/src/shared/swiftpm/module_warmup.dart';
 
-import 'swiftpm_test_context.dart';
+import '../../swiftpm/swiftpm_test_context.dart';
 
 final _runtime = testSwiftPmRuntime();
 

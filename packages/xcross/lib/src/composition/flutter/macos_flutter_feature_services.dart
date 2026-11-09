@@ -2,8 +2,8 @@ import 'package:cli_kit/shared/platform/platform_host.dart';
 import 'package:darwin_sdk_kit/target/shared/ios_target.dart';
 import 'package:meta/meta.dart';
 import 'package:xcross/src/composition/flutter/posix_flutter_feature_services.dart';
-import 'package:xcross/src/host/macos/flutter/swiftpm/host_build_services.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/host_build_services.dart';
+import 'package:xcross/src/host/macos/swiftpm/host_build_services.dart';
+import 'package:xcross/src/shared/swiftpm/host_build_services.dart';
 
 @internal
 final class MacOSFlutterFeatureServices<T extends MacOSHostInterface>

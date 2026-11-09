@@ -4,9 +4,9 @@ import 'package:cli_kit/shared/platform/platform_host.dart';
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/shared/apple/interface_builder/xib_compiler.dart';
-import 'package:xcross/src/shared/flutter/build/internal/recursive_directory_copy.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/dynamic_product.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/resource_manifest.dart';
+import 'package:xcross/src/shared/swiftpm/dynamic_product.dart';
+import 'package:xcross/src/shared/swiftpm/recursive_directory_copy.dart';
+import 'package:xcross/src/shared/swiftpm/resource_manifest.dart';
 
 @internal
 final class FlutterFrameworkCopier {

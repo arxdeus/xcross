@@ -1,7 +1,7 @@
 import 'package:cli_kit/shared/platform/platform_host.dart';
 import 'package:meta/meta.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/apple_host_tools.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/open_apple_macros.dart';
+import 'package:xcross/src/shared/swiftpm/apple_host_tools.dart';
+import 'package:xcross/src/shared/swiftpm/open_apple_macros.dart';
 
 @internal
 abstract interface class NativeHostTools<T extends PlatformHostInterface>

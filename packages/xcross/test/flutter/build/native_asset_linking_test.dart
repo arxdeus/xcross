@@ -8,8 +8,8 @@ import 'package:darwin_sdk_kit/target/iphone/iphone_build_platform.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 import 'package:xcross/src/shared/errors/build_error.dart';
-import 'package:xcross/src/shared/flutter/build/ios_deployment_target.dart';
 import 'package:xcross/src/shared/flutter/build/runner_shim.dart';
+import 'package:xcross/src/shared/swiftpm/ios_deployment_target.dart';
 
 import '../../host_operations_fixtures.dart';
 import 'support/native_asset_framework_fixtures.dart';

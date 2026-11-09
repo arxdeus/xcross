@@ -13,7 +13,6 @@ import 'package:xcross/src/shared/errors/build_error.dart';
 import 'package:xcross/src/shared/flutter/build/flutter_aot_snapshotter.dart';
 import 'package:xcross/src/shared/flutter/build/impeller_shader_compiler.dart';
 import 'package:xcross/src/shared/flutter/build/internal/runner_binary.dart';
-import 'package:xcross/src/shared/flutter/build/ios_deployment_target.dart';
 import 'package:xcross/src/shared/flutter/build/ios_native_assets.dart';
 import 'package:xcross/src/shared/flutter/flutter_artifact_compiler.dart';
 import 'package:xcross/src/shared/flutter/flutter_assets_compiler.dart';
@@ -23,6 +22,7 @@ import 'package:xcross/src/shared/flutter/flutter_bundle_assembler.dart';
 import 'package:xcross/src/shared/flutter/gen_snapshot/ios_gen_snapshot_mode.dart';
 import 'package:xcross/src/shared/flutter/models/flutter/flutter_build_mode.dart';
 import 'package:xcross/src/shared/flutter/models/flutter/flutter_build_options.dart';
+import 'package:xcross/src/shared/swiftpm/ios_deployment_target.dart';
 
 import '../flutter_test_log.dart';
 import '../flutter_test_runtime.dart';

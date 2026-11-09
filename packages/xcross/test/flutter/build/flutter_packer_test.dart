@@ -13,7 +13,7 @@ import 'package:xcross/src/shared/flutter/flutter_build_runtime.dart';
 import 'package:xcross/src/shared/flutter/flutter_build_steps.dart';
 import 'package:xcross/src/shared/flutter/flutter_bundle_assembler.dart';
 import 'package:xcross/src/shared/flutter/models/flutter/flutter_build_options.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/dynamic_product.dart';
+import 'package:xcross/src/shared/swiftpm/dynamic_product.dart';
 import 'package:xml/xml.dart';
 
 import '../flutter_test_runtime.dart';

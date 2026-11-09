@@ -11,9 +11,9 @@ import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 import 'package:xcross/src/host/macos/flutter/native_host_tools.dart';
 import 'package:xcross/src/host/shared/flutter/apple_tool_shim_renderer_posix.dart';
-import 'package:xcross/src/host/shared/flutter/apple_tool_shim_templates_posix.dart';
+import 'package:xcross/src/host/shared/swiftpm/apple_tool_shim_templates_posix.dart';
 import 'package:xcross/src/host/windows/flutter/apple_tool_shim_templates.dart';
-import 'package:xcross/src/shared/flutter/build/internal/apple_tool_shims.dart';
+import 'package:xcross/src/shared/swiftpm/apple_tool_shims.dart';
 
 import 'support/native_flutter_fixtures.dart';
 

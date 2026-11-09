@@ -7,7 +7,7 @@ import 'package:xcross/src/shared/flutter/flutter_build_steps.dart';
 import 'package:xcross/src/shared/flutter/flutter_bundle_assembler.dart';
 import 'package:xcross/src/shared/flutter/flutter_project_resolver.dart';
 import 'package:xcross/src/shared/flutter/models/flutter/flutter_build_options.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/package_types.dart';
+import 'package:xcross/src/shared/swiftpm/package_types.dart';
 
 @internal
 final class FlutterPacker<T extends PlatformHostInterface> {

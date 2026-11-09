@@ -14,8 +14,8 @@ import 'package:xcross/src/shared/flutter/flutter_build_runtime.dart';
 import 'package:xcross/src/shared/flutter/flutter_build_steps.dart';
 import 'package:xcross/src/shared/flutter/flutter_bundle_assembler.dart';
 import 'package:xcross/src/shared/flutter/models/flutter/flutter_build_options.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/dynamic_product.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/package_types.dart';
+import 'package:xcross/src/shared/swiftpm/dynamic_product.dart';
+import 'package:xcross/src/shared/swiftpm/package_types.dart';
 import 'package:xcross/src/target/iphone/flutter/iphone_flutter_target.dart';
 import 'package:xcross/src/target/simulator/flutter/simulator_flutter_target.dart';
 

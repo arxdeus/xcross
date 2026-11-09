@@ -18,13 +18,13 @@ import 'package:test/test.dart';
 import 'package:xcross/src/host/linux/flutter/native_host_tools.dart';
 import 'package:xcross/src/host/shared/flutter/apple_tool_shim_renderer_posix.dart';
 import 'package:xcross/src/shared/errors/build_error.dart';
-import 'package:xcross/src/shared/flutter/build/internal/apple_tool_shims.dart';
 import 'package:xcross/src/shared/flutter/build/internal/native_asset_frameworks.dart';
 import 'package:xcross/src/shared/flutter/build/internal/native_assets_hook_discovery.dart';
-import 'package:xcross/src/shared/flutter/build/ios_deployment_target.dart';
 import 'package:xcross/src/shared/flutter/build/ios_engine_cache.dart';
 import 'package:xcross/src/shared/flutter/build/ios_native_assets.dart';
 import 'package:xcross/src/shared/packages/package_config_resolver.dart';
+import 'package:xcross/src/shared/swiftpm/apple_tool_shims.dart';
+import 'package:xcross/src/shared/swiftpm/ios_deployment_target.dart';
 import 'package:xcross/src/target/simulator/flutter/simulator_flutter_target.dart';
 
 import '../../host_operations_fixtures.dart';

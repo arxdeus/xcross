@@ -2,10 +2,10 @@ import 'package:cli_kit/shared/platform/platform_host.dart';
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/shared/flutter/build/flutter_packer.dart';
-import 'package:xcross/src/shared/flutter/build/internal/swiftpm_workspace.dart';
 import 'package:xcross/src/shared/flutter/flutter_build_runtime.dart';
 import 'package:xcross/src/shared/flutter/models/flutter/flutter_build_options.dart';
 import 'package:xcross/src/shared/models/pack_result.dart';
+import 'package:xcross/src/shared/swiftpm/swiftpm_workspace.dart';
 
 @internal
 abstract final class FlutterPackOperation {
