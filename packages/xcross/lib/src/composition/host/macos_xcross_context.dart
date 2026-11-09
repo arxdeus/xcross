@@ -19,9 +19,10 @@ import 'package:darwin_sdk_kit/shared/sdk/darwin_sdk_repository.dart';
 import 'package:darwin_sdk_kit/shared/toolchain/darwin_toolchain_resolver.dart';
 import 'package:http/http.dart' as http;
 import 'package:meta/meta.dart';
+import 'package:xcross/src/composition/flutter/host_flutter_feature_services.dart';
 import 'package:xcross/src/composition/flutter/ios_gen_snapshot.dart';
-import 'package:xcross/src/composition/flutter/macos_flutter_feature_services.dart';
 import 'package:xcross/src/composition/host_operations.dart';
+import 'package:xcross/src/composition/swiftpm/macos_swiftpm_services.dart';
 import 'package:xcross/src/composition/swiftpm/swiftpm_checkout.dart';
 import 'package:xcross/src/composition/xcross_application.dart';
 import 'package:xcross/src/composition/xcross_host_context.dart';
@@ -51,7 +52,6 @@ import 'package:xcross/src/shared/device/signing_http_client_factory.dart';
 import 'package:xcross/src/shared/flutter/flutter_build_runtime.dart';
 import 'package:xcross/src/shared/flutter/hot_reload/vm_service_output.dart';
 import 'package:xcross/src/shared/flutter/vm_service_connector.dart';
-import 'package:xcross/src/shared/runtime/flutter_feature_services.dart';
 import 'package:xcross/src/shared/runtime/xcross_runtime.dart';
 import 'package:xcross/src/shared/setup/host_operations.dart';
 import 'package:xcross/src/shared/setup/setup_requirements.dart';
@@ -257,7 +257,7 @@ final class MacOSXcrossHostContext
     );
   }
 
-  MacOSFlutterFeatureServices<MacOSHostInterface> _createFlutterServices({
+  HostFlutterFeatureServices<MacOSHostInterface> _createFlutterServices({
     required ProcessRunner<MacOSHostInterface> runner,
     required DarwinSdkRepository<MacOSHostInterface> repository,
     required DarwinToolchainResolver<MacOSHostInterface> toolchain,
@@ -296,18 +296,16 @@ final class MacOSXcrossHostContext
             sourceFallback: checkoutParts.sourceFallback,
           ),
         );
-    return MacOSFlutterFeatureServices<MacOSHostInterface>(
+    final hostTools = MacOSNativeHostTools(host, runner);
+    final swiftPm = MacOSSwiftPmServices<MacOSHostInterface>(
       checkout: checkout,
       checkoutAttributes: checkoutAttributes,
       checkoutManifestNormalizer: checkoutManifestNormalizer,
       runner: runner,
       repository: repository,
       toolchain: toolchain,
-      downloader: downloader,
-      hostTools: MacOSNativeHostTools(host, runner),
-      renderer: PosixAppleToolShimRenderer(host),
-      sdkPolicy: PosixFlutterSdkPolicy(),
-      swiftPmPolicy: const MacOSSwiftPmHostPolicy(),
+      hostTools: hostTools,
+      hostPolicy: const MacOSSwiftPmHostPolicy(),
       artifactFileSystem: artifactFileSystem,
       publicationCoordinator: publicationCoordinator,
       transport: transport,
@@ -316,6 +314,16 @@ final class MacOSXcrossHostContext
         installer,
         platformIdentity: '${host.name}-${host.architecture}',
       ),
+      resolution: resolution.appleTools,
+    );
+    return HostFlutterFeatureServices<MacOSHostInterface>(
+      swiftPm: swiftPm,
+      repository: repository,
+      toolchain: toolchain,
+      downloader: downloader,
+      hostTools: hostTools,
+      renderer: PosixAppleToolShimRenderer(host),
+      sdkPolicy: PosixFlutterSdkPolicy(),
       resolution: resolution,
       aotCompilers: composeIosAotCompilerLocator(
         runner: runner,
@@ -349,7 +357,7 @@ final class MacOSXcrossHostContext
     required ProcessRunner<MacOSHostInterface> runner,
     required DarwinSdkRepository<MacOSHostInterface> repository,
     required DarwinToolchainResolver<MacOSHostInterface> toolchain,
-    required FlutterFeatureServices<MacOSHostInterface> flutter,
+    required HostFlutterFeatureServices<MacOSHostInterface> flutter,
     required String resolvedExecutable,
     required HostOperations operations,
     required LocalHttp<MacOSHostInterface> localHttp,
@@ -372,6 +380,7 @@ final class MacOSXcrossHostContext
       sdkRepository: repository,
       darwinToolchain: toolchain,
       flutter: flutter,
+      swiftPm: flutter.swiftPm,
       composeHostProvider: MacOSComposeHostProvider(host),
       composeSimulatorCapability: MacOSComposeSimulatorCapability(
         MacOSComposeSimulatorSigning(runner),

@@ -1,14 +1,14 @@
 import 'package:cli_kit/shared/platform/platform_host.dart';
 import 'package:darwin_sdk_kit/target/shared/ios_target.dart';
 import 'package:meta/meta.dart';
-import 'package:xcross/src/composition/flutter/posix_flutter_feature_services.dart';
+import 'package:xcross/src/composition/swiftpm/posix_swiftpm_services.dart';
 import 'package:xcross/src/host/macos/swiftpm/host_build_services.dart';
 import 'package:xcross/src/shared/swiftpm/host_build_services.dart';
 
 @internal
-final class MacOSFlutterFeatureServices<T extends MacOSHostInterface>
-    extends PosixFlutterFeatureServices<T> {
-  const MacOSFlutterFeatureServices({
+final class MacOSSwiftPmServices<T extends MacOSHostInterface>
+    extends PosixSwiftPmServices<T> {
+  const MacOSSwiftPmServices({
     required super.checkout,
     required super.checkoutAttributes,
     required super.checkoutManifestNormalizer,
@@ -16,17 +16,13 @@ final class MacOSFlutterFeatureServices<T extends MacOSHostInterface>
     required super.repository,
     required super.toolchain,
     required super.hostTools,
-    required super.renderer,
-    required super.sdkPolicy,
-    required super.swiftPmPolicy,
+    required super.hostPolicy,
     required super.artifactFileSystem,
     required super.sdkIdentity,
     required super.resolution,
-    required super.downloader,
     required super.publicationCoordinator,
     required super.transport,
     required super.copyPolicy,
-    super.aotCompilers,
   });
 
   @override

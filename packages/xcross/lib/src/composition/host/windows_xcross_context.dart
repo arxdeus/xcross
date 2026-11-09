@@ -19,10 +19,11 @@ import 'package:darwin_sdk_kit/shared/sdk/darwin_sdk_repository.dart';
 import 'package:darwin_sdk_kit/shared/toolchain/darwin_toolchain_resolver.dart';
 import 'package:http/http.dart' as http;
 import 'package:meta/meta.dart';
+import 'package:xcross/src/composition/flutter/host_flutter_feature_services.dart';
 import 'package:xcross/src/composition/flutter/ios_gen_snapshot.dart';
-import 'package:xcross/src/composition/flutter/windows_flutter_feature_services.dart';
 import 'package:xcross/src/composition/host_operations.dart';
 import 'package:xcross/src/composition/swiftpm/swiftpm_checkout.dart';
+import 'package:xcross/src/composition/swiftpm/windows_swiftpm_services.dart';
 import 'package:xcross/src/composition/xcross_application.dart';
 import 'package:xcross/src/composition/xcross_host_context.dart';
 import 'package:xcross/src/host/shared/runtime/unsupported_compose_simulator_capability.dart';
@@ -49,7 +50,6 @@ import 'package:xcross/src/shared/device/signing_http_client_factory.dart';
 import 'package:xcross/src/shared/flutter/flutter_build_runtime.dart';
 import 'package:xcross/src/shared/flutter/hot_reload/vm_service_output.dart';
 import 'package:xcross/src/shared/flutter/vm_service_connector.dart';
-import 'package:xcross/src/shared/runtime/flutter_feature_services.dart';
 import 'package:xcross/src/shared/runtime/xcross_runtime.dart';
 import 'package:xcross/src/shared/setup/host_operations.dart';
 import 'package:xcross/src/shared/setup/setup_requirements.dart';
@@ -264,7 +264,7 @@ final class WindowsXcrossHostContext
     );
   }
 
-  WindowsFlutterFeatureServices<WindowsHostInterface> _createFlutterServices({
+  HostFlutterFeatureServices<WindowsHostInterface> _createFlutterServices({
     required ProcessRunner<WindowsHostInterface> runner,
     required DarwinSdkRepository<WindowsHostInterface> repository,
     required DarwinToolchainResolver<WindowsHostInterface> toolchain,
@@ -312,18 +312,16 @@ final class WindowsXcrossHostContext
             sourceFallback: checkoutParts.sourceFallback,
           ),
         );
-    return WindowsFlutterFeatureServices<WindowsHostInterface>(
+    final hostTools = WindowsNativeHostTools(host, runner);
+    final swiftPm = WindowsSwiftPmServices<WindowsHostInterface>(
       checkout: checkout,
       checkoutAttributes: checkoutAttributes,
       checkoutManifestNormalizer: checkoutManifestNormalizer,
       runner: runner,
       repository: repository,
       toolchain: toolchain,
-      downloader: downloader,
-      hostTools: WindowsNativeHostTools(host, runner),
-      renderer: WindowsAppleToolShimRenderer(host),
-      sdkPolicy: WindowsFlutterSdkPolicy(),
-      swiftPmPolicy: WindowsSwiftPmHostPolicy(
+      hostTools: hostTools,
+      hostPolicy: WindowsSwiftPmHostPolicy(
         runner,
         swiftEnvironment: operations.swiftEnvironment,
       ),
@@ -335,6 +333,16 @@ final class WindowsXcrossHostContext
         installer,
         platformIdentity: '${host.name}-${host.architecture}',
       ),
+      resolution: resolution.appleTools,
+    );
+    return HostFlutterFeatureServices<WindowsHostInterface>(
+      swiftPm: swiftPm,
+      repository: repository,
+      toolchain: toolchain,
+      downloader: downloader,
+      hostTools: hostTools,
+      renderer: WindowsAppleToolShimRenderer(host),
+      sdkPolicy: WindowsFlutterSdkPolicy(),
       resolution: resolution,
       aotCompilers: composeIosAotCompilerLocator(
         runner: runner,
@@ -379,7 +387,7 @@ final class WindowsXcrossHostContext
     required ProcessRunner<WindowsHostInterface> runner,
     required DarwinSdkRepository<WindowsHostInterface> repository,
     required DarwinToolchainResolver<WindowsHostInterface> toolchain,
-    required FlutterFeatureServices<WindowsHostInterface> flutter,
+    required HostFlutterFeatureServices<WindowsHostInterface> flutter,
     required String resolvedExecutable,
     required HostOperations operations,
     required LocalHttp<WindowsHostInterface> localHttp,
@@ -402,6 +410,7 @@ final class WindowsXcrossHostContext
       sdkRepository: repository,
       darwinToolchain: toolchain,
       flutter: flutter,
+      swiftPm: flutter.swiftPm,
       composeHostProvider: WindowsComposeHostProvider(host, resolvedExecutable),
       composeSimulatorCapability: UnsupportedComposeSimulatorCapability(host),
       executable: resolvedExecutable,

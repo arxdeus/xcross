@@ -23,6 +23,7 @@ import 'package:xcross/src/shared/swiftpm/gate_platform.dart';
 import 'package:xcross/src/shared/swiftpm/host_policy.dart';
 import 'package:xcross/src/shared/swiftpm/ios_deployment_target.dart';
 import 'package:xcross/src/shared/swiftpm/manifest_dependencies.dart';
+import 'package:xcross/src/shared/swiftpm/package_builder.dart';
 import 'package:xcross/src/shared/swiftpm/package_types.dart';
 import 'package:xcross/src/shared/swiftpm/resource_manifest.dart';
 import 'package:xcross/src/shared/swiftpm/runtime.dart';
@@ -56,32 +57,45 @@ final class GeneratedPluginsPackage<T extends PlatformHostInterface> {
     required SwiftPmCheckoutManifestNormalizer<T> checkoutManifestNormalizer,
     required SwiftPmFoundation<T> foundation,
     required SwiftPmGatePlatform gatePlatform,
-  }) : runtime = SwiftPmRuntime(
+  }) : this.withBuilder(
          policy,
-         runner,
-         sdkRepository,
-         toolchain,
-         tools,
-         hostPolicy,
-         artifactFileSystem,
-         sdkIdentity,
-         publicationCoordinator,
-         transport,
-         copyPolicy,
-         buildExecution,
-         dependencyPreparation,
-         checkout,
-         checkoutAttributes,
-         checkoutManifestNormalizer,
-         foundation,
-         gatePlatform,
-       ) {
-    staging = FlutterSwiftPmStaging<T>(runtime, policy);
-  }
-  final SwiftPmRuntime<T> runtime;
+         SwiftPmPackageBuilder<T>(
+           SwiftPmRuntime(
+             policy,
+             runner,
+             sdkRepository,
+             toolchain,
+             tools,
+             hostPolicy,
+             artifactFileSystem,
+             sdkIdentity,
+             publicationCoordinator,
+             transport,
+             copyPolicy,
+             buildExecution,
+             dependencyPreparation,
+             checkout,
+             checkoutAttributes,
+             checkoutManifestNormalizer,
+             foundation,
+             gatePlatform,
+           ),
+         ),
+       );
+
+  /// Builds Flutter plugins through [builder], whose engine must be
+  /// configured for [policy].
+  GeneratedPluginsPackage.withBuilder(
+    FlutterTargetBuildPolicy<T> policy,
+    this.builder,
+  ) : staging = FlutterSwiftPmStaging<T>(builder.engine, policy);
+
+  /// The generic SwiftPM build facade the plugins package builds through.
+  final SwiftPmPackageBuilder<T> builder;
+  SwiftPmRuntime<T> get runtime => builder.engine;
 
   /// Flutter plugin staging (manifest, registrant, overlays, discovery).
-  late final FlutterSwiftPmStaging<T> staging;
+  final FlutterSwiftPmStaging<T> staging;
 
   Future<({bool swiftPmArtifact, bool packageLocalArtifact})>
   resolveArtifactJunctionCapabilities({required SwiftPmWorkspace workspace}) =>
@@ -130,10 +144,9 @@ final class GeneratedPluginsPackage<T extends PlatformHostInterface> {
         'spmPlugins=${[for (final plugin in spmPlugins) plugin.name]}',
       );
 
-      final targetDebugDir = p.join(
-        workspace.scratch,
-        deploymentTarget.swiftSdkTriple,
-        'debug',
+      final targetDebugDir = builder.targetDebugDirectory(
+        workspace,
+        deploymentTarget,
       );
       final pluginIdentities = {
         for (final MapEntry(:key, :value) in flutterPluginSwiftPmIdentities({
@@ -161,9 +174,10 @@ final class GeneratedPluginsPackage<T extends PlatformHostInterface> {
           await fingerprintFile.readAsString() == fingerprint;
       if (fingerprintMatches && pluginsDylib.existsSync()) {
         runtime.runner.log.logTrace('reusing unchanged SwiftPM plugin build');
-        final reused = await runtime.assembly.discoverAndRewriteDylibs(
-          targetDebugDir,
+        final reused = await builder.assemble(
+          workspace: workspace,
           productName: pluginsProductName,
+          deploymentTarget: deploymentTarget,
           packageIdentities: pluginIdentities,
         );
         return reused;
@@ -211,17 +225,15 @@ final class GeneratedPluginsPackage<T extends PlatformHostInterface> {
       await stage();
 
       final pluginsDir = p.join(outputDir, 'Plugins');
-      final scratchPath = workspace.scratch;
       final stagedFlutterXcframework = p.join(
         outputDir,
         'Packages',
         flutterFrameworkPackageName,
         'Flutter.xcframework',
       );
-      await runtime.buildDriver.runSwiftBuild(
+      final result = await builder.build(
         workspace: workspace,
-        pluginsDir: pluginsDir,
-        scratchPath: scratchPath,
+        packageDir: pluginsDir,
         productName: pluginsProductName,
         // Real `Flutter.framework` (not our FlutterFramework binary-target
         // wrapper). Our own aggregate target resolves `import Flutter` via
@@ -271,11 +283,6 @@ final class GeneratedPluginsPackage<T extends PlatformHostInterface> {
                     ? null
                     : reconciled.consumedProducts;
               },
-      );
-
-      final result = await runtime.assembly.discoverAndRewriteDylibs(
-        targetDebugDir,
-        productName: pluginsProductName,
         packageIdentities: pluginIdentities,
       );
       await runtime.filesystem.writeStable(fingerprintFile.path, fingerprint);

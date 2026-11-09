@@ -35,6 +35,7 @@ import 'package:xcross/src/shared/packages/package_config_resolver.dart';
 import 'package:xcross/src/shared/swiftpm/apple_tool_shim_renderer.dart';
 import 'package:xcross/src/shared/swiftpm/apple_tool_shims.dart';
 import 'package:xcross/src/shared/swiftpm/recursive_directory_copy.dart';
+import 'package:xcross/src/shared/swiftpm/swiftpm_services.dart';
 import 'package:xcross/src/target/shared/flutter/flutter_target_build_policy.dart';
 
 @internal
@@ -57,6 +58,15 @@ final class FlutterResolutionConfiguration {
   final String? launcher;
   final String? xcrun;
   final String? openAppleMacrosServer;
+
+  /// The subset Apple tool shims and SwiftPM builds use.
+  AppleToolResolution get appleTools => AppleToolResolution(
+    executable: executable,
+    launcher: launcher,
+    xcrun: xcrun,
+    openAppleMacrosServer: openAppleMacrosServer,
+    declarative: declarative,
+  );
 }
 
 @internal

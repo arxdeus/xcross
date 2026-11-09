@@ -5,10 +5,12 @@ import 'package:xcross/src/shared/compose/build/compose_pack_operation.dart';
 import 'package:xcross/src/shared/compose/toolchain/compose_toolchain_resolver.dart';
 import 'package:xcross/src/shared/flutter/flutter_build_runtime.dart';
 import 'package:xcross/src/shared/runtime/xcross_runtime.dart';
+import 'package:xcross/src/shared/swiftpm/package_builder.dart';
 import 'package:xcross/src/target/shared/compose/compose_target.dart';
 import 'package:xcross/src/target/shared/runtime/build_features.dart';
 import 'package:xcross/src/target/simulator/compose/simulator_compose_target.dart';
 import 'package:xcross/src/target/simulator/flutter/simulator_flutter_target.dart';
+import 'package:xcross/src/target/simulator/swiftpm/simulator_swiftpm_target.dart';
 
 @internal
 final class SimulatorBuildFeatures<T extends PlatformHostInterface>
@@ -20,6 +22,10 @@ final class SimulatorBuildFeatures<T extends PlatformHostInterface>
   @override
   late final FlutterBuildRuntime<T> flutterRuntime = runtime.flutter.build(
     SimulatorFlutterTarget(target),
+  );
+  @override
+  late final SwiftPmPackageBuilder<T> swiftPmBuilder = runtime.swiftPm.builder(
+    SimulatorSwiftPmTarget(target),
   );
   late final ComposeTarget<T> _composeTarget = _resolveComposeTarget();
   ComposeTarget<T> _resolveComposeTarget() {
