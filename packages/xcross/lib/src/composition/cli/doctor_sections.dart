@@ -231,19 +231,31 @@ final class DoctorSections<T extends PlatformHostInterface> {
         '(see the Darwin SDK row).',
       );
     }
-    final index = swiftModuleIndexFor(
-      files: runtime.host.fileSystem,
-      sdkPath: sdkPath,
-      darwinSdkBundle: bundle,
-      platformSdkName: platform.sdkName,
-      baseName: project.baseName,
-    );
-    final missing = unresolvedSwiftImports(project, index);
+    final List<UnresolvedSwiftImport> missing;
+    try {
+      final index = swiftModuleIndexFor(
+        files: runtime.host.fileSystem,
+        sdkPath: sdkPath,
+        darwinSdkBundle: bundle,
+        platformSdkName: platform.sdkName,
+        baseName: project.baseName,
+      );
+      missing = unresolvedSwiftImports(project, index);
+    } on Object catch (error) {
+      return DoctorCheck.warning(
+        name,
+        'Not checked: could not read the SDK ($error).',
+      );
+    }
     if (missing.isEmpty) {
+      final count = project.requiredSwiftModules.length;
       return DoctorCheck.success(
         name,
-        '${project.requiredSwiftModules.length} modules resolve against '
-        'the Darwin SDK',
+        count == 0
+            ? 'No unconditional imports to check'
+            : count == 1
+            ? '1 module resolves against the Darwin SDK'
+            : '$count modules resolve against the Darwin SDK',
       );
     }
     return DoctorCheck.failure(

@@ -264,7 +264,7 @@ void main() {
       );
     }
 
-    void installSdk() {
+    void installSdk({bool frameworks = true}) {
       for (final m in ['info.json', 'swift-sdk.json', 'toolset.json']) {
         write('/bundle/$m', '{}');
       }
@@ -281,6 +281,7 @@ void main() {
       const sdk =
           '/bundle/Developer/Platforms/iPhoneOS.platform/Developer/SDKs'
           '/iPhoneOS26.0.sdk/System/Library/Frameworks';
+      if (!frameworks) return;
       files
           .directory('$sdk/UIKit.framework/Modules')
           .createSync(recursive: true);
@@ -328,6 +329,33 @@ void main() {
       expect(check.status, DoctorStatus.failure);
       expect(check.message, contains('Firebase'));
       expect(check.message, contains('iosApp/App.swift:'));
+    });
+
+    test('success wording is singular, plural, and empty-aware', () async {
+      installSdk();
+      project(swift: '#if os(iOS)\nimport Firebase\n#endif');
+      var check = (await run()).singleWhere((c) => c.name == 'Swift imports');
+      expect(check.message, 'No unconditional imports to check');
+      files
+          .file('/project/iosApp/App.swift')
+          .writeAsStringSync('@main\nstruct DemoApp: App {}\nimport UIKit');
+      check = (await run()).singleWhere((c) => c.name == 'Swift imports');
+      expect(check.message, '1 module resolves against the Darwin SDK');
+      files
+          .file('/project/iosApp/App.swift')
+          .writeAsStringSync(
+            '@main\nstruct DemoApp: App {}\nimport UIKit\nimport Shared',
+          );
+      check = (await run()).singleWhere((c) => c.name == 'Swift imports');
+      expect(check.message, '2 modules resolve against the Darwin SDK');
+    });
+
+    test('a corrupt SDK degrades to a warning, not a crash', () async {
+      project(swift: 'import UIKit');
+      installSdk(frameworks: false);
+      final check = (await run()).singleWhere((c) => c.name == 'Swift imports');
+      expect(check.status, DoctorStatus.warning);
+      expect(check.message, startsWith('Not checked'));
     });
 
     test('warns when the Darwin SDK is absent', () async {
