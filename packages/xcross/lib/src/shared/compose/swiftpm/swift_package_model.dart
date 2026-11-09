@@ -265,6 +265,38 @@ String swiftPackageIdentityForUrl(String url) {
   return last.toLowerCase();
 }
 
+/// [url] in a form equal for every spelling SwiftPM treats as the same
+/// repository: no scheme or user, `host:path` (scp-style SSH) as
+/// `host/path`, no trailing `/` or `.git`, lowercase.
+@internal
+String normalizedSwiftPackageUrl(String url) {
+  var value = url.trim().toLowerCase();
+  final scheme = value.indexOf('://');
+  if (scheme != -1) {
+    value = value.substring(scheme + 3);
+  } else {
+    // `git@host:owner/repo`.
+    final colon = value.indexOf(':');
+    final slash = value.indexOf('/');
+    if (colon != -1 && (slash == -1 || colon < slash)) {
+      value = '${value.substring(0, colon)}/${value.substring(colon + 1)}';
+    }
+  }
+  final at = value.indexOf('@');
+  final firstSlash = value.indexOf('/');
+  if (at != -1 && (firstSlash == -1 || at < firstSlash)) {
+    value = value.substring(at + 1);
+  }
+  while (value.endsWith('/')) {
+    value = value.substring(0, value.length - 1);
+  }
+  if (value.endsWith('.git')) value = value.substring(0, value.length - 4);
+  while (value.endsWith('/')) {
+    value = value.substring(0, value.length - 1);
+  }
+  return value;
+}
+
 /// A double-quoted Swift string literal for [value].
 @internal
 String swiftStringLiteral(String value) {

@@ -635,6 +635,90 @@ void main() {
     expect(read, throwsA(isA<XcrossError>()));
   });
 
+  test('remote references equal after URL normalization merge', () {
+    String project(String url, String product) =>
+        '''
+{ objects = {
+  P = { isa = PBXProject; packageReferences = (R); targets = (T); };
+  T = { isa = PBXNativeTarget; productType = "com.apple.product-type.application"; packageProductDependencies = (D); };
+  R = { isa = XCRemoteSwiftPackageReference; repositoryURL = "$url"; requirement = { kind = upToNextMajorVersion; minimumVersion = 5.9.0; }; };
+  D = { isa = XCSwiftPackageProductDependency; package = R; productName = $product; };
+}; rootObject = P; }
+''';
+    file(
+      'iosApp/A.xcodeproj/project.pbxproj',
+      project('https://github.com/Alamofire/Alamofire', 'Alamofire'),
+    );
+    for (final url in [
+      'https://github.com/alamofire/alamofire.git/',
+      'git@github.com:Alamofire/Alamofire.git',
+      'ssh://git@github.com/Alamofire/Alamofire',
+    ]) {
+      file(
+        'iosApp/B.xcodeproj/project.pbxproj',
+        project(url, 'AlamofireDynamic'),
+      );
+      final merged = read();
+      expect(merged.packages, hasLength(1), reason: url);
+      expect(
+        merged.products.map((x) => x.package).toSet(),
+        hasLength(1),
+        reason: url,
+      );
+      expect(merged.products.map((x) => x.productName), {
+        'Alamofire',
+        'AlamofireDynamic',
+      });
+    }
+    // A different requirement still conflicts.
+    file(
+      'iosApp/B.xcodeproj/project.pbxproj',
+      project(
+        'git@github.com:Alamofire/Alamofire.git',
+        'Alamofire',
+      ).replaceAll('5.9.0', '5.10.0'),
+    );
+    expect(read, throwsA(isA<XcrossError>()));
+    expect(
+      normalizedSwiftPackageUrl('git@GitHub.com:a/b.git'),
+      normalizedSwiftPackageUrl('https://github.com/a/b/'),
+    );
+    expect(
+      normalizedSwiftPackageUrl('https://github.com/a/b'),
+      isNot(normalizedSwiftPackageUrl('https://github.com/a/c')),
+    );
+  });
+
+  test('folder-reference local packages resolve through their source tree', () {
+    file(
+      'iosApp/Packages/Nested/Inner/Package.swift',
+      '.library(name: "Inner")',
+    );
+    file('iosApp/RootPkg/Package.swift', '.library(name: "RootPkg")');
+    file('Elsewhere/AbsPkg/Package.swift', '.library(name: "AbsPkg")');
+    final abs = p.join(root.path, 'Elsewhere', 'AbsPkg');
+    file('iosApp/iosApp.xcodeproj/project.pbxproj', '''
+{ objects = {
+  P = { isa = PBXProject; mainGroup = G0; targets = (T); };
+  G0 = { isa = PBXGroup; children = (G1, F2, F3); sourceTree = "<group>"; };
+  G1 = { isa = PBXGroup; children = (G2); name = Libraries; sourceTree = "<group>"; };
+  G2 = { isa = PBXGroup; children = (F1); path = Packages/Nested; sourceTree = "<group>"; };
+  F1 = { isa = PBXFileReference; lastKnownFileType = wrapper; path = Inner; sourceTree = "<group>"; };
+  F2 = { isa = PBXFileReference; lastKnownFileType = folder; path = RootPkg; sourceTree = SOURCE_ROOT; };
+  F3 = { isa = PBXFileReference; lastKnownFileType = wrapper; path = "$abs"; sourceTree = "<absolute>"; };
+  T = { isa = PBXNativeTarget; productType = "com.apple.product-type.application"; packageProductDependencies = (D1, D2, D3); };
+  D1 = { isa = XCSwiftPackageProductDependency; productName = Inner; };
+  D2 = { isa = XCSwiftPackageProductDependency; productName = RootPkg; };
+  D3 = { isa = XCSwiftPackageProductDependency; productName = AbsPkg; };
+}; rootObject = P; }
+''');
+    expect(read().packages.toSet(), {
+      LocalSwiftPackage(p.join(iosApp, 'Packages', 'Nested', 'Inner')),
+      LocalSwiftPackage(p.join(iosApp, 'RootPkg')),
+      LocalSwiftPackage(abs),
+    });
+  });
+
   test('package identity follows SwiftPM', () {
     expect(
       swiftPackageIdentityForUrl('https://github.com/A/Swift-Foo.git'),

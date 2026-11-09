@@ -51,15 +51,21 @@ HostSwiftPackages readHostSwiftPackages({
     )) {
       final identity = product.package.identity;
       final existing = byIdentity[identity];
-      if (existing != null && existing != product.package) {
+      if (existing != null && !_samePackage(existing, product.package)) {
         throw XcrossError(
           'Swift package "$identity" is referenced differently by the Xcode '
           'projects in $iosAppDir ($existing vs ${product.package}). '
           'Use the same package reference in every project.',
         );
       }
-      byIdentity[identity] = product.package;
-      products.add(product);
+      final package = existing ?? product.package;
+      byIdentity[identity] = package;
+      products.add(
+        SwiftPackageProductDependency(
+          productName: product.productName,
+          package: package,
+        ),
+      );
     }
   }
   if (products.isEmpty) {
@@ -96,6 +102,17 @@ HostSwiftPackages readHostSwiftPackages({
           ),
   );
 }
+
+/// Whether two references name the same package for SwiftPM: equal local
+/// paths, or remote URLs equal after [normalizedSwiftPackageUrl] with the
+/// same requirement.
+bool _samePackage(SwiftPackageReference a, SwiftPackageReference b) =>
+    switch ((a, b)) {
+      (final RemoteSwiftPackage a, final RemoteSwiftPackage b) =>
+        normalizedSwiftPackageUrl(a.url) == normalizedSwiftPackageUrl(b.url) &&
+            a.requirement == b.requirement,
+      _ => a == b,
+    };
 
 /// Compares dotted version strings numerically (`16.0` > `15.4`).
 @internal
@@ -207,17 +224,54 @@ List<SwiftPackageProductDependency> _readProject(
       if (id is String)
         if (referenceFor(id) case final LocalSwiftPackage local) local,
   };
-  // Pre-Xcode-15 style: a local package added as a folder reference.
-  for (final entry in objects.values) {
-    final ref = _map(entry);
+  // Pre-Xcode-15 style: a local package added as a folder reference. Its
+  // path is relative to what its `sourceTree` names: the enclosing group
+  // (`<group>`, resolved through the parent groups' paths; a group without
+  // a path adds no segment), the project directory (`SOURCE_ROOT`), or
+  // nothing (`<absolute>`).
+  final parentOf = <String, String>{};
+  for (final MapEntry(:key, :value) in objects.entries) {
+    final group = _map(value);
+    final isa = group['isa'];
+    if (isa != 'PBXGroup' && isa != 'PBXVariantGroup') continue;
+    for (final child in _list(group['children'])) {
+      if (child is String) parentOf[child] = key;
+    }
+  }
+  final resolving = <String>{};
+  String? locationOf(String id) {
+    if (!resolving.add(id)) return null; // A cycle: malformed project.
+    try {
+      final ref = object(id);
+      final path = ref['path'];
+      final relative = path is String ? path : '';
+      final tree = ref['sourceTree'] ?? '<group>';
+      switch (tree) {
+        case '<absolute>':
+          return path is String ? path : null;
+        case 'SOURCE_ROOT':
+          return paths.join(projectDir, relative);
+        case '<group>':
+          final parent = parentOf[id];
+          final base = parent == null ? projectDir : locationOf(parent);
+          return base == null ? null : paths.join(base, relative);
+        default:
+          return null;
+      }
+    } finally {
+      resolving.remove(id);
+    }
+  }
+
+  for (final MapEntry(key: id, :value) in objects.entries) {
+    final ref = _map(value);
     if (ref['isa'] != 'PBXFileReference') continue;
-    final path = ref['path'];
-    if (path is! String) continue;
+    if (ref['path'] is! String) continue;
     final type = ref['lastKnownFileType'];
     if (type != 'wrapper' && type != 'folder') continue;
-    final absolute = paths.normalize(
-      paths.absolute(paths.join(projectDir, path)),
-    );
+    final location = locationOf(id);
+    if (location == null) continue;
+    final absolute = paths.normalize(paths.absolute(location));
     if (files.file(paths.join(absolute, 'Package.swift')).existsSync()) {
       locals.add(LocalSwiftPackage(absolute));
     }
