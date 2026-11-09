@@ -12,7 +12,9 @@ import 'package:path/path.dart' as p;
 /// (no process spawning), so it is deterministic and works on any host.
 @internal
 final class SwiftModuleIndex {
-  SwiftModuleIndex._(Set<String> modules) : modules = Set.unmodifiable(modules);
+  SwiftModuleIndex._(Set<String> modules, Map<String, String> details)
+    : implementationDetailOf = Map.unmodifiable(details),
+      modules = Set.unmodifiable(modules.difference(details.keys.toSet()));
 
   /// Indexes [sdkPath] (the `.sdk` leaf) and [resourceDir] (the toolchain
   /// `usr/lib/swift`). [platformSdkName] is `iphoneos` or `iphonesimulator`.
@@ -25,6 +27,7 @@ final class SwiftModuleIndex {
     Iterable<String> extraModules = const [],
   }) {
     final found = <String>{...extraModules};
+    final details = <String, String>{};
 
     // Frameworks are importable only when they ship a Modules dir. Headers-only
     // frameworks (e.g. IOKit) are not modules. Foundation, SwiftUI and UIKit
@@ -34,9 +37,15 @@ final class SwiftModuleIndex {
       for (final entry in _list(files, dir)) {
         final name = p.basename(entry.path);
         if (!name.endsWith('.framework')) continue;
-        if (files.directory(p.join(entry.path, 'Modules')).existsSync()) {
-          found.add(p.basenameWithoutExtension(name));
-        }
+        final modulesDir = p.join(entry.path, 'Modules');
+        if (!files.directory(modulesDir).existsSync()) continue;
+        final module = p.basenameWithoutExtension(name);
+        found.add(module);
+        final owner = _publicModuleName(
+          files,
+          p.join(modulesDir, '$module.swiftmodule'),
+        );
+        if (owner != null && owner != module) details[module] = owner;
       }
     }
 
@@ -69,11 +78,17 @@ final class SwiftModuleIndex {
         continue;
       }
     }
-    return SwiftModuleIndex._(found);
+    return SwiftModuleIndex._(found, details);
   }
 
   /// Every module name resolvable.
   final Set<String> modules;
+
+  /// Modules that exist in the SDK but that swiftc refuses to import because
+  /// their interface declares `-public-module-name Other` (e.g. `SwiftUICore`
+  /// for `SwiftUI`, `RealityFoundation` for `RealityKit`), mapped to `Other`.
+  /// They are not in [modules], and [missing] reports them.
+  final Map<String, String> implementationDetailOf;
 
   bool contains(String module) => modules.contains(module);
 
@@ -111,6 +126,45 @@ final class SwiftModuleIndex {
       .replaceAll(RegExp(r'/\*.*?\*/', dotAll: true), '')
       .replaceAll(RegExp(r'//[^\n]*'), '')
       .replaceAll(RegExp(r'"[^"\n]*"'), '""');
+
+  /// The `-public-module-name` declared in the header of the first
+  /// `.swiftinterface` under [swiftmodule], or null. Only the first few KB are
+  /// read: the flags live on the third line of the interface.
+  static String? _publicModuleName(
+    HostFileSystemInterface files,
+    String swiftmodule,
+  ) {
+    final interface = _list(
+      files,
+      swiftmodule,
+    ).whereType<File>().where((f) => f.path.endsWith('.swiftinterface'));
+    if (interface.isEmpty) return null;
+    try {
+      final raf = files.file(interface.first.path).openSync();
+      try {
+        final head = String.fromCharCodes(raf.readSync(8192));
+        return publicModuleNameFromInterfaceHeader(head);
+      } finally {
+        raf.closeSync();
+      }
+    } on FileSystemException {
+      return null;
+    }
+  }
+
+  /// Extracts `X` from `-public-module-name X` in the `// swift-module-flags`
+  /// comment lines of an interface [header].
+  @visibleForTesting
+  static String? publicModuleNameFromInterfaceHeader(String header) {
+    for (final line in header.split('\n')) {
+      if (!line.startsWith('// swift-module-flags')) continue;
+      final m = RegExp(
+        r'(?:^|\s)-public-module-name[\s=]+([A-Za-z_][A-Za-z0-9_]*)',
+      ).firstMatch(line);
+      if (m != null) return m.group(1);
+    }
+    return null;
+  }
 
   static Iterable<FileSystemEntity> _list(
     HostFileSystemInterface files,

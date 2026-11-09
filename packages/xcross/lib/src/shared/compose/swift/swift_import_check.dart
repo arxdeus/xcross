@@ -11,10 +11,14 @@ import 'package:xcross/src/shared/compose/swift/swift_module_index.dart';
 @internal
 @immutable
 final class UnresolvedSwiftImport {
-  const UnresolvedSwiftImport(this.module, this.firstUse);
+  const UnresolvedSwiftImport(this.module, this.firstUse, {this.publicModule});
 
   final String module;
   final SwiftImport firstUse;
+
+  /// Set when [module] exists but is an implementation detail of this public
+  /// module, which must be imported instead (swiftc rejects the direct import).
+  final String? publicModule;
 }
 
 /// Builds the module index for [sdkPath] exactly as the build does.
@@ -45,15 +49,26 @@ List<UnresolvedSwiftImport> unresolvedSwiftImports(
       project.swiftImports.firstWhere(
         (i) => !i.conditional && i.module == module,
       ),
+      publicModule: index.implementationDetailOf[module],
     ),
 ];
 
-/// One `  - Module (imported at rel/path:line)` line per unresolved import.
+/// One `  - Module (imported at rel/path:line)` line per unresolved import,
+/// with `: implementation detail of X, import X instead` when applicable.
 @internal
 List<String> formatUnresolvedSwiftImports(
   KmpProject project,
   List<UnresolvedSwiftImport> unresolved,
-) => [
-  for (final u in unresolved)
-    '  - ${u.module} (imported at ${p.isWithin(project.root, u.firstUse.path) ? p.relative(u.firstUse.path, from: project.root) : u.firstUse.path}:${u.firstUse.line})',
-];
+) => [for (final u in unresolved) _formatUnresolved(project, u)];
+
+String _formatUnresolved(KmpProject project, UnresolvedSwiftImport u) {
+  final use = u.firstUse;
+  final path = p.isWithin(project.root, use.path)
+      ? p.relative(use.path, from: project.root)
+      : use.path;
+  final hint = u.publicModule == null
+      ? ''
+      : ': implementation detail of ${u.publicModule}, '
+            'import ${u.publicModule} instead';
+  return '  - ${u.module} (imported at $path:${use.line})$hint';
+}

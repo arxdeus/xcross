@@ -77,6 +77,45 @@ extern module Dispatch "dispatch.modulemap"
     expect(scan().modules, isEmpty);
   });
 
+  test('excludes implementation-detail modules and records the owner', () {
+    dir('sdk/System/Library/Frameworks/SwiftUI.framework/Modules');
+    file(
+      'sdk/System/Library/Frameworks/SwiftUICore.framework/Modules/'
+          'SwiftUICore.swiftmodule/arm64e-apple-ios.swiftinterface',
+      '// swift-interface-format-version: 1.0\n'
+          '// swift-module-flags: -target arm64e-apple-ios26.5 '
+          '-module-name SwiftUICore\n'
+          '// swift-module-flags-ignorable: -user-module-version 7 '
+          '-public-module-name SwiftUI -package-name x\n'
+          'import Swift\n',
+    );
+    file(
+      'sdk/System/Library/Frameworks/Combine.framework/Modules/'
+          'Combine.swiftmodule/arm64e-apple-ios.swiftinterface',
+      '// swift-module-flags: -module-name Combine\n',
+    );
+    final index = scan();
+    expect(index.modules, containsAll(['SwiftUI', 'Combine']));
+    expect(index.contains('SwiftUICore'), isFalse);
+    expect(index.implementationDetailOf, {'SwiftUICore': 'SwiftUI'});
+    expect(index.missing(['SwiftUICore', 'SwiftUI']), ['SwiftUICore']);
+  });
+
+  test('parses -public-module-name only from module flag comments', () {
+    expect(
+      SwiftModuleIndex.publicModuleNameFromInterfaceHeader(
+        '// swift-module-flags: -O\nlet x = "-public-module-name Nope"\n',
+      ),
+      isNull,
+    );
+    expect(
+      SwiftModuleIndex.publicModuleNameFromInterfaceHeader(
+        '// swift-module-flags-ignorable: -public-module-name RealityKit\r\n',
+      ),
+      'RealityKit',
+    );
+  });
+
   final bundle = p.join(
     Platform.environment['HOME'] ?? '',
     '.config/xcross/swift-sdks/xcross-darwin.artifactbundle',
@@ -115,5 +154,7 @@ extern module Dispatch "dispatch.modulemap"
       ]),
       isEmpty,
     );
+    expect(index.implementationDetailOf['SwiftUICore'], 'SwiftUI');
+    expect(index.contains('SwiftUICore'), isFalse);
   }, skip: Directory(realSdk).existsSync() ? false : 'no local SDK bundle');
 }

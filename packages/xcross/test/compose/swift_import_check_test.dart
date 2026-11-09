@@ -74,4 +74,27 @@ void main() {
     ]);
     expect(check(proj), isEmpty);
   });
+
+  test('tells which module to import instead of an implementation detail', () {
+    File(
+        p.join(
+          sdk,
+          'System/Library/Frameworks/SwiftUICore.framework/Modules/'
+          'SwiftUICore.swiftmodule/arm64e-apple-ios.swiftinterface',
+        ),
+      )
+      ..createSync(recursive: true)
+      ..writeAsStringSync(
+        '// swift-module-flags-ignorable: -public-module-name SwiftUI\n',
+      );
+    final proj = project([
+      const SwiftImport('SwiftUICore', path: '/proj/iosApp/A.swift', line: 3),
+    ]);
+    final result = check(proj);
+    expect(result.single.publicModule, 'SwiftUI');
+    const expected =
+        '  - SwiftUICore (imported at iosApp/A.swift:3): '
+        'implementation detail of SwiftUI, import SwiftUI instead';
+    expect(formatUnresolvedSwiftImports(proj, result), [expected]);
+  });
 }
