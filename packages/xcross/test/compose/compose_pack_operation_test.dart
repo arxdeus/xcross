@@ -11,6 +11,7 @@ import 'package:xcross/src/shared/compose/build/compose_packer.dart';
 import 'package:xcross/src/shared/compose/build/gradle_klib_builder.dart';
 import 'package:xcross/src/shared/compose/models/compose_build_options.dart';
 import 'package:xcross/src/shared/compose/project/kmp_project.dart';
+import 'package:xcross/src/shared/compose/swift/swift_import.dart';
 import 'package:xcross/src/shared/compose/toolchain/compose_toolchain.dart';
 import 'package:xcross/src/shared/errors/errors.dart';
 import 'package:xcross/src/shared/models/pack_result.dart';
@@ -604,6 +605,77 @@ kotlin {
         'swift-runner',
         'assemble',
       ]);
+    });
+
+    group('Swift import preflight', () {
+      KmpProject withImports(String root, List<SwiftImport> imports) {
+        final base = _project(root, KmpEntryKind.swiftApp);
+        return KmpProject(
+          root: base.root,
+          modulePath: base.modulePath,
+          moduleName: base.moduleName,
+          baseName: base.baseName,
+          entryKind: base.entryKind,
+          bundleId: base.bundleId,
+          appName: base.appName,
+          swiftSources: base.swiftSources,
+          swiftImports: imports,
+        );
+      }
+
+      test(
+        'fails before the Kotlin compile naming module and file:line',
+        () async {
+          final events = <String>[];
+          final packer = _packer(
+            session,
+            events: events,
+            project: withImports('/proj', [
+              const SwiftImport(
+                'Sparkle',
+                path: '/proj/iosApp/App.swift',
+                line: 3,
+              ),
+            ]),
+          );
+          await expectLater(
+            packer.pack(),
+            throwsA(
+              isA<XcrossError>().having(
+                (e) => e.message,
+                'message',
+                allOf(contains('Sparkle'), contains('iosApp/App.swift:3')),
+              ),
+            ),
+          );
+          expect(events, ['toolchain']);
+        },
+      );
+
+      test('conditional imports and the framework itself pass', () async {
+        final events = <String>[];
+        final packer = _packer(
+          session,
+          events: events,
+          project: withImports('/proj', [
+            const SwiftImport(
+              'Sparkle',
+              path: '/proj/App.swift',
+              line: 1,
+              conditional: true,
+            ),
+            const SwiftImport('Shared', path: '/proj/App.swift', line: 2),
+          ]),
+          swiftRunner:
+              ({
+                required project,
+                required frameworkPath,
+                required toolchain,
+              }) async => 'Runner',
+        );
+        await packer.pack();
+        expect(events, contains('gradle-klib'));
+      });
     });
 
     test(

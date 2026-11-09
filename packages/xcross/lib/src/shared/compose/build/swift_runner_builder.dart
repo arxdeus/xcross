@@ -19,6 +19,18 @@ typedef SwiftRunnerRunChecked =
       String? workingDirectory,
     });
 
+/// The toolchain's Swift resource dir inside the Darwin SDK artifact bundle.
+@internal
+String swiftResourceDir(String darwinSdkBundle) => p.join(
+  darwinSdkBundle,
+  'Developer',
+  'Toolchains',
+  'XcodeDefault.xctoolchain',
+  'usr',
+  'lib',
+  'swift',
+);
+
 const _iosMinimumVersion = composeMinimumIosVersion;
 
 @internal
@@ -51,15 +63,7 @@ final class SwiftRunnerBuilder<T extends PlatformHostInterface> {
     final buildDir = toolchain.target.runnerDirectory(project.root, 'swift');
     await runner.host.fileSystem.directory(buildDir).create(recursive: true);
     final runnerPath = p.join(buildDir, 'Runner');
-    final resourceDir = p.join(
-      toolchain.darwinSdkBundle,
-      'Developer',
-      'Toolchains',
-      'XcodeDefault.xctoolchain',
-      'usr',
-      'lib',
-      'swift',
-    );
+    final resourceDir = swiftResourceDir(toolchain.darwinSdkBundle);
     final moduleCache = p.join(buildDir, 'swift-module-cache');
     await runner.host.fileSystem.directory(moduleCache).create(recursive: true);
     final clangBuiltins = _clangBuiltins(resourceDir, runner.host.fileSystem);

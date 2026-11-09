@@ -5,6 +5,7 @@ import 'package:cli_kit/shared/process/process.dart';
 import 'package:darwin_sdk_kit/shared/sdk/darwin_sdk_repository.dart';
 import 'package:darwin_sdk_kit/shared/toolchain/darwin_toolchain_resolver.dart';
 import 'package:meta/meta.dart';
+import 'package:path/path.dart' as p;
 import 'package:xcross/src/shared/compose/build/compose_app_assembler.dart';
 import 'package:xcross/src/shared/compose/build/gradle_klib_builder.dart';
 import 'package:xcross/src/shared/compose/build/kotlin_framework_builder.dart';
@@ -13,8 +14,10 @@ import 'package:xcross/src/shared/compose/build/swift_runner_builder.dart';
 import 'package:xcross/src/shared/compose/compose_build_context.dart';
 import 'package:xcross/src/shared/compose/models/compose_build_options.dart';
 import 'package:xcross/src/shared/compose/project/kmp_project.dart';
+import 'package:xcross/src/shared/compose/swift/swift_module_index.dart';
 import 'package:xcross/src/shared/compose/toolchain/compose_toolchain.dart';
 import 'package:xcross/src/shared/compose/toolchain/compose_toolchain_resolver.dart';
+import 'package:xcross/src/shared/errors/errors.dart';
 import 'package:xcross/src/shared/models/pack_result.dart';
 import 'package:xcross/src/target/shared/compose/compose_target.dart';
 
@@ -136,6 +139,9 @@ final class ComposePacker<T extends PlatformHostInterface> {
   Future<PackResult> pack() async {
     target.validateOutput(ipa: options.ipa);
     final toolchain = await _resolveToolchain();
+    if (project.entryKind == KmpEntryKind.swiftApp) {
+      checkSwiftImports(toolchain);
+    }
     final klib = await log.logStep(
       'Compiling Kotlin sources',
       () => (_buildKlib ?? GradleKlibBuilder(runner).build)(
@@ -157,6 +163,39 @@ final class ComposePacker<T extends PlatformHostInterface> {
       outputPath: appPath,
       bundleId: project.bundleId,
       projectRoot: project.root,
+    );
+  }
+
+  /// Fails fast, before the slow Kotlin compile, when the Swift sources
+  /// import a module swiftc cannot resolve against the Darwin SDK.
+  void checkSwiftImports(ComposeToolchain<T> toolchain) {
+    final index = SwiftModuleIndex.scan(
+      files: runner.host.fileSystem,
+      sdkPath: toolchain.darwinSdkPath,
+      resourceDir: swiftResourceDir(toolchain.darwinSdkBundle),
+      platformSdkName: toolchain.target.buildPlatform.sdkName,
+      extraModules: {project.baseName},
+    );
+    final missing = index.missing(project.requiredSwiftModules);
+    if (missing.isEmpty) return;
+    final lines = <String>[];
+    for (final module in missing) {
+      final first = project.swiftImports.firstWhere(
+        (i) => !i.conditional && i.module == module,
+      );
+      final rel = p.isWithin(project.root, first.path)
+          ? p.relative(first.path, from: project.root)
+          : first.path;
+      lines.add('  - $module (imported at $rel:${first.line})');
+    }
+    throw XcrossError(
+      'Swift sources import modules the Darwin SDK does not provide:\n'
+      '${lines.join('\n')}\n'
+      'The SDK at ${toolchain.darwinSdkPath} does not contain them, and '
+      'xcross links only that SDK and the KMP framework (third-party Swift '
+      'packages and CocoaPods are not linked). Wrap optional imports in '
+      '`#if canImport(Module)`, or build just the framework with '
+      '`xcross compose build --framework`.',
     );
   }
 
