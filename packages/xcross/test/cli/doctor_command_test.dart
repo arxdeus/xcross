@@ -16,6 +16,7 @@ import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 import 'package:xcross/src/composition/cli/doctor_sections.dart';
 import 'package:xcross/src/composition/cli/runner.dart';
+import 'package:xcross/src/composition/ios_target.dart';
 import 'package:xcross/src/shared/cli/basic/doctor_command.dart';
 import 'package:xcross/src/shared/cli/basic/doctor_environment_checks.dart';
 import 'package:xcross/src/shared/cli/basic/doctor_models.dart';
@@ -241,6 +242,8 @@ void main() {
   });
 
   group('Compose doctor Swift imports', () {
+    // The SwiftPM workspace `compose build` would use, inside [files].
+    const cacheEnv = {'XCROSS_CACHE_DIR': '/cache'};
     late DoctorServiceFileSystem files;
     void write(String path, String content) => files.file(path)
       ..parent.createSync(recursive: true)
@@ -288,7 +291,7 @@ void main() {
     }
 
     Future<List<DoctorCheck>> run() {
-      final runtime = testRuntime(fileSystem: files);
+      final runtime = testRuntime(fileSystem: files, environment: cacheEnv);
       final sections = DoctorSections(
         runtime,
         projectRoot: '/project',
@@ -422,6 +425,49 @@ void main() {
       expect(check.message, contains('xcross compose build'));
       expect(check.message, contains('FirebaseCore'));
       expect(check.message, isNot(contains('Alamofire (')));
+    });
+
+    /// Writes the SwiftPM workspace an earlier `compose build` of `/project`
+    /// left: Alamofire resolved, and its checkout declaring [targets].
+    void resolvedWorkspace({required String targets}) {
+      final runtime = testRuntime(fileSystem: files, environment: cacheEnv);
+      final scratch = composePhysicalFeatures(
+        runtime,
+      ).swiftPmBuilder.workspaceFor('/project').scratch;
+      write('$scratch/workspace-state.json', '''
+{"object": {"dependencies": [
+  {"packageRef": {"identity": "alamofire", "kind": "remoteSourceControl",
+   "location": "https://github.com/Alamofire/Alamofire.git",
+   "name": "Alamofire"},
+   "subpath": "Alamofire"}
+]}}
+''');
+      write('$scratch/checkouts/Alamofire/Package.swift', targets);
+    }
+
+    test('after a build resolved the packages, a missing import is a '
+        'failure', () async {
+      project(swift: 'import Alamofire\nimport FirebaseCore');
+      packageProject();
+      installSdk();
+      resolvedWorkspace(targets: '.target(name: "Alamofire")');
+      final check = (await run()).singleWhere((c) => c.name == 'Swift imports');
+      expect(check.status, DoctorStatus.failure);
+      expect(check.message, contains('FirebaseCore'));
+      expect(check.message, isNot(contains('Alamofire (')));
+    });
+
+    test('after a build resolved the packages, a module of the resolved '
+        'graph that is not a product resolves', () async {
+      project(swift: 'import Alamofire\nimport AlamofireCore');
+      packageProject();
+      installSdk();
+      resolvedWorkspace(
+        targets: '.target(name: "Alamofire"),\n.target(name: "AlamofireCore")',
+      );
+      final check = (await run()).singleWhere((c) => c.name == 'Swift imports');
+      expect(check.status, DoctorStatus.success);
+      expect(check.message, contains('2 from Swift packages'));
     });
 
     test('only local packages: names Swift packages when an import is '

@@ -265,9 +265,14 @@ final class DoctorSections<T extends PlatformHostInterface> {
       );
       fromSdk = project.requiredSwiftModules.where(sdkIndex.contains).length;
       // Without building, a package provides its product names and the
-      // targets of a local package; `compose build` checks the built ones.
-      // A remote package may bring modules of packages not fetched yet.
-      final known = declaredPackageModules(declared, runtime.host.fileSystem);
+      // targets of a local package, plus every target of the graph an
+      // earlier `compose build` resolved; `compose build` checks the built
+      // ones. A remote package not fetched yet may bring other modules.
+      final known = declaredPackageModules(
+        declared,
+        runtime.host.fileSystem,
+        scratchDir: declared.isEmpty ? null : _swiftPmScratch(project),
+      );
       packagesKnown = known.complete;
       final index = swiftModuleIndexFor(
         files: runtime.host.fileSystem,
@@ -313,6 +318,21 @@ final class DoctorSections<T extends PlatformHostInterface> {
       '${declared.isEmpty ? 'Not provided by the Darwin SDK' : 'Not provided by the Darwin SDK or the Swift packages'}:\n'
       '${formatUnresolvedSwiftImports(project, missing).join('\n')}',
     );
+  }
+
+  /// The SwiftPM scratch directory `compose build` uses for [project], or
+  /// null when it cannot be located (then remote packages count as unknown).
+  String? _swiftPmScratch(KmpProject project) {
+    try {
+      return features.swiftPmBuilder
+          .workspaceFor(
+            project.root,
+            environment: runtime.runner.effectiveEnvironment,
+          )
+          .scratch;
+    } on Object {
+      return null;
+    }
   }
 
   /// One row per tool the Compose build resolves. The Darwin SDK and linker
