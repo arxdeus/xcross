@@ -12,9 +12,12 @@ import 'package:xcross/src/shared/compose/build/gradle_klib_builder.dart';
 import 'package:xcross/src/shared/compose/models/compose_build_options.dart';
 import 'package:xcross/src/shared/compose/project/kmp_project.dart';
 import 'package:xcross/src/shared/compose/swift/swift_import.dart';
+import 'package:xcross/src/shared/compose/swiftpm/host_package_link.dart';
+import 'package:xcross/src/shared/compose/swiftpm/swift_package_model.dart';
 import 'package:xcross/src/shared/compose/toolchain/compose_toolchain.dart';
 import 'package:xcross/src/shared/errors/errors.dart';
 import 'package:xcross/src/shared/models/pack_result.dart';
+import 'package:xcross/src/shared/swiftpm/package_types.dart';
 import 'package:xcross/src/target/shared/compose/compose_target.dart';
 
 import 'support/compose_platforms.dart';
@@ -590,6 +593,7 @@ kotlin {
               required project,
               required frameworkPath,
               required toolchain,
+              packages,
             }) async {
               events.add('swift-runner');
               return 'Runner';
@@ -671,10 +675,251 @@ kotlin {
                 required project,
                 required frameworkPath,
                 required toolchain,
+                packages,
               }) async => 'Runner',
         );
         await packer.pack();
         expect(events, contains('gradle-klib'));
+      });
+
+      group('with Swift packages', () {
+        const alamofire = RemoteSwiftPackage(
+          url: 'https://github.com/Alamofire/Alamofire.git',
+          requirement: UpToNextMajorRequirement('5.9.0'),
+        );
+        const declared = HostSwiftPackages(
+          packages: [alamofire],
+          products: [
+            SwiftPackageProductDependency(
+              productName: 'Alamofire',
+              package: alamofire,
+            ),
+            SwiftPackageProductDependency(
+              productName: 'Numerics',
+              package: alamofire,
+            ),
+          ],
+          packageResolvedPath: null,
+          xcodeprojPath: '/proj/iosApp/iosApp.xcodeproj',
+        );
+        const link = HostPackageLink(
+          productName: 'XcrossHostPackages',
+          libraryPath: '/ws/debug/libXcrossHostPackages.dylib',
+          modulesDir: '/ws/debug/Modules',
+          moduleMapFiles: [],
+          frameworkSearchPaths: ['/ws/debug'],
+          build: SwiftPmBuildResult(
+            libraryPath: '/ws/debug/libXcrossHostPackages.dylib',
+            dylibPaths: [],
+            modulesDir: '/ws/debug/Modules',
+          ),
+          modules: {'Alamofire', 'Numerics', 'RealModule'},
+        );
+
+        test('fail before the network and Kotlin on an undeclared module, '
+            'naming the Xcode project', () async {
+          final events = <String>[];
+          final packer = _packer(
+            session,
+            events: events,
+            project: withImports('/proj', [
+              const SwiftImport(
+                'Alamofire',
+                path: '/proj/iosApp/A.swift',
+                line: 3,
+              ),
+              const SwiftImport(
+                'FirebaseCore',
+                path: '/proj/iosApp/A.swift',
+                line: 5,
+              ),
+            ]),
+            readHostPackages: (_) => declared,
+            buildHostPackages:
+                ({required project, required packages, required toolchain}) {
+                  events.add('packages');
+                  return Future.value(link);
+                },
+          );
+          await expectLater(
+            packer.pack(),
+            throwsA(
+              isA<XcrossError>().having(
+                (e) => e.message,
+                'message',
+                allOf(
+                  contains('FirebaseCore (imported at iosApp/A.swift:5)'),
+                  isNot(contains('Alamofire (')),
+                  contains('iosApp/iosApp.xcodeproj'),
+                  contains('CocoaPods are not supported'),
+                  contains('#if canImport'),
+                ),
+              ),
+            ),
+          );
+          expect(events, ['toolchain']);
+        });
+
+        test('without packages, points at iosApp/*.xcodeproj', () async {
+          final packer = _packer(
+            session,
+            events: [],
+            project: withImports('/proj', [
+              const SwiftImport(
+                'Alamofire',
+                path: '/proj/iosApp/A.swift',
+                line: 3,
+              ),
+            ]),
+          );
+          await expectLater(
+            packer.pack(),
+            throwsA(
+              isA<XcrossError>().having(
+                (e) => e.message,
+                'message',
+                allOf(contains('iosApp/*.xcodeproj'), contains('--framework')),
+              ),
+            ),
+          );
+        });
+
+        test('build before Kotlin, accept modules of a built product, and '
+            'hand the link to the runner and the app', () async {
+          final events = <String>[];
+          HostPackageLink? runnerLink;
+          HostPackageLink? appLink;
+          final packer = _packer(
+            session,
+            events: events,
+            project: withImports('/proj', [
+              const SwiftImport(
+                'Alamofire',
+                path: '/proj/iosApp/A.swift',
+                line: 3,
+              ),
+              const SwiftImport(
+                'Numerics',
+                path: '/proj/iosApp/A.swift',
+                line: 4,
+              ),
+            ]),
+            readHostPackages: (_) => declared,
+            buildHostPackages:
+                ({required project, required packages, required toolchain}) {
+                  events.add('packages');
+                  return Future.value(link);
+                },
+            swiftRunner:
+                ({
+                  required project,
+                  required frameworkPath,
+                  required toolchain,
+                  packages,
+                }) async {
+                  events.add('swift-runner');
+                  runnerLink = packages;
+                  return 'Runner';
+                },
+            assembleApp:
+                ({
+                  required project,
+                  required runnerPath,
+                  required frameworkPath,
+                  packages,
+                }) async {
+                  events.add('assemble');
+                  appLink = packages;
+                  return 'Demo.app';
+                },
+          );
+          await packer.pack();
+          expect(events, [
+            'toolchain',
+            'packages',
+            'gradle-klib',
+            'framework',
+            'swift-runner',
+            'assemble',
+          ]);
+          expect(runnerLink, same(link));
+          expect(appLink, same(link));
+        });
+
+        test('reject an import the built packages do not provide', () async {
+          final events = <String>[];
+          final packer = _packer(
+            session,
+            events: events,
+            project: withImports('/proj', [
+              // A declared product name the build did not turn into a module.
+              const SwiftImport(
+                'Numerics',
+                path: '/proj/iosApp/A.swift',
+                line: 4,
+              ),
+            ]),
+            readHostPackages: (_) => declared,
+            buildHostPackages:
+                ({required project, required packages, required toolchain}) {
+                  events.add('packages');
+                  return Future.value(
+                    const HostPackageLink(
+                      productName: 'XcrossHostPackages',
+                      libraryPath: '/l',
+                      modulesDir: null,
+                      moduleMapFiles: [],
+                      frameworkSearchPaths: [],
+                      build: SwiftPmBuildResult(
+                        libraryPath: '/l',
+                        dylibPaths: [],
+                        modulesDir: null,
+                      ),
+                      modules: {'Alamofire'},
+                    ),
+                  );
+                },
+          );
+          await expectLater(
+            packer.pack(),
+            throwsA(
+              isA<XcrossError>().having(
+                (e) => e.message,
+                'message',
+                contains('Numerics (imported at iosApp/A.swift:4)'),
+              ),
+            ),
+          );
+          expect(events, ['toolchain', 'packages']);
+        });
+
+        test('no packages: no package step, runner called as before', () async {
+          final events = <String>[];
+          var sawPackages = false;
+          final packer = _packer(
+            session,
+            events: events,
+            project: _project('/proj', KmpEntryKind.swiftApp),
+            buildHostPackages:
+                ({required project, required packages, required toolchain}) {
+                  events.add('packages');
+                  return Future.value(link);
+                },
+            swiftRunner:
+                ({
+                  required project,
+                  required frameworkPath,
+                  required toolchain,
+                  packages,
+                }) async {
+                  sawPackages = packages != null;
+                  return 'Runner';
+                },
+          );
+          await packer.pack();
+          expect(events, isNot(contains('packages')));
+          expect(sawPackages, isFalse);
+        });
       });
 
       for (final kind in [
@@ -771,8 +1016,13 @@ ComposePacker _packer(
   required List<String> events,
   ComposeEnsureToolchain? ensureToolchain,
   ComposeBuildRunner? objcRunner,
-  ComposeBuildRunner? swiftRunner,
+  ComposeBuildSwiftRunner? swiftRunner,
+  ComposeReadHostPackages? readHostPackages,
+  ComposeBuildHostPackages? buildHostPackages,
+  ComposeAssembleApp? assembleApp,
 }) => ComposePacker.withSeams(
+  readHostPackages: readHostPackages ?? ((project) => HostSwiftPackages.empty),
+  buildHostPackages: buildHostPackages,
   log: session.fixtureLog,
   project: project,
   options: const ComposeBuildOptions(),
@@ -824,12 +1074,23 @@ ComposePacker _packer(
       },
   buildSwiftRunner:
       swiftRunner ??
-      ({required project, required frameworkPath, required toolchain}) async {
+      ({
+        required project,
+        required frameworkPath,
+        required toolchain,
+        packages,
+      }) async {
         events.add('unexpected-swift-runner');
         return 'Runner';
       },
   assembleApp:
-      ({required project, required runnerPath, required frameworkPath}) async {
+      assembleApp ??
+      ({
+        required project,
+        required runnerPath,
+        required frameworkPath,
+        packages,
+      }) async {
         events.add('assemble');
         return p.join(
           project.root,

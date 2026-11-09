@@ -41,8 +41,14 @@ HostSwiftPackages readHostSwiftPackages({
 
   final byIdentity = <String, SwiftPackageReference>{};
   final products = <SwiftPackageProductDependency>{};
+  final deploymentTargets = <String>{};
   for (final project in projects) {
-    for (final product in _readProject(files, paths, project)) {
+    for (final product in _readProject(
+      files,
+      paths,
+      project,
+      deploymentTargets: deploymentTargets,
+    )) {
       final identity = product.package.identity;
       final existing = byIdentity[identity];
       if (existing != null && existing != product.package) {
@@ -83,7 +89,25 @@ HostSwiftPackages readHostSwiftPackages({
       xcodeprojPaths: projects,
     ),
     xcodeprojPath: projects.first,
+    deploymentTarget: deploymentTargets.isEmpty
+        ? null
+        : deploymentTargets.reduce(
+            (a, b) => compareVersions(a, b) >= 0 ? a : b,
+          ),
   );
+}
+
+/// Compares dotted version strings numerically (`16.0` > `15.4`).
+@internal
+int compareVersions(String a, String b) {
+  final left = a.split('.').map((s) => int.tryParse(s) ?? 0).toList();
+  final right = b.split('.').map((s) => int.tryParse(s) ?? 0).toList();
+  for (var i = 0; i < left.length || i < right.length; i++) {
+    final l = i < left.length ? left[i] : 0;
+    final r = i < right.length ? right[i] : 0;
+    if (l != r) return l.compareTo(r);
+  }
+  return 0;
 }
 
 /// The `Package.resolved` Xcode pins versions in. A workspace in
@@ -137,8 +161,9 @@ Set<String> declaredLibraryProducts(String manifest) {
 List<SwiftPackageProductDependency> _readProject(
   HostFileSystemInterface files,
   p.Context paths,
-  String xcodeproj,
-) {
+  String xcodeproj, {
+  Set<String>? deploymentTargets,
+}) {
   final pbxPath = paths.join(xcodeproj, 'project.pbxproj');
   final Map<String, Object?> archive;
   try {
@@ -223,12 +248,33 @@ List<SwiftPackageProductDependency> _readProject(
   }
 
   final result = <SwiftPackageProductDependency>[];
+  // Xcode builds an app target's packages for the target's deployment
+  // target (the project's when the target sets none).
+  String? deploymentTargetOf(Map<String, Object?> owner) {
+    String? found;
+    for (final id in _list(
+      object(owner['buildConfigurationList'])['buildConfigurations'],
+    )) {
+      final value = _map(
+        object(id)['buildSettings'],
+      )['IPHONEOS_DEPLOYMENT_TARGET'];
+      if (value is String && value.isNotEmpty) {
+        if (found == null || compareVersions(value, found) > 0) found = value;
+      }
+    }
+    return found;
+  }
+
+  final projectDeploymentTarget = deploymentTargetOf(rootProject);
   for (final targetId in _list(rootProject['targets'])) {
     final target = object(targetId);
     if (target['isa'] != 'PBXNativeTarget' ||
         target['productType'] != _applicationProductType) {
       continue;
     }
+    final deploymentTarget =
+        deploymentTargetOf(target) ?? projectDeploymentTarget;
+    if (deploymentTarget != null) deploymentTargets?.add(deploymentTarget);
     for (final depId in _list(target['packageProductDependencies'])) {
       final dep = object(depId);
       if (dep['isa'] != 'XCSwiftPackageProductDependency') continue;

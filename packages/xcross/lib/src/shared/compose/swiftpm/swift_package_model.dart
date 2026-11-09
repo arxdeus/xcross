@@ -220,6 +220,7 @@ final class HostSwiftPackages {
     required this.products,
     required this.packageResolvedPath,
     required this.xcodeprojPath,
+    this.deploymentTarget,
   });
 
   static const empty = HostSwiftPackages(
@@ -241,6 +242,10 @@ final class HostSwiftPackages {
   /// Absolute path of the `.xcodeproj` read (the first one when several were
   /// merged), or null when there is none.
   final String? xcodeprojPath;
+
+  /// The highest `IPHONEOS_DEPLOYMENT_TARGET` the app targets declare (Xcode
+  /// builds their packages for it), or null when none does.
+  final String? deploymentTarget;
 
   bool get isEmpty => products.isEmpty;
 }

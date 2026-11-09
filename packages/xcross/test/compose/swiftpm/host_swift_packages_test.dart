@@ -422,16 +422,61 @@ void main() {
     expect(names, hasLength(9));
   });
 
+  test('deployment target: highest of the app targets, project fallback, '
+      'test targets ignored', () {
+    String project({String? appTarget}) =>
+        '''
+{
+  objects = {
+    APP = {
+      isa = PBXNativeTarget;
+      ${appTarget == null ? '' : 'buildConfigurationList = APPCFG;'}
+      packageProductDependencies = (PROD);
+      productType = "com.apple.product-type.application";
+    };
+    TESTS = {
+      isa = PBXNativeTarget;
+      buildConfigurationList = TESTCFG;
+      productType = "com.apple.product-type.bundle.unit-test";
+    };
+    APPCFG = {isa = XCConfigurationList; buildConfigurations = (APPDBG, APPREL);};
+    APPDBG = {isa = XCBuildConfiguration; buildSettings = {IPHONEOS_DEPLOYMENT_TARGET = 16.0;};};
+    APPREL = {isa = XCBuildConfiguration; buildSettings = {IPHONEOS_DEPLOYMENT_TARGET = $appTarget;};};
+    TESTCFG = {isa = XCConfigurationList; buildConfigurations = (TESTDBG);};
+    TESTDBG = {isa = XCBuildConfiguration; buildSettings = {IPHONEOS_DEPLOYMENT_TARGET = 18.0;};};
+    PROJCFG = {isa = XCConfigurationList; buildConfigurations = (PROJDBG);};
+    PROJDBG = {isa = XCBuildConfiguration; buildSettings = {IPHONEOS_DEPLOYMENT_TARGET = 15.4;};};
+    PROD = {isa = XCSwiftPackageProductDependency; package = PKG; productName = Alamofire;};
+    PKG = {
+      isa = XCRemoteSwiftPackageReference;
+      repositoryURL = "https://github.com/Alamofire/Alamofire.git";
+      requirement = {kind = upToNextMajorVersion; minimumVersion = 5.9.0;};
+    };
+    ROOT = {
+      isa = PBXProject;
+      buildConfigurationList = PROJCFG;
+      packageReferences = (PKG);
+      targets = (APP, TESTS);
+    };
+  };
+  rootObject = ROOT;
+}
+''';
+    file('iosApp/iosApp.xcodeproj/project.pbxproj', project(appTarget: '16.4'));
+    expect(read().deploymentTarget, '16.4');
+    file('iosApp/iosApp.xcodeproj/project.pbxproj', project());
+    expect(read().deploymentTarget, '15.4');
+    expect(compareVersions('16.0', '15.10'), greaterThan(0));
+    expect(compareVersions('15', '15.0'), 0);
+  });
+
   test('golden Package.swift', () {
     standardProject();
     final manifest = generateHostPackagesManifest(
       packages: read(),
       deploymentTarget: '15.0',
     );
-    expect(
-      manifest.packageSwift.replaceAll(root.path, '/ROOT'),
-      _golden,
-    );
+    expect(manifest.packageSwift.replaceAll(root.path, '/ROOT'), _golden);
     expect(manifest.sources.keys, [
       'Sources/XcrossHostPackages/XcrossHostPackages.swift',
     ]);

@@ -47,6 +47,7 @@ final class SimulatorBuildFeatures<T extends PlatformHostInterface>
     tools: runtime.darwinToolchain,
     sdkRepository: runtime.sdkRepository,
     cacheRoot: runtime.config.roots?.konanData,
+    swiftPmBuilder: () => swiftPmBuilder,
   );
   @override
   late final ComposeToolchainResolver<T> composeResolver =

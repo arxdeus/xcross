@@ -29,12 +29,13 @@ SwiftModuleIndex swiftModuleIndexFor({
   required String darwinSdkBundle,
   required String platformSdkName,
   required String baseName,
+  Iterable<String> extraModules = const [],
 }) => SwiftModuleIndex.scan(
   files: files,
   sdkPath: sdkPath,
   resourceDir: swiftResourceDir(darwinSdkBundle),
   platformSdkName: platformSdkName,
-  extraModules: {baseName},
+  extraModules: {baseName, ...extraModules},
 );
 
 /// Required modules missing from [index], sorted by module name.
