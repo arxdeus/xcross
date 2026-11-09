@@ -38,9 +38,11 @@ final class KotlinSourceWatcher {
   ///
   /// Gradle files matter as much as Kotlin here: a dependency bump in
   /// `build.gradle.kts` changes the framework without touching a single
-  /// `.kt` file.
+  /// `.kt` file. `.swift` covers SwiftUI hosts: the rebuild re-detects the
+  /// project, so a newly added Swift import is checked by the preflight.
   static const _watchedExtensions = {
     '.kt',
+    '.swift',
     '.kts',
     '.klib',
     '.toml',

@@ -44,6 +44,15 @@ void main() {
     expect(names, isNot(contains('README.md')));
   });
 
+  test('collects Swift host sources so new imports trigger a rebuild', () {
+    write('iosApp/iosApp/ContentView.swift', 'import SwiftUI');
+    final names = session
+        .fixtureSourceWatcher(root.path)
+        .sourceFiles()
+        .map(p.basename);
+    expect(names, contains('ContentView.swift'));
+  });
+
   test('ignores build output directories', () {
     write('shared/src/commonMain/kotlin/App.kt', 'fun main() {}');
     // Gradle rewrites these on every build; treating them as sources would
