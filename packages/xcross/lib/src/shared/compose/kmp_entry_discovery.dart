@@ -7,6 +7,7 @@ import 'package:xcross/src/shared/compose/project/kmp_project.dart';
 import 'package:xcross/src/shared/compose/swift/swift_host_paths.dart';
 import 'package:xcross/src/shared/compose/swift/swift_import.dart';
 import 'package:xcross/src/shared/compose/swift/swift_import_scanner.dart';
+import 'package:xcross/src/shared/compose/swift/swift_lexer.dart';
 import 'package:xcross/src/shared/errors/errors.dart';
 
 @internal
@@ -204,82 +205,58 @@ final class KmpEntryDiscovery {
   }
 }
 
-/// Splits Swift [source] into identifier (dotted) and single-char punctuation
-/// tokens, dropping comments (nested) and string literals.
+/// Swift [source] as the word list [KmpEntryDiscovery.isSwiftAppHost]
+/// matches on: adjacent dotted names joined (`SwiftUI.App`), directives as
+/// their word, other code as single characters, literals dropped. A thin view
+/// over [lexSwift], so what counts as code is decided in exactly one place.
 @internal
 List<String> tokenizeSwiftCode(String source) {
   final out = <String>[];
-  final n = source.length;
-  var i = 0;
-  bool isId(int c) =>
-      c == 0x5f ||
-      (c >= 0x30 && c <= 0x39) ||
-      (c >= 0x41 && c <= 0x5a) ||
-      (c >= 0x61 && c <= 0x7a) ||
-      c > 0x7f;
-  while (i < n) {
-    final c = source[i];
-    if (c == '/' && i + 1 < n && source[i + 1] == '/') {
-      while (i < n && source[i] != '\n') {
-        i++;
+  // Source offset where the last emitted word ends, or -1 when the last
+  // emitted entry is not a word that a following `.name` may extend.
+  var wordEnd = -1;
+  SwiftToken? dot;
+  for (final tok in lexSwift(source)) {
+    final word = switch (tok.kind) {
+      SwiftTokenKind.identifier || SwiftTokenKind.number => !tok.backticked,
+      SwiftTokenKind.directive => tok.text.isNotEmpty,
+      _ => false,
+    };
+    if (word) {
+      if (dot != null && dot.start == wordEnd && dot.end == tok.start) {
+        out[out.length - 1] += '.${tok.text}';
+      } else {
+        out.add(tok.text);
       }
-    } else if (c == '/' && i + 1 < n && source[i + 1] == '*') {
-      var depth = 1;
-      i += 2;
-      while (i < n && depth > 0) {
-        if (source.startsWith('/*', i)) {
-          depth++;
-          i += 2;
-        } else if (source.startsWith('*/', i)) {
-          depth--;
-          i += 2;
-        } else {
-          i++;
-        }
-      }
-    } else if (c == '"' || c == '#') {
-      var hashes = 0;
-      var k = i;
-      while (k < n && source[k] == '#') {
-        hashes++;
-        k++;
-      }
-      if (hashes > 0 && k < n && source[k] == '/') {
-        // Extended regex literal `#/.../#`, skipped like the import scanner
-        // does so both agree on what is code.
-        final closer = '/${'#' * hashes}';
-        final end = source.indexOf(closer, k + 1);
-        i = end < 0 ? n : end + closer.length;
-        continue;
-      }
-      if (k >= n || source[k] != '"') {
-        i = k;
-        continue;
-      }
-      final multi = source.startsWith('"""', k);
-      final quote = multi ? '"""' : '"';
-      final close = quote + '#' * hashes;
-      i = k + quote.length;
-      while (i < n && !source.startsWith(close, i)) {
-        if (source[i] == r'\' && hashes == 0) i++;
-        if (!multi && i < n && source[i] == '\n') break;
-        i++;
-      }
-      i += close.length;
-    } else if (isId(c.codeUnitAt(0))) {
-      final start = i;
-      while (i < n &&
-          (isId(source.codeUnitAt(i)) ||
-              (source[i] == '.' &&
-                  i + 1 < n &&
-                  isId(source.codeUnitAt(i + 1))))) {
-        i++;
-      }
-      out.add(source.substring(start, i));
-    } else {
-      if (c.trim().isNotEmpty) out.add(c);
-      i++;
+      wordEnd = tok.end;
+      dot = null;
+      continue;
+    }
+    if (tok.isPunct('.') && dot == null && tok.start == wordEnd) {
+      // Held back: it joins the next word or is emitted on its own.
+      dot = tok;
+      continue;
+    }
+    if (dot != null) out.add('.');
+    dot = null;
+    wordEnd = -1;
+    if (tok.backticked) {
+      // `` `x` `` reads as the backticks around the bare word, as before.
+      out
+        ..add('`')
+        ..addAll(_words(tok.text))
+        ..add('`');
+    } else if (tok.kind == SwiftTokenKind.punctuation &&
+        tok.text.trim().isNotEmpty) {
+      out.add(tok.text);
     }
   }
+  if (dot != null) out.add('.');
   return out;
 }
+
+/// The words and symbols inside a backticked identifier.
+List<String> _words(String text) => [
+  for (final m in RegExp(r'[0-9A-Za-z_\u0080-\uffff]+|\S').allMatches(text))
+    m[0]!,
+];
