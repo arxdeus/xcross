@@ -53,6 +53,27 @@ void main() {
     expect(names, contains('ContentView.swift'));
   });
 
+  test('ignores Swift files discovery never compiles', () {
+    // A `pod install`, an edited test target or an Xcode preview cannot
+    // change the app xcross builds, so they must not cost a rebuild.
+    write('iosApp/iosApp/ContentView.swift', 'import SwiftUI');
+    write('iosApp/Pods/Alamofire/Source/AF.swift', 'import Foundation');
+    write('iosApp/Carthage/Build/Lib.swift', 'import Foundation');
+    write('iosApp/iosAppTests/AppTests.swift', 'import XCTest');
+    write('iosApp/iosAppUITests/UITests.swift', 'import XCTest');
+    write('iosApp/iosApp/Preview Content/Preview.swift', 'import SwiftUI');
+    write('shared/src/iosMain/Stray.swift', 'import Foundation');
+
+    final names = session
+        .fixtureSourceWatcher(root.path)
+        .sourceFiles()
+        .where((path) => path.endsWith('.swift'))
+        .map(p.basename)
+        .toList();
+
+    expect(names, ['ContentView.swift']);
+  });
+
   test('ignores build output directories', () {
     write('shared/src/commonMain/kotlin/App.kt', 'fun main() {}');
     // Gradle rewrites these on every build; treating them as sources would

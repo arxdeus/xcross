@@ -4,6 +4,7 @@ import 'package:cli_kit/shared/platform/platform_host.dart';
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/shared/compose/project/kmp_project.dart';
+import 'package:xcross/src/shared/compose/swift/swift_host_paths.dart';
 import 'package:xcross/src/shared/compose/swift/swift_import.dart';
 import 'package:xcross/src/shared/compose/swift/swift_import_scanner.dart';
 import 'package:xcross/src/shared/errors/errors.dart';
@@ -48,7 +49,7 @@ final class KmpEntryDiscovery {
     String projectRoot,
     List<ComposeCandidate> candidates,
   ) {
-    final iosAppDir = files.directory(p.join(projectRoot, 'iosApp'));
+    final iosAppDir = files.directory(p.join(projectRoot, swiftHostDirectory));
     final supported = <ComposeCandidate>{};
     if (iosAppDir.existsSync()) {
       for (final file
@@ -56,7 +57,7 @@ final class KmpEntryDiscovery {
               .listSync(recursive: true)
               .whereType<File>()
               .where(
-                (f) => f.path.endsWith('.swift') && !_excludeSwiftPath(f.path),
+                (f) => isSwiftHostSource(f.path, projectRoot: projectRoot),
               )) {
         final source = file.readAsStringSync();
         // Exact top-level module match: `import SharedUI` must not select a
@@ -118,12 +119,12 @@ final class KmpEntryDiscovery {
     String projectRoot,
     String baseName,
   ) {
-    final iosApp = files.directory(p.join(projectRoot, 'iosApp'));
+    final iosApp = files.directory(p.join(projectRoot, swiftHostDirectory));
     if (!iosApp.existsSync()) return null;
     final allSwift = iosApp
         .listSync(recursive: true)
         .whereType<File>()
-        .where((f) => f.path.endsWith('.swift') && !_excludeSwiftPath(f.path))
+        .where((f) => isSwiftHostSource(f.path, projectRoot: projectRoot))
         .toList();
     File? mainFile;
     for (final file in allSwift) {
@@ -140,9 +141,7 @@ final class KmpEntryDiscovery {
             .directory(appDir)
             .listSync(recursive: true)
             .whereType<File>()
-            .where(
-              (f) => f.path.endsWith('.swift') && !_excludeSwiftPath(f.path),
-            )
+            .where((f) => isSwiftHostSource(f.path, projectRoot: projectRoot))
             .map((f) => f.path)
             .toList()
           ..sort();
@@ -203,15 +202,6 @@ final class KmpEntryDiscovery {
     }
     return false;
   }
-
-  bool _excludeSwiftPath(String path) => path
-      .split(p.separator)
-      .any(
-        (segment) =>
-            segment == 'Preview Content' ||
-            segment.endsWith('Tests') ||
-            segment.endsWith('UITests'),
-      );
 }
 
 /// Splits Swift [source] into identifier (dotted) and single-char punctuation
