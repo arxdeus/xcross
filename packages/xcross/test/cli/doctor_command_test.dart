@@ -412,15 +412,64 @@ void main() {
       );
     });
 
-    test('names Swift packages when an import is still missing', () async {
+    test('remote packages not fetched yet: an unknown import is a warning '
+        'checked at build time', () async {
       project(swift: 'import Alamofire\nimport FirebaseCore');
       packageProject();
+      installSdk();
+      final check = (await run()).singleWhere((c) => c.name == 'Swift imports');
+      expect(check.status, DoctorStatus.warning);
+      expect(check.message, contains('xcross compose build'));
+      expect(check.message, contains('FirebaseCore'));
+      expect(check.message, isNot(contains('Alamofire (')));
+    });
+
+    test('only local packages: names Swift packages when an import is '
+        'missing', () async {
+      project(swift: 'import LocalPkg\nimport FirebaseCore');
+      write('/project/LocalPkg/Package.swift', '''
+let package = Package(
+  name: "LocalPkg",
+  products: [.library(name: "LocalPkg", targets: ["LocalPkg"])],
+  targets: [.target(name: "LocalPkg")]
+)
+''');
+      write('/project/iosApp/iosApp.xcodeproj/project.pbxproj', r'''
+// !$*UTF8*$!
+{
+  archiveVersion = 1;
+  objectVersion = 77;
+  objects = {
+    APP = {
+      isa = PBXNativeTarget;
+      name = iosApp;
+      packageProductDependencies = (PROD);
+      productType = "com.apple.product-type.application";
+    };
+    PROD = {
+      isa = XCSwiftPackageProductDependency;
+      package = PKG;
+      productName = LocalPkg;
+    };
+    PKG = {
+      isa = XCLocalSwiftPackageReference;
+      relativePath = ../LocalPkg;
+    };
+    ROOT = {
+      isa = PBXProject;
+      packageReferences = (PKG);
+      targets = (APP);
+    };
+  };
+  rootObject = ROOT;
+}
+''');
       installSdk();
       final check = (await run()).singleWhere((c) => c.name == 'Swift imports');
       expect(check.status, DoctorStatus.failure);
       expect(check.message, contains('or the Swift packages'));
       expect(check.message, contains('FirebaseCore'));
-      expect(check.message, isNot(contains('Alamofire (')));
+      expect(check.message, isNot(contains('LocalPkg (')));
     });
 
     test('an unreadable Xcode project is a warning, not a crash', () async {

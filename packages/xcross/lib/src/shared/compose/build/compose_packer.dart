@@ -219,24 +219,34 @@ final class ComposePacker<T extends PlatformHostInterface> {
 
   /// Fails fast, before the network and the slow Kotlin compile, when the
   /// Swift sources import a module that neither the Darwin SDK nor the
-  /// [declared] Swift packages can provide. Without building, a package
-  /// is known to provide its product names, the targets of a local
-  /// package, and the targets of a remote package an earlier build already
-  /// checked out; [checkBuiltSwiftImports] then checks the built modules.
+  /// [declared] Swift packages can provide. That is only decided here when
+  /// the modules of every package are known without building (no packages,
+  /// only local ones, or an earlier build already resolved them all).
+  /// Otherwise an unknown import may come from a package not fetched yet
+  /// (product `FirebaseAnalytics` brings `FirebaseCore`), so it is left to
+  /// [checkBuiltSwiftImports], which still runs before Kotlin.
   void checkSwiftImports(
     ComposeToolchain<T> toolchain, {
     HostSwiftPackages declared = HostSwiftPackages.empty,
   }) {
-    final index = _sdkIndex(
-      toolchain,
-      declaredPackageModules(
-        declared,
-        runner.host.fileSystem,
-        checkoutsDir: declared.isEmpty ? null : _checkoutsDir(),
-      ),
+    final known = declaredPackageModules(
+      declared,
+      runner.host.fileSystem,
+      scratchDir: declared.isEmpty ? null : _scratchDir(),
     );
-    final missing = unresolvedSwiftImports(project, index);
+    final missing = unresolvedSwiftImports(
+      project,
+      _sdkIndex(toolchain, known.modules),
+    );
     if (missing.isEmpty) return;
+    if (!known.complete) {
+      log.logTrace(
+        'Swift imports not known before building the Swift packages, '
+        'checked after the build: '
+        '${missing.map((m) => m.module).toSet().join(', ')}',
+      );
+      return;
+    }
     throw _unresolvedError(toolchain, declared, missing);
   }
 
@@ -255,14 +265,14 @@ final class ComposePacker<T extends PlatformHostInterface> {
     throw _unresolvedError(toolchain, declared, missing);
   }
 
-  String? _checkoutsDir() {
+  String? _scratchDir() {
     final builder = _swiftPmBuilder;
     if (builder == null) return null;
     final workspace = builder().workspaceFor(
       project.root,
       environment: runner.effectiveEnvironment,
     );
-    return p.join(workspace.scratch, 'checkouts');
+    return workspace.scratch;
   }
 
   SwiftModuleIndex _sdkIndex(

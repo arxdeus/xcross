@@ -8,6 +8,7 @@ import 'package:xcross/src/shared/compose/swiftpm/host_swift_packages_reader.dar
 import 'package:xcross/src/shared/compose/swiftpm/swift_package_model.dart';
 import 'package:xcross/src/shared/swiftpm/clang_modules.dart';
 import 'package:xcross/src/shared/swiftpm/package_types.dart';
+import 'package:xcross/src/shared/swiftpm/resource_manifest.dart';
 
 /// What the SwiftUI host needs to compile and link against the Swift
 /// packages its Xcode project declares, after `swift build` built them.
@@ -137,47 +138,94 @@ Set<String> swiftPmBuiltModules({
   return modules;
 }
 
-/// Modules the [declared] packages can be told to provide without the
-/// network: their product names, the targets of local packages, and the
-/// targets of packages an earlier build already checked out into
-/// [checkoutsDir]. A superset (test targets included) is fine here: the
-/// exact check runs against the built modules.
+/// What the [declared] packages are known to provide without the network.
+///
+/// [modules] holds their product names, the targets of local packages and,
+/// once an earlier build resolved the packages in [scratchDir], the targets
+/// of every package of the resolved graph (transitive ones included: Xcode
+/// lets the host import them too). A superset (test targets included) is
+/// fine: the exact check runs against the built modules.
+///
+/// [complete] is true only when [modules] covers everything the packages can
+/// provide: no remote package at all, or a resolved workspace whose
+/// checkouts include every package the declared ones depend on. Otherwise an
+/// import missing from [modules] may still come from a package not fetched
+/// yet, and only the build can tell.
 @internal
-Set<String> declaredPackageModules(
+({Set<String> modules, bool complete}) declaredPackageModules(
   HostSwiftPackages declared,
   HostFileSystemInterface files, {
-  String? checkoutsDir,
+  String? scratchDir,
 }) {
   final modules = {
     for (final product in declared.products) product.productName,
   };
-  void readManifest(String packageDir) {
+  String? readManifest(String packageDir) {
     final manifest = files.file(p.join(packageDir, 'Package.swift'));
-    if (!manifest.existsSync()) return;
+    if (!manifest.existsSync()) return null;
     try {
-      modules.addAll(declaredPackageTargets(manifest.readAsStringSync()));
+      final text = manifest.readAsStringSync();
+      modules.addAll(declaredPackageTargets(text));
+      return text;
     } on FileSystemException {
-      return;
+      return null;
+    }
+  }
+
+  // Identities the resolved graph must contain: the declared remote
+  // packages and every dependency of the local ones (recursively for path
+  // dependencies, which need no network).
+  final required = <String>{};
+  final visited = <String>{};
+  void readLocal(String dir) {
+    if (!visited.add(p.normalize(dir))) return;
+    final text = readManifest(dir);
+    if (text == null) return;
+    for (final m in _urlDependency.allMatches(text)) {
+      required.add(swiftPackageIdentityForUrl(m.group(1)!));
+    }
+    for (final m in _pathDependency.allMatches(text)) {
+      final path = m.group(1)!;
+      readLocal(p.isAbsolute(path) ? path : p.join(dir, path));
     }
   }
 
   for (final package in declared.packages) {
-    if (package is LocalSwiftPackage) readManifest(package.path);
-  }
-  if (checkoutsDir != null) {
-    final dir = files.directory(checkoutsDir);
-    if (dir.existsSync()) {
-      try {
-        for (final entry in dir.listSync(followLinks: false)) {
-          if (entry is Directory) readManifest(entry.path);
-        }
-      } on FileSystemException {
-        // Unreadable checkouts only make the preflight less precise.
-      }
+    switch (package) {
+      case LocalSwiftPackage(:final path):
+        readLocal(path);
+      case RemoteSwiftPackage():
+        required.add(package.identity);
     }
   }
-  return modules;
+  if (required.isEmpty) return (modules: modules, complete: true);
+  if (scratchDir == null) return (modules: modules, complete: false);
+  final state = files.file(p.join(scratchDir, 'workspace-state.json'));
+  final Map<String, String> locations;
+  try {
+    if (!state.existsSync()) return (modules: modules, complete: false);
+    locations = parseSwiftPmPackageLocations(
+      state.readAsStringSync(),
+      scratchDir,
+      p.context,
+    );
+  } on FileSystemException {
+    return (modules: modules, complete: false);
+  }
+  var complete = required.every(locations.values.contains);
+  for (final MapEntry(key: dir, value: identity) in locations.entries) {
+    if (readManifest(dir) == null) {
+      // A resolved package whose checkout is gone: its modules are unknown.
+      complete = false;
+      continue;
+    }
+    required.remove(identity);
+  }
+  return (modules: modules, complete: complete && required.isEmpty);
 }
+
+final _urlDependency = RegExp(r'\.package\s*\([^)]*?\burl\s*:\s*"([^"]+)"');
+final _pathDependency = RegExp(r'\.package\s*\([^)]*?\bpath\s*:\s*"([^"]+)"');
 
 /// Target names declared by `.target(name:)`-style calls in a
 /// `Package.swift`, a cheap superset of the modules a package can provide.

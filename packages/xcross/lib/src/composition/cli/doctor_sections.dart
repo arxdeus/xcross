@@ -254,6 +254,7 @@ final class DoctorSections<T extends PlatformHostInterface> {
       );
     }
     final int fromSdk;
+    final bool packagesKnown;
     try {
       final sdkIndex = swiftModuleIndexFor(
         files: runtime.host.fileSystem,
@@ -265,13 +266,16 @@ final class DoctorSections<T extends PlatformHostInterface> {
       fromSdk = project.requiredSwiftModules.where(sdkIndex.contains).length;
       // Without building, a package provides its product names and the
       // targets of a local package; `compose build` checks the built ones.
+      // A remote package may bring modules of packages not fetched yet.
+      final known = declaredPackageModules(declared, runtime.host.fileSystem);
+      packagesKnown = known.complete;
       final index = swiftModuleIndexFor(
         files: runtime.host.fileSystem,
         sdkPath: sdkPath,
         darwinSdkBundle: bundle,
         platformSdkName: platform.sdkName,
         baseName: project.baseName,
-        extraModules: declaredPackageModules(declared, runtime.host.fileSystem),
+        extraModules: known.modules,
       );
       missing = unresolvedSwiftImports(project, index);
     } on Object catch (error) {
@@ -294,6 +298,14 @@ final class DoctorSections<T extends PlatformHostInterface> {
             : count == 1
             ? '1 module resolves against the Darwin SDK'
             : '$count modules resolve against the Darwin SDK',
+      );
+    }
+    if (!packagesKnown) {
+      return DoctorCheck.warning(
+        name,
+        'Checked when `xcross compose build` builds the Swift packages '
+        '(not known before they are fetched):\n'
+        '${formatUnresolvedSwiftImports(project, missing).join('\n')}',
       );
     }
     return DoctorCheck.failure(

@@ -716,8 +716,8 @@ kotlin {
           modules: {'Alamofire', 'Numerics', 'RealModule'},
         );
 
-        test('fail before the network and Kotlin on an undeclared module, '
-            'naming the Xcode project', () async {
+        test('remote packages not fetched yet: an unknown import is left to '
+            'the check after the package build, still before Kotlin', () async {
           final events = <String>[];
           final packer = _packer(
             session,
@@ -727,6 +727,12 @@ kotlin {
                 'Alamofire',
                 path: '/proj/iosApp/A.swift',
                 line: 3,
+              ),
+              // Transitive module of a declared product (Numerics).
+              const SwiftImport(
+                'RealModule',
+                path: '/proj/iosApp/A.swift',
+                line: 4,
               ),
               const SwiftImport(
                 'FirebaseCore',
@@ -749,11 +755,56 @@ kotlin {
                 'message',
                 allOf(
                   contains('FirebaseCore (imported at iosApp/A.swift:5)'),
+                  isNot(contains('RealModule (')),
                   isNot(contains('Alamofire (')),
                   contains('iosApp/iosApp.xcodeproj'),
                   contains('CocoaPods are not supported'),
                   contains('#if canImport'),
                 ),
+              ),
+            ),
+          );
+          expect(events, ['toolchain', 'packages']);
+        });
+
+        test('only local packages: fail before the build on an undeclared '
+            'module', () async {
+          const local = LocalSwiftPackage('/proj/Missing/LocalPkg');
+          final events = <String>[];
+          final packer = _packer(
+            session,
+            events: events,
+            project: withImports('/proj', [
+              const SwiftImport(
+                'FirebaseCore',
+                path: '/proj/iosApp/A.swift',
+                line: 5,
+              ),
+            ]),
+            readHostPackages: (_) => const HostSwiftPackages(
+              packages: [local],
+              products: [
+                SwiftPackageProductDependency(
+                  productName: 'LocalPkg',
+                  package: local,
+                ),
+              ],
+              packageResolvedPath: null,
+              xcodeprojPath: '/proj/iosApp/iosApp.xcodeproj',
+            ),
+            buildHostPackages:
+                ({required project, required packages, required toolchain}) {
+                  events.add('packages');
+                  return Future.value(link);
+                },
+          );
+          await expectLater(
+            packer.pack(),
+            throwsA(
+              isA<XcrossError>().having(
+                (e) => e.message,
+                'message',
+                contains('FirebaseCore (imported at iosApp/A.swift:5)'),
               ),
             ),
           );

@@ -93,7 +93,7 @@ void main() {
   });
 
   test('declaredPackageModules: products, local package targets and '
-      'targets of earlier checkouts', () {
+      'targets of every resolved checkout', () {
     write('LocalPkg/Package.swift', '''
 let package = Package(
   name: "LocalPkg",
@@ -105,7 +105,7 @@ let package = Package(
   ]
 )
 ''');
-    write('checkouts/swift-numerics/Package.swift', '''
+    write('scratch/checkouts/swift-numerics/Package.swift', '''
 targets: [.target(name: "RealModule"), .binaryTarget(name: "Bin", path: "x")]
 ''');
     final local = LocalSwiftPackage(p.join(tmp.path, 'LocalPkg'));
@@ -125,18 +125,134 @@ targets: [.target(name: "RealModule"), .binaryTarget(name: "Bin", path: "x")]
       packageResolvedPath: null,
       xcodeprojPath: null,
     );
-    expect(declaredPackageModules(declared, files), {
+    expect(declaredPackageModules(declared, files).modules, {
       'LocalPkg',
       'LocalCore',
       'Numerics',
     });
-    expect(
-      declaredPackageModules(
-        declared,
-        files,
-        checkoutsDir: p.join(tmp.path, 'checkouts'),
-      ),
-      {'LocalPkg', 'LocalCore', 'Numerics', 'RealModule', 'Bin'},
+    expect(declaredPackageModules(declared, files).complete, isFalse);
+    // An earlier build resolved the graph: every target of every resolved
+    // package, transitive ones included, is known.
+    write('scratch/workspace-state.json', '''
+{"object": {"dependencies": [
+  {"packageRef": {"identity": "swift-numerics", "kind": "remoteSourceControl",
+   "location": "https://github.com/apple/swift-numerics", "name": "N"},
+   "subpath": "swift-numerics"},
+  {"packageRef": {"identity": "swift-transitive", "kind": "remoteSourceControl",
+   "location": "https://example.com/swift-transitive", "name": "T"},
+   "subpath": "swift-transitive"}
+]}, "version": 7}
+''');
+    write('scratch/checkouts/swift-transitive/Package.swift', '''
+targets: [.target(name: "TransitiveCore")]
+''');
+    final resolved = declaredPackageModules(
+      declared,
+      files,
+      scratchDir: p.join(tmp.path, 'scratch'),
     );
+    expect(resolved.modules, {
+      'LocalPkg',
+      'LocalCore',
+      'Numerics',
+      'RealModule',
+      'Bin',
+      'TransitiveCore',
+    });
+    expect(resolved.complete, isTrue);
+  });
+
+  test('declaredPackageModules: unknown until the resolved checkouts cover '
+      'every declared package', () {
+    final scratch = p.join(tmp.path, 'scratch');
+    const remote = RemoteSwiftPackage(
+      url: 'https://github.com/firebase/firebase-ios-sdk.git',
+      requirement: UpToNextMajorRequirement('11.0.0'),
+    );
+    const declared = HostSwiftPackages(
+      packages: [remote],
+      products: [
+        SwiftPackageProductDependency(
+          productName: 'FirebaseAnalytics',
+          package: remote,
+        ),
+      ],
+      packageResolvedPath: null,
+      xcodeprojPath: null,
+    );
+    // No workspace yet.
+    expect(
+      declaredPackageModules(declared, files, scratchDir: scratch).complete,
+      isFalse,
+    );
+    // A workspace resolved for other packages.
+    write('scratch/workspace-state.json', '''
+{"object": {"dependencies": [
+  {"packageRef": {"identity": "alamofire", "kind": "remoteSourceControl",
+   "location": "https://github.com/Alamofire/Alamofire", "name": "A"},
+   "subpath": "Alamofire"}
+]}}
+''');
+    write('scratch/checkouts/Alamofire/Package.swift', '.target(name: "A")');
+    expect(
+      declaredPackageModules(declared, files, scratchDir: scratch).complete,
+      isFalse,
+    );
+    // Resolved, but a checkout is missing on disk.
+    write('scratch/workspace-state.json', '''
+{"object": {"dependencies": [
+  {"packageRef": {"identity": "firebase-ios-sdk", "kind": "remoteSourceControl",
+   "location": "https://github.com/firebase/firebase-ios-sdk", "name": "F"},
+   "subpath": "firebase-ios-sdk"},
+  {"packageRef": {"identity": "googleutilities", "kind": "remoteSourceControl",
+   "location": "https://github.com/google/GoogleUtilities", "name": "G"},
+   "subpath": "GoogleUtilities"}
+]}}
+''');
+    write(
+      'scratch/checkouts/firebase-ios-sdk/Package.swift',
+      '.target(name: "FirebaseCore")',
+    );
+    final partial = declaredPackageModules(
+      declared,
+      files,
+      scratchDir: scratch,
+    );
+    expect(partial.complete, isFalse);
+    expect(partial.modules, contains('FirebaseCore'));
+    write(
+      'scratch/checkouts/GoogleUtilities/Package.swift',
+      '.target(name: "GU")',
+    );
+    expect(
+      declaredPackageModules(declared, files, scratchDir: scratch).complete,
+      isTrue,
+    );
+  });
+
+  test('declaredPackageModules: a local package with a remote dependency '
+      'is unknown until resolved, a path-only one is known', () {
+    write('Local/Package.swift', '''
+dependencies: [.package(path: "../Inner")],
+targets: [.target(name: "Local")]
+''');
+    write('Inner/Package.swift', '.target(name: "InnerCore")');
+    final local = LocalSwiftPackage(p.join(tmp.path, 'Local'));
+    HostSwiftPackages decl(LocalSwiftPackage l) => HostSwiftPackages(
+      packages: [l],
+      products: [
+        SwiftPackageProductDependency(productName: 'Local', package: l),
+      ],
+      packageResolvedPath: null,
+      xcodeprojPath: null,
+    );
+    final known = declaredPackageModules(decl(local), files);
+    expect(known.complete, isTrue);
+    expect(known.modules, {'Local', 'InnerCore'});
+    write('Inner/Package.swift', '''
+dependencies: [.package(url: "https://github.com/apple/swift-numerics", from: "1.0.0")],
+targets: [.target(name: "InnerCore")]
+''');
+    expect(declaredPackageModules(decl(local), files).complete, isFalse);
   });
 }
