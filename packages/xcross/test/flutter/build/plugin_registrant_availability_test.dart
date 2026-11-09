@@ -110,7 +110,7 @@ public class NewPlugin: NSObject, FlutterPlugin {}
     );
     final registrant = File(p.join(temp.path, 'Registrant.swift'))
       ..writeAsStringSync(
-        testIPhoneRuntime().plugins.runtime.manifest.registrantSource([plugin]),
+        testIPhoneRuntime().plugins.staging.manifest.registrantSource([plugin]),
       );
 
     ProcessResult compile(List<String> arguments) => Process.runSync(compiler, [

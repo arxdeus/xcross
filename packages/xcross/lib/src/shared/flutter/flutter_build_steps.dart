@@ -5,13 +5,13 @@ import 'package:xcross/src/shared/flutter/build/internal/runner_binary.dart';
 import 'package:xcross/src/shared/flutter/build/ios_bundle_versions.dart';
 import 'package:xcross/src/shared/flutter/build/ios_deployment_target.dart';
 import 'package:xcross/src/shared/flutter/build/ios_native_assets.dart';
-import 'package:xcross/src/shared/flutter/build/ios_plugin_package.dart';
 import 'package:xcross/src/shared/flutter/build/pbxproj.dart';
 import 'package:xcross/src/shared/flutter/flutter_build_runtime.dart';
 import 'package:xcross/src/shared/flutter/flutter_version_defines.dart';
 import 'package:xcross/src/shared/flutter/models/flutter/dart_defines.dart';
 import 'package:xcross/src/shared/flutter/models/flutter/flutter_build_options.dart';
 import 'package:xcross/src/shared/flutter/models/pubspec_info.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/package_types.dart';
 
 @internal
 final class FlutterBuildRequest<T extends PlatformHostInterface> {
@@ -102,7 +102,7 @@ final class FlutterCompiledArtifacts {
   });
   final String appFramework;
   final IosNativeAssetsBuildResult nativeAssets;
-  final GeneratedPluginsBuildResult? plugins;
+  final SwiftPmBuildResult? plugins;
 }
 
 @internal

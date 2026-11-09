@@ -6,18 +6,13 @@ import 'package:cli_kit/shared/platform/platform_host.dart';
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/shared/apple/mach_o.dart';
-import 'package:xcross/src/shared/flutter/build/ios_plugin_package.dart';
 import 'package:xcross/src/shared/flutter/build/macho_dylib_rewriter.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_filesystem.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/dynamic_product.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/errors.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/host_build_services.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/package_types.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/resource_manifest.dart';
-
-@internal
-const String flutterFrameworkPackageName = 'FlutterFramework';
-@internal
-const String pluginsProductName = 'FlutterPluginsGenerated';
 
 @internal
 final class SwiftPmAssembly<T extends PlatformHostInterface> {
@@ -28,12 +23,16 @@ final class SwiftPmAssembly<T extends PlatformHostInterface> {
 
   /// Finds and fixes every dylib emitted into SwiftPM's target debug output.
   ///
-  /// [pluginIdentities] maps the SwiftPM identity xcross stages a Flutter
-  /// plugin package under (its lowercased name) to the one Xcode gives it
-  /// (see [flutterPluginSwiftPmIdentities]), for resource bundle identifiers.
-  Future<GeneratedPluginsBuildResult> discoverAndRewriteDylibs(
+  /// [productName] names the aggregate dynamic product; its
+  /// `lib<productName>.dylib` must exist in [targetDebugDir].
+  ///
+  /// [packageIdentities] maps the SwiftPM identity a package was staged under
+  /// to the one Xcode gives it, for resource bundle identifiers (Flutter
+  /// passes its plugin identities here).
+  Future<SwiftPmBuildResult> discoverAndRewriteDylibs(
     String targetDebugDir, {
-    Map<String, String> pluginIdentities = const {},
+    required String productName,
+    Map<String, String> packageIdentities = const {},
   }) async {
     final dylibPaths = <String>[];
     await for (final entity in fileSystem.directory(targetDebugDir).list()) {
@@ -43,7 +42,7 @@ final class SwiftPmAssembly<T extends PlatformHostInterface> {
     }
     dylibPaths.sort();
 
-    const aggregateName = 'lib$pluginsProductName.dylib';
+    final aggregateName = 'lib$productName.dylib';
     final aggregatePath = dylibPaths
         .where((path) => p.basename(path) == aggregateName)
         .firstOrNull;
@@ -196,7 +195,7 @@ final class SwiftPmAssembly<T extends PlatformHostInterface> {
       return SwiftPmResourceBundle(
         bundlePath: path,
         resources: resources,
-        packageIdentity: pluginIdentities[identity] ?? identity,
+        packageIdentity: packageIdentities[identity] ?? identity,
         targetName: target,
         minimumOsVersion:
             (declared == null ? null : packageMinimum(declared.package)) ??
@@ -227,14 +226,14 @@ final class SwiftPmAssembly<T extends PlatformHostInterface> {
         return SwiftPmDynamicProduct(
           libraryPath: path,
           packageIdentity:
-              pluginIdentities[package.identity] ?? package.identity,
+              packageIdentities[package.identity] ?? package.identity,
           minimumOsVersion: packageMinimum(package),
         );
       }
       return SwiftPmDynamicProduct(libraryPath: path, packageIdentity: null);
     }
 
-    return GeneratedPluginsBuildResult(
+    return SwiftPmBuildResult(
       libraryPath: aggregatePath,
       dylibPaths: List.unmodifiable(dylibPaths),
       dynamicProducts: List.unmodifiable(dylibPaths.map(product)),

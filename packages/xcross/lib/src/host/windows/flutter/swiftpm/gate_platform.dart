@@ -17,7 +17,7 @@ import 'package:xcross/src/shared/flutter/swiftpm/gate_mode.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/gate_platform.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/process_policy.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/toolchain.dart';
-import 'package:xcross/src/target/shared/flutter/flutter_target_build_policy.dart';
+import 'package:xcross/src/target/shared/swiftpm/swiftpm_target_policy.dart';
 
 typedef _ProbeInputs = ({
   String swiftPackage,
@@ -84,11 +84,11 @@ final class WindowsSwiftPmGatePlatform<T extends PlatformHostInterface>
   final SwiftPmToolchain<T> toolchain;
   final SwiftPmProcessPolicy<T> processPolicy;
   final SwiftPmBuildPlan<T> buildPlan;
-  final FlutterTargetBuildPolicy<T> targetPolicy;
+  final SwiftPmTargetPolicy<T> targetPolicy;
   final Log log;
   @override
   bool matchesTarget<P extends PlatformHostInterface>(
-    FlutterTargetBuildPolicy<P> policy,
+    SwiftPmTargetPolicy<P> policy,
   ) => identical(policy, targetPolicy);
   @override
   Future<String?> volumeIdentity(String path) async {
@@ -182,7 +182,7 @@ final class WindowsSwiftPmGatePlatform<T extends PlatformHostInterface>
           sdk,
           target: targetPolicy.target.buildPlatform,
         ),
-        flutterFrameworkSlice: package.path,
+        frameworkSearchPaths: [package.path],
         toolsetPath: toolset,
         swiftSdkTriple: targetPolicy.target.buildPlatform.swiftSdkTriple,
       );

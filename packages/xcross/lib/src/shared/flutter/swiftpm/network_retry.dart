@@ -6,11 +6,6 @@ import 'package:meta/meta.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/source_repair.dart';
 
 @internal
-const String flutterFrameworkPackageName = 'FlutterFramework';
-@internal
-const String pluginsProductName = 'FlutterPluginsGenerated';
-
-@internal
 final class SwiftPmNetworkRetry<T extends PlatformHostInterface> {
   SwiftPmNetworkRetry({required this.runner});
   final ProcessRunner<T> runner;

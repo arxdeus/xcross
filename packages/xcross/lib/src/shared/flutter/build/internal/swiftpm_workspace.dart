@@ -4,13 +4,13 @@ import 'dart:io';
 import 'package:crypto/crypto.dart';
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
-import 'package:xcross/src/target/shared/flutter/flutter_target_build_policy.dart';
+import 'package:xcross/src/target/shared/swiftpm/swiftpm_target_policy.dart';
 
 @internal
 final class SwiftPmWorkspace {
   factory SwiftPmWorkspace.forProject(
     String projectRoot, {
-    required FlutterTargetBuildPolicy policy,
+    required SwiftPmTargetPolicy policy,
     Map<String, String>? environment,
   }) {
     final host = policy.target.host;
@@ -38,7 +38,7 @@ final class SwiftPmWorkspace {
 
   final String cacheRoot;
   final String root;
-  final FlutterTargetBuildPolicy policy;
+  final SwiftPmTargetPolicy policy;
 
   String get binaryArtifactStore =>
       p.join(cacheRoot, 'swiftpm', policy.binaryArtifactDirectory);
@@ -52,7 +52,7 @@ final class SwiftPmWorkspace {
 
   static String _canonicalProjectPath(
     String projectRoot,
-    FlutterTargetBuildPolicy policy,
+    SwiftPmTargetPolicy policy,
   ) {
     final absolute = p.normalize(p.absolute(projectRoot));
     try {

@@ -31,13 +31,13 @@ import 'package:xcross/src/shared/flutter/swiftpm/response_file_reader.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/sdk_identity.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/source_repair.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/toolchain.dart';
-import 'package:xcross/src/target/shared/flutter/flutter_target_build_policy.dart';
+import 'package:xcross/src/target/shared/swiftpm/swiftpm_target_policy.dart';
 
 @internal
 SwiftPmFoundation<T> prepareSwiftPmFoundation<T extends PlatformHostInterface>({
   required SwiftPmHostBuildServices<T> hostBuildServices,
   required SwiftPmLibrarianResolver<T> librarianResolver,
-  required FlutterTargetBuildPolicy<T> policy,
+  required SwiftPmTargetPolicy<T> policy,
   required ProcessRunner<T> runner,
   required DarwinSdkRepository<T> sdkRepository,
   required DarwinToolchainResolver<T> toolchainResolver,

@@ -3,12 +3,17 @@ import 'dart:convert';
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_filesystem.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/plan_reader.dart';
 
 @internal
 final class SwiftPmManifestTargetAlias {
-  SwiftPmManifestTargetAlias({required this.fileSystem});
+  SwiftPmManifestTargetAlias({
+    required this.fileSystem,
+    required this.productName,
+  });
   final SwiftPmArtifactFileSystem fileSystem;
+
+  /// The aggregate product whose module entry reveals the target-key suffix.
+  final String productName;
 
   static const String _indent = '  ';
 
@@ -94,11 +99,11 @@ final class SwiftPmManifestTargetAlias {
     return entries;
   }
 
-  static String? _suffix(Iterable<String> keys) {
-    const prefix = '$pluginsProductName-';
+  String? _suffix(Iterable<String> keys) {
+    final prefix = '$productName-';
     for (final key in keys) {
       if (key.startsWith(prefix) && key.endsWith('.module')) {
-        return key.substring(pluginsProductName.length);
+        return key.substring(productName.length);
       }
     }
     return null;

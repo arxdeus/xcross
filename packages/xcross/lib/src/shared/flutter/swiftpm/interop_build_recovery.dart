@@ -6,9 +6,6 @@ import 'package:xcross/src/shared/flutter/swiftpm/interop_consumer_repair.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/plan_reader.dart';
 
 @internal
-const String pluginsProductName = 'FlutterPluginsGenerated';
-
-@internal
 final class SwiftPmInteropBuildRecovery<T extends PlatformHostInterface> {
   SwiftPmInteropBuildRecovery({
     required this.session,
@@ -29,6 +26,7 @@ final class SwiftPmInteropBuildRecovery<T extends PlatformHostInterface> {
   Future<void> build({
     required String targetBuildDir,
     required Set<String> interopTargetCandidates,
+    required String productName,
     bool skipInitialRecovery = false,
   }) async {
     final repair = session.repairConsumers;
@@ -38,6 +36,7 @@ final class SwiftPmInteropBuildRecovery<T extends PlatformHostInterface> {
       for (final layer in SwiftPmPlanReader.layerTargetsByDependencies(
         dependencies,
         targets,
+        productName: productName,
       )) {
         await session.buildTargets(layer);
       }
@@ -47,18 +46,25 @@ final class SwiftPmInteropBuildRecovery<T extends PlatformHostInterface> {
       final targets = consumerRepair.missingSwiftInteropTargets(
         targetBuildDir,
         candidates: candidates ?? interopTargetCandidates,
+        productName: productName,
       );
       await buildLayered(targets);
       if (targets.isNotEmpty) await repair();
       return targets.isNotEmpty;
     }
 
-    final planned = planReader.plannedSwiftInteropTargets(targetBuildDir);
+    final planned = planReader.plannedSwiftInteropTargets(
+      targetBuildDir,
+      productName: productName,
+    );
     await buildLayered(
       hostPolicy.selectInteropTargets(
         planned,
         interopTargetCandidates,
-        planReader.interopTargetsReachedByNonSwiftTargets(targetBuildDir),
+        planReader.interopTargetsReachedByNonSwiftTargets(
+          targetBuildDir,
+          productName: productName,
+        ),
       ),
     );
     await repair();
@@ -72,6 +78,7 @@ final class SwiftPmInteropBuildRecovery<T extends PlatformHostInterface> {
         .missingSwiftInteropTargets(
           targetBuildDir,
           candidates: interopTargetCandidates,
+          productName: productName,
         )
         .toSet();
     try {
@@ -84,6 +91,7 @@ final class SwiftPmInteropBuildRecovery<T extends PlatformHostInterface> {
           .missingSwiftInteropTargets(
             targetBuildDir,
             candidates: interopTargetCandidates,
+            productName: productName,
           )
           .toSet()
           .difference(missingBefore);
@@ -92,6 +100,7 @@ final class SwiftPmInteropBuildRecovery<T extends PlatformHostInterface> {
       final candidates = reachableInteropCandidates(
         targetBuildDir,
         interopTargetCandidates,
+        productName: productName,
       );
       final recovered = await reportingOriginalFailure(error, stack, () async {
         if (!await recoverMissingTargets(candidates: candidates)) {
@@ -117,11 +126,12 @@ final class SwiftPmInteropBuildRecovery<T extends PlatformHostInterface> {
 
   Set<String> reachableInteropCandidates(
     String targetBuildDir,
-    Set<String> interopTargetCandidates,
-  ) {
+    Set<String> interopTargetCandidates, {
+    required String productName,
+  }) {
     final reachable = planReader.plannedTargetClosure(
       targetBuildDir,
-      pluginsProductName,
+      productName,
     );
     return {...interopTargetCandidates, ...?reachable};
   }

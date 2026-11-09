@@ -126,6 +126,7 @@ void main() {
         ).build(
           targetBuildDir: root.path,
           interopTargetCandidates: const {'Public'},
+          productName: 'FlutterPluginsGenerated',
         );
         expect(events, ['build', 'Internal', 'build']);
       },
@@ -159,7 +160,11 @@ void main() {
           },
           buildTarget: (_) async => throw targetError,
         ),
-      ).build(targetBuildDir: root.path, interopTargetCandidates: const {}),
+      ).build(
+        targetBuildDir: root.path,
+        interopTargetCandidates: const {},
+        productName: 'FlutterPluginsGenerated',
+      ),
       throwsA(same(originalError)),
     );
     expect(builds, 1);

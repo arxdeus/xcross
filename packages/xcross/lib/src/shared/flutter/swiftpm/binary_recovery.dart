@@ -2,7 +2,6 @@ import 'dart:async';
 
 import 'package:cli_kit/shared/platform/platform_host.dart';
 import 'package:meta/meta.dart';
-import 'package:xcross/src/shared/flutter/build/ios_plugin_package.dart';
 import 'package:xcross/src/shared/flutter/build/swiftpm_binary_artifact_preparer.dart';
 import 'package:xcross/src/shared/flutter/build/swiftpm_binary_artifact_store.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_copy_policy.dart';
@@ -13,12 +12,8 @@ import 'package:xcross/src/shared/flutter/swiftpm/artifact_transport.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/binary_layout.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/binary_provenance.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/filesystem.dart';
-import 'package:xcross/src/target/shared/flutter/flutter_target_build_policy.dart';
-
-@internal
-const String flutterFrameworkPackageName = 'FlutterFramework';
-@internal
-const String pluginsProductName = 'FlutterPluginsGenerated';
+import 'package:xcross/src/shared/flutter/swiftpm/package_types.dart';
+import 'package:xcross/src/target/shared/swiftpm/swiftpm_target_policy.dart';
 
 @internal
 final class SwiftPmBinaryRecovery<T extends PlatformHostInterface> {
@@ -40,7 +35,7 @@ final class SwiftPmBinaryRecovery<T extends PlatformHostInterface> {
   final SwiftPmFilesystem<T> filesystem;
   final T host;
   final SwiftPmPublicationCoordinator publicationCoordinator;
-  final FlutterTargetBuildPolicy<T> targetPolicy;
+  final SwiftPmTargetPolicy<T> targetPolicy;
   final SwiftPmArchiveTransport transport;
   Future<void> resolveWithFinalBinaryRecovery({
     required Future<void> Function() resolve,

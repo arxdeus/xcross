@@ -12,7 +12,7 @@ import 'package:xcross/src/shared/flutter/swiftpm/artifact_destination_publisher
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_filesystem.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_transport.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/errors.dart';
-import 'package:xcross/src/target/shared/flutter/flutter_target_build_policy.dart';
+import 'package:xcross/src/target/shared/swiftpm/swiftpm_target_policy.dart';
 
 @internal
 final class SwiftPmPreparedBinaryArtifact {
@@ -29,7 +29,7 @@ final class SwiftPmPreparedBinaryArtifact {
 final class SwiftPmBinaryArtifactPreparer {
   SwiftPmBinaryArtifactPreparer({
     required SwiftPmBinaryArtifactStore store,
-    required FlutterTargetBuildPolicy policy,
+    required SwiftPmTargetPolicy policy,
     required this.transport,
     required SwiftPmArtifactCopyPolicy copyPolicy,
     int maxEntries = 100000,

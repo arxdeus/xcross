@@ -9,9 +9,6 @@ import 'package:xcross/src/shared/flutter/swiftpm/response_arguments.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/response_file_reader.dart';
 
 @internal
-const String pluginsProductName = 'FlutterPluginsGenerated';
-
-@internal
 final class SwiftPmPlanReader {
   SwiftPmPlanReader({required this.fileSystem, required this.responseFiles});
   final SwiftPmArtifactFileSystem fileSystem;
@@ -83,8 +80,11 @@ final class SwiftPmPlanReader {
     }
   }
 
+  /// [productName] is the aggregate product whose dependency closure bounds
+  /// the targets considered.
   List<String> plannedSwiftInteropTargets(
     String targetBuildDir, {
+    required String productName,
     Set<String>? candidates,
   }) {
     final List<String> planned;
@@ -93,7 +93,7 @@ final class SwiftPmPlanReader {
     } on Object {
       return const [];
     }
-    final reachable = plannedTargetClosure(targetBuildDir, pluginsProductName);
+    final reachable = plannedTargetClosure(targetBuildDir, productName);
     final targets = <String>{};
     for (final argument in planned) {
       final directory = p.basename(argument);
@@ -116,8 +116,13 @@ final class SwiftPmPlanReader {
 
   List<String> orderedInteropTargets(
     String targetBuildDir,
-    List<String> planned,
-  ) => orderTargetsByDependencies(targetDependencies(targetBuildDir), planned);
+    List<String> planned, {
+    required String productName,
+  }) => orderTargetsByDependencies(
+    targetDependencies(targetBuildDir),
+    planned,
+    productName: productName,
+  );
   Map<String, dynamic>? targetDependencies(String targetBuildDir) {
     try {
       final decoded = jsonDecode(
@@ -135,9 +140,10 @@ final class SwiftPmPlanReader {
 
   static List<String> orderTargetsByDependencies(
     Map<String, dynamic>? dependencies,
-    List<String> planned,
-  ) {
-    final eligible = planned.toSet()..remove(pluginsProductName);
+    List<String> planned, {
+    required String productName,
+  }) {
+    final eligible = planned.toSet()..remove(productName);
     final ordered = <String>[];
     final visited = <String>{};
     final visiting = <String>{};
@@ -168,9 +174,14 @@ final class SwiftPmPlanReader {
 
   static List<List<String>> layerTargetsByDependencies(
     Map<String, dynamic>? dependencies,
-    List<String> planned,
-  ) {
-    final ordered = orderTargetsByDependencies(dependencies, planned);
+    List<String> planned, {
+    required String productName,
+  }) {
+    final ordered = orderTargetsByDependencies(
+      dependencies,
+      planned,
+      productName: productName,
+    );
     if (dependencies == null) {
       return [
         for (final target in ordered) [target],
@@ -208,7 +219,10 @@ final class SwiftPmPlanReader {
     ];
   }
 
-  Set<String>? interopTargetsReachedByNonSwiftTargets(String targetBuildDir) {
+  Set<String>? interopTargetsReachedByNonSwiftTargets(
+    String targetBuildDir, {
+    required String productName,
+  }) {
     final dependencies = targetDependencies(targetBuildDir);
     if (dependencies == null || dependencies.isEmpty) return null;
     final List<String> searchPaths;
@@ -225,11 +239,11 @@ final class SwiftPmPlanReader {
       interop.add(owner.substring(0, owner.length - '.build'.length));
     }
     final reachable =
-        plannedTargetClosure(targetBuildDir, pluginsProductName) ??
+        plannedTargetClosure(targetBuildDir, productName) ??
         dependencies.keys.toSet();
     final consumed = <String>{};
     for (final consumer in reachable) {
-      if (interop.contains(consumer) || consumer == pluginsProductName) {
+      if (interop.contains(consumer) || consumer == productName) {
         continue;
       }
       final seen = <String>{consumer};

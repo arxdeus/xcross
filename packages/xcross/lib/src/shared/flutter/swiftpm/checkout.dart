@@ -6,7 +6,6 @@ import 'package:cli_kit/shared/process/process.dart';
 import 'package:crypto/crypto.dart';
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
-import 'package:xcross/src/host/shared/flutter/swiftpm/host_symlink_capability.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_filesystem.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/checkout_git_repository.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/checkout_graph.dart';
@@ -14,6 +13,7 @@ import 'package:xcross/src/shared/flutter/swiftpm/checkout_link_policy.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/checkout_links.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/checkout_stamp.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/errors.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/host_symlink_capability.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/process_policy.dart';
 
 @internal

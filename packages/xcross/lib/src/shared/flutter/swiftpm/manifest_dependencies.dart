@@ -1,6 +1,6 @@
 import 'package:meta/meta.dart';
-import 'package:xcross/src/shared/flutter/build/ios_plugin_package.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/manifest_lexer.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/package_types.dart';
 
 @internal
 final class SwiftPmManifestDependencies {

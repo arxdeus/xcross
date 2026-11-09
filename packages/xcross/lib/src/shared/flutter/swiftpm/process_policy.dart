@@ -9,11 +9,6 @@ import 'package:xcross/src/shared/flutter/swiftpm/host_policy.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/manifest_compiler.dart';
 
 @internal
-const String flutterFrameworkPackageName = 'FlutterFramework';
-@internal
-const String pluginsProductName = 'FlutterPluginsGenerated';
-
-@internal
 final class SwiftPmProcessPolicy<T extends PlatformHostInterface> {
   SwiftPmProcessPolicy({
     required this.host,

@@ -2,13 +2,13 @@ import 'package:cli_kit/shared/platform/platform_host.dart';
 import 'package:meta/meta.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_filesystem.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/gate_mode.dart';
-import 'package:xcross/src/target/shared/flutter/flutter_target_build_policy.dart';
+import 'package:xcross/src/target/shared/swiftpm/swiftpm_target_policy.dart';
 
 @internal
 abstract interface class SwiftPmGatePlatform {
   SwiftPmArtifactFileSystem get fileSystem;
   bool matchesTarget<P extends PlatformHostInterface>(
-    FlutterTargetBuildPolicy<P> policy,
+    SwiftPmTargetPolicy<P> policy,
   );
   Future<String?> volumeIdentity(String path);
   Future<bool> createProofAlias(String alias, String target);

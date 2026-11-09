@@ -11,11 +11,6 @@ import 'package:xcross/src/shared/flutter/swiftpm/manifest_lexer.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/module_files.dart';
 
 @internal
-const String flutterFrameworkPackageName = 'FlutterFramework';
-@internal
-const String pluginsProductName = 'FlutterPluginsGenerated';
-
-@internal
 final class SwiftPmSourceFallback<T extends PlatformHostInterface> {
   SwiftPmSourceFallback({required this.filesystem, required this.moduleFiles});
   final SwiftPmFilesystem<T> filesystem;

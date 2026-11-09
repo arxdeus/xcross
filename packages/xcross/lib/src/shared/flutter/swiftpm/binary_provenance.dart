@@ -8,16 +8,11 @@ import 'package:cli_kit/shared/process/process_models.dart';
 import 'package:crypto/crypto.dart';
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
-import 'package:xcross/src/shared/flutter/build/ios_plugin_package.dart';
 import 'package:xcross/src/shared/flutter/build/swiftpm_binary_target.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_filesystem.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/errors.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/host_policy.dart';
-
-@internal
-const String flutterFrameworkPackageName = 'FlutterFramework';
-@internal
-const String pluginsProductName = 'FlutterPluginsGenerated';
+import 'package:xcross/src/shared/flutter/swiftpm/package_types.dart';
 
 @internal
 final class SwiftPmBinaryProvenance<T extends PlatformHostInterface> {

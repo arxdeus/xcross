@@ -21,12 +21,13 @@ final class SwiftPmInteropConsumerRepair<T extends PlatformHostInterface> {
   List<String> missingSwiftInteropTargets(
     String targetBuildDir, {
     required Set<String> candidates,
+    required String productName,
   }) {
     final directory = fileSystem.directory(targetBuildDir);
     if (!directory.existsSync()) return const [];
     final reachable = planReader.plannedTargetClosure(
       targetBuildDir,
-      swiftpm_plan_reader.pluginsProductName,
+      productName,
     );
     final targets = <String>{};
     final headerPattern = RegExp(r'\bheader\s+"([^"]+-Swift\.h)"');

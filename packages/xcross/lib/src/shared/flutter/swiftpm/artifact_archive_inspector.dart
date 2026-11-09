@@ -10,7 +10,7 @@ import 'package:xcross/src/shared/errors/build_error.dart';
 import 'package:xcross/src/shared/flutter/build/swiftpm_binary_target.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_filesystem.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/errors.dart';
-import 'package:xcross/src/target/shared/flutter/flutter_target_build_policy.dart';
+import 'package:xcross/src/target/shared/swiftpm/swiftpm_target_policy.dart';
 
 @internal
 final class SwiftPmArtifactArchiveInspector {
@@ -21,7 +21,7 @@ final class SwiftPmArtifactArchiveInspector {
     required int maxExpandedBytes,
   }) : _maxEntries = maxEntries,
        _maxExpandedBytes = maxExpandedBytes;
-  final FlutterTargetBuildPolicy policy;
+  final SwiftPmTargetPolicy policy;
   final SwiftPmArtifactFileSystem fileSystem;
   final int _maxEntries;
   final int _maxExpandedBytes;
@@ -127,9 +127,7 @@ final class SwiftPmArtifactArchiveInspector {
     SwiftPmRemoteBinaryTarget target,
   ) {
     if (archive.files.length > _maxEntries) {
-      throw SwiftPmError(
-        'SwiftPM binary artifact exceeds ZIP entry limit',
-      );
+      throw SwiftPmError('SwiftPM binary artifact exceeds ZIP entry limit');
     }
 
     final entries = _validateEntries(archive);

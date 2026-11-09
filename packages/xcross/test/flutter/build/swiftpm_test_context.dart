@@ -675,3 +675,11 @@ SwiftPmToolchain<WindowsHost> testWindowsToolchainLookup(
     librarianResolver: librarian,
   );
 }
+
+/// The Flutter policy the test runtimes are built with.
+@internal
+extension FlutterSwiftPmRuntimePolicy<T extends PlatformHostInterface>
+    on SwiftPmRuntime<T> {
+  FlutterTargetBuildPolicy<T> get flutterPolicy =>
+      targetPolicy as FlutterTargetBuildPolicy<T>;
+}

@@ -6,12 +6,7 @@ import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:propertylistserialization/propertylistserialization.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/artifact_filesystem.dart';
-import 'package:xcross/src/target/shared/flutter/flutter_target_build_policy.dart';
-
-@internal
-const String flutterFrameworkPackageName = 'FlutterFramework';
-@internal
-const String pluginsProductName = 'FlutterPluginsGenerated';
+import 'package:xcross/src/target/shared/swiftpm/swiftpm_target_policy.dart';
 
 @internal
 final class SwiftPmBinaryLayout<T extends PlatformHostInterface> {
@@ -20,10 +15,10 @@ final class SwiftPmBinaryLayout<T extends PlatformHostInterface> {
     required this.targetPolicy,
   });
   final SwiftPmArtifactFileSystem artifactFileSystem;
-  final FlutterTargetBuildPolicy<T> targetPolicy;
+  final SwiftPmTargetPolicy<T> targetPolicy;
   Set<String> libraryIdentifiers(Directory artifact) {
     final fallback = {
-      for (final id in targetPolicy.engineSliceIdentifiers)
+      for (final id in targetPolicy.xcframeworkSliceIdentifiers)
         if (artifactFileSystem
             .directory(p.join(artifact.path, id))
             .existsSync())

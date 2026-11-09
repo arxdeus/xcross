@@ -11,11 +11,6 @@ import 'package:xcross/src/shared/flutter/swiftpm/host_policy.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/open_apple_macros.dart';
 
 @internal
-const String flutterFrameworkPackageName = 'FlutterFramework';
-@internal
-const String pluginsProductName = 'FlutterPluginsGenerated';
-
-@internal
 final class SwiftPmBuildPlan<T extends PlatformHostInterface> {
   SwiftPmBuildPlan({
     required this.filesystem,
@@ -115,7 +110,7 @@ final class SwiftPmBuildPlan<T extends PlatformHostInterface> {
     required String scratchPath,
     required String swiftSdksPath,
     required String iosSdk,
-    required String flutterFrameworkSlice,
+    required List<String> frameworkSearchPaths,
     String swiftSdkTriple = 'arm64-apple-ios',
     String? objectiveCCompatibilityHeader,
     String? toolsetPath,
@@ -172,14 +167,13 @@ final class SwiftPmBuildPlan<T extends PlatformHostInterface> {
       '-Xcc',
       objectiveCCompatibilityHeader,
     ],
-    '-Xswiftc',
-    '-F',
-    '-Xswiftc',
-    flutterFrameworkSlice,
-    '-Xcc',
-    '-F',
-    '-Xcc',
-    flutterFrameworkSlice,
+    for (final path in frameworkSearchPaths) ...[
+      '-Xswiftc',
+      '-F',
+      '-Xswiftc',
+      path,
+    ],
+    for (final path in frameworkSearchPaths) ...['-Xcc', '-F', '-Xcc', path],
     // Preserve Swift #available runtime guards. Disabling availability checks
     // also removes these guards and can call newer weak-linked APIs on older
     // operating systems where those weak-linked APIs do not exist.

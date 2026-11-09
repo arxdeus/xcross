@@ -17,6 +17,7 @@ void main() {
   late File manifest;
   final alias = SwiftPmManifestTargetAlias(
     fileSystem: testSwiftPmRuntime().artifactFileSystem,
+    productName: 'FlutterPluginsGenerated',
   );
   const original = '''
 client:

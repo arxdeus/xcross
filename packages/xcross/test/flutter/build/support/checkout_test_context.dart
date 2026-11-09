@@ -7,7 +7,6 @@ import 'package:cli_kit/shared/platform/platform_host.dart';
 import 'package:cli_kit/shared/process/process.dart';
 import 'package:cli_kit/shared/process/process_models.dart';
 import 'package:meta/meta.dart';
-import 'package:xcross/src/host/shared/flutter/swiftpm/host_symlink_capability.dart';
 import 'package:xcross/src/host/shared/flutter/swiftpm/posix_artifact_filesystem.dart';
 import 'package:xcross/src/host/shared/flutter/swiftpm/posix_checkout_attributes.dart';
 import 'package:xcross/src/host/shared/flutter/swiftpm/posix_checkout_link_creator.dart';
@@ -18,6 +17,7 @@ import 'package:xcross/src/shared/flutter/swiftpm/checkout_graph.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/checkout_links.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/checkout_stamp.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/filesystem.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/host_symlink_capability.dart';
 
 @internal
 final class CheckoutTestContext {

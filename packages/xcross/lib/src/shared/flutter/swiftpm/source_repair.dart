@@ -12,11 +12,6 @@ import 'package:xcross/src/shared/flutter/swiftpm/sdk_identity.dart';
 import 'package:xcross/src/shared/sdk/sdk_install_constants.dart';
 
 @internal
-const String flutterFrameworkPackageName = 'FlutterFramework';
-@internal
-const String pluginsProductName = 'FlutterPluginsGenerated';
-
-@internal
 final class SwiftPmSourceRepair<T extends PlatformHostInterface> {
   SwiftPmSourceRepair({
     required this.filesystem,

@@ -32,6 +32,8 @@ final class SimulatorFlutterTarget<T extends PlatformHostInterface>
     'ios-arm64-simulator',
   ];
   @override
+  List<String> get xcframeworkSliceIdentifiers => engineSliceIdentifiers;
+  @override
   String selectEngineSlice(String xcframework) => selectFlutterEngineSlice(
     xcframework,
     engineSliceIdentifiers,

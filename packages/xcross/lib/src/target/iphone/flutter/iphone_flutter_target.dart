@@ -26,6 +26,8 @@ final class IPhoneFlutterTarget<T extends PlatformHostInterface>
   @override
   List<String> get engineSliceIdentifiers => const ['ios-arm64'];
   @override
+  List<String> get xcframeworkSliceIdentifiers => engineSliceIdentifiers;
+  @override
   String selectEngineSlice(String xcframework) => selectFlutterEngineSlice(
     xcframework,
     engineSliceIdentifiers,

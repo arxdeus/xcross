@@ -28,12 +28,7 @@ import 'package:xcross/src/shared/flutter/swiftpm/process_policy.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/sdk_identity.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/source_repair.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/toolchain.dart';
-import 'package:xcross/src/target/shared/flutter/flutter_target_build_policy.dart';
-
-@internal
-const String flutterFrameworkPackageName = 'FlutterFramework';
-@internal
-const String pluginsProductName = 'FlutterPluginsGenerated';
+import 'package:xcross/src/target/shared/swiftpm/swiftpm_target_policy.dart';
 
 @internal
 typedef SwiftPmDependencyReconciler =
@@ -75,7 +70,7 @@ final class SwiftPmBuildDriver<T extends PlatformHostInterface> {
   final DarwinSdkRepository<T> sdkRepository;
   final SwiftPmSourceRepair<T> sourceRepair;
   final IosTarget<T> target;
-  final FlutterTargetBuildPolicy<T> targetPolicy;
+  final SwiftPmTargetPolicy<T> targetPolicy;
   final SwiftPmToolchain<T> toolchain;
   final DarwinToolchainResolver<T> toolchainResolver;
   final AppleToolShimResolver<T> tools;
@@ -90,7 +85,8 @@ final class SwiftPmBuildDriver<T extends PlatformHostInterface> {
     required SwiftPmWorkspace workspace,
     required String pluginsDir,
     required String scratchPath,
-    required String flutterXcframework,
+    required String productName,
+    required List<String> frameworkSearchPaths,
     required IosDeploymentTarget deploymentTarget,
     required Set<String> interopTargetCandidates,
     required Map<String, Set<String>> interopConsumers,
@@ -103,21 +99,13 @@ final class SwiftPmBuildDriver<T extends PlatformHostInterface> {
     final sdk = await _requireCompatibleSdk();
     final swiftPackage = await runner.locateTool(hostPolicy.packageTool);
     final swiftBuild = await runner.locateTool(hostPolicy.buildTool);
-    // Real `Flutter.framework` (not our FlutterFramework binary-target
-    // wrapper). Our own aggregate target resolves `import Flutter` via
-    // that wrapper's declared package dependency, but individual
-    // third-party plugin targets often don't declare any such dependency
-    // in their own Package.swift at all — they rely on Xcode's implicit,
-    // project-wide framework search paths to make `import Flutter` resolve
-    // (verified against a real published plugin: its manifest lists zero
-    // dependencies, yet its Swift source does `import Flutter`). A plain
-    // `swift build` has no such implicit project-wide behaviour, so we
-    // reproduce it ourselves with build-wide framework search flags. Swift
-    // targets need `-Xswiftc -F`; C and Objective-C targets need the matching
-    // `-Xcc -F` pair so imports such as `<Flutter/Flutter.h>` resolve too.
-    final flutterFrameworkSlice = targetPolicy.selectEngineSlice(
-      flutterXcframework,
-    );
+    // Callers pass build-wide framework search paths here. Individual
+    // third-party package targets may import frameworks they never declare
+    // in their own Package.swift, relying on Xcode's implicit, project-wide
+    // framework search paths. A plain `swift build` has no such implicit
+    // behaviour, so it is reproduced with build-wide framework search flags:
+    // Swift targets need `-Xswiftc -F`; C and Objective-C targets need the
+    // matching `-Xcc -F` pair.
     final linker = await toolchainResolver.resolveLd64Lld();
     final darwinClang = await hostBuildServices.cCompiler(
       sdkRepository.iosSdk(sdk, target: target.buildPlatform),
@@ -179,7 +167,7 @@ final class SwiftPmBuildDriver<T extends PlatformHostInterface> {
       swiftSdksPath: swiftSdksPath,
       iosSdk: iosSdk,
       swiftSdkTriple: deploymentTarget.swiftSdkTriple,
-      flutterFrameworkSlice: flutterFrameworkSlice,
+      frameworkSearchPaths: frameworkSearchPaths,
       objectiveCCompatibilityHeader: objectiveCCompatibilityHeader,
       toolsetPath: toolsetPath,
       linkerPath: linker,
@@ -208,6 +196,7 @@ final class SwiftPmBuildDriver<T extends PlatformHostInterface> {
       consumerRepair: consumerRepair,
       targetAlias: SwiftPmManifestTargetAlias(
         fileSystem: planReader.fileSystem,
+        productName: productName,
       ),
     );
 
@@ -222,6 +211,7 @@ final class SwiftPmBuildDriver<T extends PlatformHostInterface> {
           ).build(
             targetBuildDir: targetBuildDir,
             interopTargetCandidates: interopTargetCandidates,
+            productName: productName,
             skipInitialRecovery: true,
           ),
     );

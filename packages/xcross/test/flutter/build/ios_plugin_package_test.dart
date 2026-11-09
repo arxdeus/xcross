@@ -32,6 +32,7 @@ import 'package:xcross/src/shared/flutter/swiftpm/manifest.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/manifest_compiler.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/manifest_dependencies.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/module_files.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/package_types.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/plan_reader.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/process_policy.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/runtime.dart';
@@ -44,7 +45,7 @@ final _swiftPmRuntime = testSwiftPmRuntime();
 final _windowsRuntime = testWindowsSwiftPmRuntime();
 
 final _plugins = GeneratedPluginsPackage(
-  _swiftPmRuntime.targetPolicy,
+  _swiftPmRuntime.flutterPolicy,
   runner: _swiftPmRuntime.runner,
   sdkRepository: _swiftPmRuntime.sdkRepository,
   toolchain: _swiftPmRuntime.toolchainResolver,
@@ -92,7 +93,7 @@ void main() {
         scratchPath: '/scratch',
         swiftSdksPath: '/sdk',
         iosSdk: '/simulator-sdk',
-        flutterFrameworkSlice: '/ios-arm64_x86_64-simulator',
+        frameworkSearchPaths: ['/ios-arm64_x86_64-simulator'],
         swiftSdkTriple: 'arm64-apple-ios-simulator',
       );
       expect(
@@ -218,7 +219,7 @@ flutter:
       File(p.join(framework.path, 'Info.plist')).writeAsStringSync('<plist/>');
 
       Future<String> fingerprint() =>
-          _swiftPmRuntime.discovery.incrementalBuildFingerprint(
+          _plugins.staging.discovery.incrementalBuildFingerprint(
             plugins: [plugin],
             flutterXcframework: framework.path,
             deploymentTarget: const IosDeploymentTarget(
@@ -252,7 +253,7 @@ flutter:
         ..createSync();
 
       Future<String> fingerprint({required bool verbose}) =>
-          _swiftPmRuntime.discovery.incrementalBuildFingerprint(
+          _plugins.staging.discovery.incrementalBuildFingerprint(
             plugins: [plugin],
             flutterXcframework: framework.path,
             deploymentTarget: const IosDeploymentTarget(
@@ -1149,7 +1150,7 @@ let package = Package(name: "dependency", products: products, targets: targets)
       final manifestFile = File(p.join(package, 'Package.swift'));
       final stamp = manifestFile.lastModifiedSync();
 
-      final reconciled = await _swiftPmRuntime.workspaceStager
+      final reconciled = await _plugins.staging.workspaceStager
           .reconcileCheckoutFallbacks(
             outputDir: outputDir,
             scratchPath: scratch,
@@ -1197,7 +1198,7 @@ let package = Package(name: "dependency", products: products, targets: targets)
         isTrue,
       );
 
-      final again = await _swiftPmRuntime.workspaceStager
+      final again = await _plugins.staging.workspaceStager
           .reconcileCheckoutFallbacks(
             outputDir: outputDir,
             scratchPath: scratch,
@@ -1704,7 +1705,7 @@ framework module FallbackKit {
           final transport = FixtureSwiftPmArchiveTransport(bytes);
           final preparer = SwiftPmBinaryArtifactPreparer(
             store: store,
-            policy: _windowsRuntime.targetPolicy,
+            policy: _windowsRuntime.flutterPolicy,
             copyPolicy: _windowsRuntime.copyPolicy,
             transport: transport,
           );
@@ -2569,7 +2570,7 @@ let package = Package(targets: [
       final pluginA = makePlugin('plugin_a', pluginClass: 'PluginA');
       final pluginB = makePlugin('plugin_b');
 
-      final source = _swiftPmRuntime.manifest.registrantSource([
+      final source = _plugins.staging.manifest.registrantSource([
         pluginA,
         pluginB,
       ]);
@@ -2608,15 +2609,15 @@ public class NewPlugin: NSObject, FlutterPlugin {
 
       expect(
         plugin.pluginClassIosAvailabilityIn(
-          policy: _swiftPmRuntime.targetPolicy,
+          policy: _swiftPmRuntime.flutterPolicy,
         ),
         '17.0',
       );
-      final registrant = _swiftPmRuntime.manifest.registrantSource([plugin]);
+      final registrant = _plugins.staging.manifest.registrantSource([plugin]);
       expect(registrant, contains('if #available(iOS 17.0, *) {'));
       expect(registrant, contains('NewPlugin.register(with: registrar)'));
       expect(registrant, isNot(contains('NSClassFromString')));
-      final verbose = _swiftPmRuntime.manifest.registrantSource([
+      final verbose = _plugins.staging.manifest.registrantSource([
         plugin,
       ], verbose: true);
       expect(verbose, contains('requires iOS 17.0'));
@@ -2653,12 +2654,12 @@ public class NewPlugin: NSObject, FlutterPlugin {}
 
       expect(
         plugin.pluginClassIosAvailabilityIn(
-          policy: _swiftPmRuntime.targetPolicy,
+          policy: _swiftPmRuntime.flutterPolicy,
         ),
         '17.0',
       );
       expect(
-        _swiftPmRuntime.manifest.registrantSource([plugin]),
+        _plugins.staging.manifest.registrantSource([plugin]),
         contains('if #available(iOS 17.0, *)'),
       );
     });
@@ -2684,12 +2685,12 @@ public class NewPlugin: NSObject, FlutterPlugin {}
 
       expect(
         plugin.pluginClassIosAvailabilityIn(
-          policy: _swiftPmRuntime.targetPolicy,
+          policy: _swiftPmRuntime.flutterPolicy,
         ),
         isNull,
       );
       expect(
-        _swiftPmRuntime.manifest.registrantSource(
+        _plugins.staging.manifest.registrantSource(
           [plugin],
           stagedPackageDirs: {'new_plugin': staged},
         ),
@@ -2732,7 +2733,7 @@ public class NewPlugin: NSObject, FlutterPlugin {}
       }
 
       expect(
-        _swiftPmRuntime.manifest.registrantSource(
+        _plugins.staging.manifest.registrantSource(
           [plugin],
           stagedPackageDirs: {'new_plugin': staged},
         ),
@@ -2753,12 +2754,12 @@ public class NewPlugin: NSObject, FlutterPlugin {}
 
       expect(
         plugin.pluginClassIosAvailabilityIn(
-          policy: _swiftPmRuntime.targetPolicy,
+          policy: _swiftPmRuntime.flutterPolicy,
         ),
         isNull,
       );
       expect(
-        _swiftPmRuntime.manifest.registrantSource([plugin]),
+        _plugins.staging.manifest.registrantSource([plugin]),
         isNot(contains('if #available(iOS 17.0, *)')),
       );
     });
@@ -2776,12 +2777,12 @@ public class NewPlugin: NSObject, FlutterPlugin {}
 
       expect(
         plugin.pluginClassIosAvailabilityIn(
-          policy: _swiftPmRuntime.targetPolicy,
+          policy: _swiftPmRuntime.flutterPolicy,
         ),
         '18.0',
       );
       expect(
-        _swiftPmRuntime.manifest.registrantSource([plugin]),
+        _plugins.staging.manifest.registrantSource([plugin]),
         contains('if #available(iOS 18.0, *)'),
       );
     });
@@ -2803,12 +2804,12 @@ public class NewPlugin: NSObject, FlutterPlugin {}
 
       expect(
         plugin.pluginClassIosAvailabilityIn(
-          policy: _swiftPmRuntime.targetPolicy,
+          policy: _swiftPmRuntime.flutterPolicy,
         ),
         '17.0',
       );
       expect(
-        _swiftPmRuntime.manifest.registrantSource([plugin]),
+        _plugins.staging.manifest.registrantSource([plugin]),
         contains('if #available(iOS 17.0, *)'),
       );
     });
@@ -2825,7 +2826,7 @@ public class NewPlugin: NSObject, FlutterPlugin {}
 
       expect(
         plugin.pluginClassIosAvailabilityIn(
-          policy: _swiftPmRuntime.targetPolicy,
+          policy: _swiftPmRuntime.flutterPolicy,
         ),
         '17.0',
       );
@@ -2846,7 +2847,7 @@ public class NewPlugin: NSObject, FlutterPlugin {}
 
       expect(
         plugin.pluginClassIosAvailabilityIn(
-          policy: _swiftPmRuntime.targetPolicy,
+          policy: _swiftPmRuntime.flutterPolicy,
         ),
         isNull,
       );
@@ -2865,18 +2866,18 @@ API_AVAILABLE(macos(10.15), ios(17.0))
 
       expect(
         plugin.pluginClassIosAvailabilityIn(
-          policy: _swiftPmRuntime.targetPolicy,
+          policy: _swiftPmRuntime.flutterPolicy,
         ),
         '17.0',
       );
       expect(
-        _swiftPmRuntime.manifest.registrantSource([plugin]),
+        _plugins.staging.manifest.registrantSource([plugin]),
         contains('if #available(iOS 17.0, *)'),
       );
     });
 
     test('verbose source tracks each plugin and prints a summary', () {
-      final source = _swiftPmRuntime.manifest.registrantSource([
+      final source = _plugins.staging.manifest.registrantSource([
         makePlugin('plugin_a', pluginClass: 'PluginA'),
       ], verbose: true);
 
@@ -2901,7 +2902,7 @@ API_AVAILABLE(macos(10.15), ios(17.0))
       () {
         final pluginA = makePlugin('plugin_a');
 
-        final source = _swiftPmRuntime.manifest.registrantSource([pluginA]);
+        final source = _plugins.staging.manifest.registrantSource([pluginA]);
 
         expect(source, isNot(contains('import plugin_a')));
         expect(source, isNot(contains('if let registrar')));
@@ -2952,7 +2953,7 @@ let package = Package(
         Directory(flutterXcframework).createSync(recursive: true);
         final outputDir = p.join(tmp.path, 'out');
 
-        await _swiftPmRuntime.workspaceStager.writeGeneratedPackages(
+        await _plugins.staging.workspaceStager.writeGeneratedPackages(
           outputDir: outputDir,
           plugins: [plugin],
           flutterXcframework: flutterXcframework,
@@ -3012,7 +3013,7 @@ let package = Package(name: "generic_plugin")
       Directory(flutterXcframework).createSync(recursive: true);
       final outputDir = p.join(tmp.path, 'out');
 
-      await _swiftPmRuntime.workspaceStager.writeGeneratedPackages(
+      await _plugins.staging.workspaceStager.writeGeneratedPackages(
         outputDir: outputDir,
         plugins: [plugin],
         copyPluginPackages: {plugin.name},
@@ -3094,7 +3095,7 @@ let package = Package(name: "sibling_plugin")
       Directory(flutterXcframework).createSync(recursive: true);
       final outputDir = p.join(tmp.path, 'out');
 
-      await _swiftPmRuntime.workspaceStager.writeGeneratedPackages(
+      await _plugins.staging.workspaceStager.writeGeneratedPackages(
         outputDir: outputDir,
         plugins: [plugin],
         copyPluginPackages: {plugin.name},
@@ -3162,7 +3163,7 @@ let package = Package(name: "stable_plugin")
       final outputDir = p.join(tmp.path, 'out');
 
       Future<void> stage() =>
-          _swiftPmRuntime.workspaceStager.writeGeneratedPackages(
+          _plugins.staging.workspaceStager.writeGeneratedPackages(
             outputDir: outputDir,
             plugins: [plugin],
             copyPluginPackages: {plugin.name},
@@ -3241,7 +3242,7 @@ let package = Package(
       Directory(flutterXcframework).createSync(recursive: true);
       final outputDir = p.join(tmp.path, 'out');
 
-      await _swiftPmRuntime.workspaceStager.writeGeneratedPackages(
+      await _plugins.staging.workspaceStager.writeGeneratedPackages(
         outputDir: outputDir,
         plugins: [plugin],
         copyPluginPackages: {plugin.name},
@@ -3304,7 +3305,7 @@ let package = Package(name: "shared_prefs_foundation")
       Directory(flutterXcframework).createSync(recursive: true);
       final outputDir = p.join(tmp.path, 'out');
 
-      await _swiftPmRuntime.workspaceStager.writeGeneratedPackages(
+      await _plugins.staging.workspaceStager.writeGeneratedPackages(
         outputDir: outputDir,
         plugins: [plugin],
         copyPluginPackages: {plugin.name},
@@ -3353,7 +3354,7 @@ let package = Package(
         Directory(flutterXcframework).createSync(recursive: true);
         final outputDir = p.join(tmp.path, 'out');
 
-        await _swiftPmRuntime.workspaceStager.writeGeneratedPackages(
+        await _plugins.staging.workspaceStager.writeGeneratedPackages(
           outputDir: outputDir,
           plugins: [plugin],
           copyPluginPackages: {plugin.name},
@@ -3427,7 +3428,7 @@ let package = Package(
         Directory(flutterXcframework).createSync(recursive: true);
         final outputDir = p.join(tmp.path, 'out');
 
-        await _swiftPmRuntime.workspaceStager.writeGeneratedPackages(
+        await _plugins.staging.workspaceStager.writeGeneratedPackages(
           outputDir: outputDir,
           plugins: [pluginA],
           flutterXcframework: flutterXcframework,
@@ -3491,7 +3492,7 @@ let package = Package(
       Directory(flutterXcframework).createSync(recursive: true);
       final outputDir = p.join(tmp.path, 'out');
 
-      await _swiftPmRuntime.workspaceStager.writeGeneratedPackages(
+      await _plugins.staging.workspaceStager.writeGeneratedPackages(
         outputDir: outputDir,
         plugins: [plugin, firebaseCore],
         flutterXcframework: flutterXcframework,
@@ -3551,7 +3552,7 @@ let package = Package(
         File(p.join(frameworkPath, 'stale')).writeAsStringSync('stale');
 
         try {
-          await _swiftPmRuntime.workspaceStager.writeGeneratedPackages(
+          await _plugins.staging.workspaceStager.writeGeneratedPackages(
             outputDir: outputDir,
             plugins: [pluginA],
             flutterXcframework: flutterXcframework,
@@ -3626,7 +3627,7 @@ let package = Package(
       Directory(p.dirname(copiedFramework)).createSync(recursive: true);
       File(copiedFramework).writeAsStringSync('stale file');
 
-      await _swiftPmRuntime.workspaceStager.writeGeneratedPackages(
+      await _plugins.staging.workspaceStager.writeGeneratedPackages(
         outputDir: outputDir,
         plugins: [plugin],
         flutterXcframework: flutterXcframework,
@@ -3823,7 +3824,7 @@ let package = Package(
         scratchPath: 'scratch',
         swiftSdksPath: 'xcross-swift-sdks',
         iosSdk: 'iPhoneOS.sdk',
-        flutterFrameworkSlice: 'Flutter.xcframework/ios-arm64',
+        frameworkSearchPaths: ['Flutter.xcframework/ios-arm64'],
         objectiveCCompatibilityHeader: 'objective-c-compatibility.h',
         toolsetPath: 'toolset.json',
         linkerPath: '/usr/bin/ld64.lld',
@@ -4027,19 +4028,26 @@ let package = Package(
           _swiftPmRuntime.consumerRepair.missingSwiftInteropTargets(
             buildDir,
             candidates: const {'PluginStore', 'PluginAuth'},
+            productName: 'FlutterPluginsGenerated',
           ),
           isEmpty,
           reason: 'no module map has been written yet',
         );
         expect(
-          _windowsRuntime.planReader.plannedSwiftInteropTargets(buildDir),
+          _windowsRuntime.planReader.plannedSwiftInteropTargets(
+            buildDir,
+            productName: 'FlutterPluginsGenerated',
+          ),
           ['PluginAuth', 'PluginStore', 'Unrelated'],
         );
 
         File(headers[1]).parent.createSync(recursive: true);
         File(headers[1]).writeAsStringSync('// generated');
         expect(
-          _windowsRuntime.planReader.plannedSwiftInteropTargets(buildDir),
+          _windowsRuntime.planReader.plannedSwiftInteropTargets(
+            buildDir,
+            productName: 'FlutterPluginsGenerated',
+          ),
           ['PluginStore', 'Unrelated'],
           reason: 'a header already on disk needs no prebuild',
         );
@@ -4054,6 +4062,7 @@ let package = Package(
       expect(
         _swiftPmRuntime.planReader.plannedSwiftInteropTargets(
           buildDir,
+          productName: 'FlutterPluginsGenerated',
           candidates: const {'PluginStore'},
         ),
         isEmpty,
@@ -4096,6 +4105,7 @@ let package = Package(
       expect(
         _swiftPmRuntime.planReader.plannedSwiftInteropTargets(
           buildDir,
+          productName: 'FlutterPluginsGenerated',
           candidates: const {'Reachable', 'Orphan'},
         ),
         ['Reachable'],
@@ -4125,12 +4135,17 @@ let package = Package(
           },
         }),
       );
-      expect(_windowsRuntime.planReader.plannedSwiftInteropTargets(buildDir), [
-        'InternalSwiftTarget',
-      ]);
+      expect(
+        _windowsRuntime.planReader.plannedSwiftInteropTargets(
+          buildDir,
+          productName: 'FlutterPluginsGenerated',
+        ),
+        ['InternalSwiftTarget'],
+      );
       expect(
         _swiftPmRuntime.planReader.plannedSwiftInteropTargets(
           buildDir,
+          productName: 'FlutterPluginsGenerated',
           candidates: const {'example_plugin'},
         ),
         isEmpty,
@@ -4163,6 +4178,7 @@ let package = Package(
       expect(
         _swiftPmRuntime.planReader.plannedSwiftInteropTargets(
           buildDir,
+          productName: 'FlutterPluginsGenerated',
           candidates: const {'Reachable'},
         ),
         ['Reachable'],
@@ -4188,12 +4204,17 @@ let package = Package(
         }),
       );
 
-      expect(_windowsRuntime.planReader.plannedSwiftInteropTargets(buildDir), [
-        'InternalSwiftTarget',
-      ]);
+      expect(
+        _windowsRuntime.planReader.plannedSwiftInteropTargets(
+          buildDir,
+          productName: 'FlutterPluginsGenerated',
+        ),
+        ['InternalSwiftTarget'],
+      );
       expect(
         _swiftPmRuntime.planReader.plannedSwiftInteropTargets(
           buildDir,
+          productName: 'FlutterPluginsGenerated',
           candidates: const {'example_plugin'},
         ),
         isEmpty,
@@ -4202,7 +4223,7 @@ let package = Package(
       expect(
         _swiftPmRuntime.planReader.orderedInteropTargets(buildDir, [
           'InternalSwiftTarget',
-        ]),
+        ], productName: 'FlutterPluginsGenerated'),
         ['InternalSwiftTarget'],
       );
     });
@@ -4283,6 +4304,7 @@ let package = Package(
         ).build(
           targetBuildDir: buildDir,
           interopTargetCandidates: const {'FirebaseFirestore'},
+          productName: 'FlutterPluginsGenerated',
           skipInitialRecovery: true,
         );
 
@@ -4330,6 +4352,7 @@ let package = Package(
       );
       final planned = _swiftPmRuntime.planReader.plannedSwiftInteropTargets(
         buildDir,
+        productName: 'FlutterPluginsGenerated',
         candidates: headers.keys.toSet(),
       );
       expect(planned, [
@@ -4339,7 +4362,11 @@ let package = Package(
         'example_plugin',
       ]);
       expect(
-        _swiftPmRuntime.planReader.orderedInteropTargets(buildDir, planned),
+        _swiftPmRuntime.planReader.orderedInteropTargets(
+          buildDir,
+          planned,
+          productName: 'FlutterPluginsGenerated',
+        ),
         ['Auxiliary', 'InternalSwiftTarget', 'example_plugin'],
       );
       final events = <String>[];
@@ -4360,6 +4387,7 @@ let package = Package(
       ).build(
         targetBuildDir: buildDir,
         interopTargetCandidates: headers.keys.toSet(),
+        productName: 'FlutterPluginsGenerated',
         skipInitialRecovery: true,
       );
       expect(events, [
@@ -4433,6 +4461,7 @@ let package = Package(
         await testWindowsInteropRecovery(_windowsRuntime, session).build(
           targetBuildDir: buildDir,
           interopTargetCandidates: const {'PublicProduct'},
+          productName: 'FlutterPluginsGenerated',
           skipInitialRecovery: true,
         );
 
@@ -4479,6 +4508,7 @@ let package = Package(
             'Other': <String>[],
           },
           const ['Top', 'Middle', 'Bottom', 'Other'],
+          productName: 'FlutterPluginsGenerated',
         ),
         [
           ['Other', 'Bottom'],
@@ -4487,7 +4517,10 @@ let package = Package(
         ],
       );
       expect(
-        SwiftPmPlanReader.layerTargetsByDependencies(null, const ['B', 'A']),
+        SwiftPmPlanReader.layerTargetsByDependencies(null, const [
+          'B',
+          'A',
+        ], productName: 'FlutterPluginsGenerated'),
         [
           ['B'],
           ['A'],
@@ -4588,6 +4621,7 @@ let package = Package(
         ).build(
           targetBuildDir: buildDir,
           interopTargetCandidates: const {'PluginStore', 'PluginAuth'},
+          productName: 'FlutterPluginsGenerated',
           skipInitialRecovery: true,
         );
         expect(events, [
@@ -4625,6 +4659,7 @@ let package = Package(
           ).build(
             targetBuildDir: buildDir,
             interopTargetCandidates: const {'Plugin'},
+            productName: 'FlutterPluginsGenerated',
             skipInitialRecovery: true,
           ),
           throwsA(isA<StateError>()),
@@ -4685,6 +4720,7 @@ let package = Package(
         ).build(
           targetBuildDir: buildDir,
           interopTargetCandidates: const {},
+          productName: 'FlutterPluginsGenerated',
           skipInitialRecovery: true,
         );
         expect(events, ['repair', 'build1', 'repair', 'build2']);
@@ -4722,7 +4758,7 @@ let package = Package(
           scratchPath: 'scratch',
           swiftSdksPath: 'xcross-swift-sdks',
           iosSdk: 'iPhoneOS.sdk',
-          flutterFrameworkSlice: 'Flutter.xcframework/ios-arm64',
+          frameworkSearchPaths: ['Flutter.xcframework/ios-arm64'],
 
           interopSearchPaths: ['-Xcc', '-I', '-Xcc', built],
         ),
@@ -4812,6 +4848,7 @@ module FirebaseAI {
         ).build(
           targetBuildDir: buildDir,
           interopTargetCandidates: const {'FirebaseFirestore'},
+          productName: 'FlutterPluginsGenerated',
         );
 
         expect(prebuilt, ['FirebaseFirestore']);
@@ -4857,6 +4894,7 @@ module FirebaseFirestore {
         ).build(
           targetBuildDir: buildDir,
           interopTargetCandidates: const {'FirebaseFirestore'},
+          productName: 'FlutterPluginsGenerated',
         );
 
         expect(attempts, 2);
@@ -4880,6 +4918,7 @@ module FirebaseFirestore {
         ).build(
           targetBuildDir: p.join(tmp.path, 'arm64-apple-ios', 'debug'),
           interopTargetCandidates: const {'FirebaseFirestore'},
+          productName: 'FlutterPluginsGenerated',
         ),
         throwsStateError,
       );
@@ -4918,6 +4957,7 @@ module FirebaseFirestore {
         ).build(
           targetBuildDir: buildDir,
           interopTargetCandidates: const {'FirebaseFirestore'},
+          productName: 'FlutterPluginsGenerated',
         );
 
         expect(attempts, 2);
@@ -4950,6 +4990,7 @@ module FirebaseFirestore {
           ).build(
             targetBuildDir: buildDir,
             interopTargetCandidates: const {'FirebaseFirestore'},
+            productName: 'FlutterPluginsGenerated',
           ),
           throwsStateError,
         );
@@ -4965,7 +5006,7 @@ module FirebaseFirestore {
             scratchPath: 'scratch',
             swiftSdksPath: 'xcross-swift-sdks',
             iosSdk: 'iPhoneOS.sdk',
-            flutterFrameworkSlice: 'Flutter.xcframework/ios-arm64',
+            frameworkSearchPaths: ['Flutter.xcframework/ios-arm64'],
             toolsetPath: 'toolset.json',
           );
 
@@ -5187,7 +5228,7 @@ module FirebaseFirestore {
         scratchPath: 'scratch',
         swiftSdksPath: 'xcross-swift-sdks',
         iosSdk: 'iPhoneOS.sdk',
-        flutterFrameworkSlice: 'Flutter.xcframework/ios-arm64',
+        frameworkSearchPaths: ['Flutter.xcframework/ios-arm64'],
         macroServerArguments: macros,
       );
       expect(arguments, containsAllInOrder(macros));
@@ -5201,7 +5242,7 @@ module FirebaseFirestore {
           scratchPath: 'scratch',
           swiftSdksPath: 'xcross-swift-sdks',
           iosSdk: 'iPhoneOS.sdk',
-          flutterFrameworkSlice: 'Flutter.xcframework/ios-arm64',
+          frameworkSearchPaths: ['Flutter.xcframework/ios-arm64'],
         ),
         isNot(contains('-load-plugin-executable')),
       );
@@ -5222,6 +5263,7 @@ module FirebaseFirestore {
 
       final result = await _swiftPmRuntime.assembly.discoverAndRewriteDylibs(
         output.path,
+        productName: 'FlutterPluginsGenerated',
       );
 
       expect(result.libraryPath, p.absolute(aggregate.path));
@@ -5270,6 +5312,7 @@ module FirebaseFirestore {
 
       final result = await _swiftPmRuntime.assembly.discoverAndRewriteDylibs(
         output.path,
+        productName: 'FlutterPluginsGenerated',
       );
 
       expect(result.frameworkPaths, [thinDynamic, universalDynamic]);
@@ -5297,6 +5340,7 @@ module FirebaseFirestore {
 
       final result = await _swiftPmRuntime.assembly.discoverAndRewriteDylibs(
         output.path,
+        productName: 'FlutterPluginsGenerated',
       );
 
       expect(result.resourceBundlePaths, [prefs, sqlite]);
@@ -5339,6 +5383,7 @@ module FirebaseFirestore {
 
       final result = await _swiftPmRuntime.assembly.discoverAndRewriteDylibs(
         output.path,
+        productName: 'FlutterPluginsGenerated',
       );
 
       expect(result.resourceBundlePaths, [p.absolute(missing)]);
@@ -5390,7 +5435,8 @@ module FirebaseFirestore {
 
       final result = await _swiftPmRuntime.assembly.discoverAndRewriteDylibs(
         output.path,
-        pluginIdentities: const {'flutter_soloud': 'flutter_soloud-5.1.2'},
+        productName: 'FlutterPluginsGenerated',
+        packageIdentities: const {'flutter_soloud': 'flutter_soloud-5.1.2'},
       );
 
       final products = {
@@ -5421,6 +5467,7 @@ module FirebaseFirestore {
       // A reused build passes through again unchanged.
       final again = await _swiftPmRuntime.assembly.discoverAndRewriteDylibs(
         output.path,
+        productName: 'FlutterPluginsGenerated',
       );
       expect(again.dylibPaths, result.dylibPaths);
       expect(_dylibMachONames(soloud.readAsBytesSync()), [
@@ -5481,7 +5528,8 @@ module FirebaseFirestore {
 
       final result = await _swiftPmRuntime.assembly.discoverAndRewriteDylibs(
         output.path,
-        pluginIdentities: const {'file_picker': 'file_picker-1.0.4'},
+        productName: 'FlutterPluginsGenerated',
+        packageIdentities: const {'file_picker': 'file_picker-1.0.4'},
       );
 
       final bundles = {
@@ -5510,7 +5558,7 @@ module FirebaseFirestore {
         final workspace = SwiftPmWorkspace.forProject(
           tmp.path,
           environment: {'XCROSS_CACHE_DIR': tmp.path},
-          policy: _swiftPmRuntime.targetPolicy,
+          policy: _swiftPmRuntime.flutterPolicy,
         );
 
         final result = await _plugins.build(
@@ -5547,7 +5595,7 @@ module FirebaseFirestore {
         final workspace = SwiftPmWorkspace.forProject(
           tmp.path,
           environment: {'XCROSS_CACHE_DIR': tmp.path},
-          policy: _swiftPmRuntime.targetPolicy,
+          policy: _swiftPmRuntime.flutterPolicy,
         );
 
         final result = await _plugins.build(
@@ -5573,7 +5621,7 @@ module FirebaseFirestore {
       final workspace = SwiftPmWorkspace.forProject(
         tmp.path,
         environment: {'XCROSS_CACHE_DIR': tmp.path},
-        policy: _swiftPmRuntime.targetPolicy,
+        policy: _swiftPmRuntime.flutterPolicy,
       );
       var resolverCalls = 0;
 

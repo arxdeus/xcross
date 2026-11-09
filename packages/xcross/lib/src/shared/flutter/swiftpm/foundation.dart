@@ -29,7 +29,7 @@ import 'package:xcross/src/shared/flutter/swiftpm/process_policy.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/sdk_identity.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/source_repair.dart';
 import 'package:xcross/src/shared/flutter/swiftpm/toolchain.dart';
-import 'package:xcross/src/target/shared/flutter/flutter_target_build_policy.dart';
+import 'package:xcross/src/target/shared/swiftpm/swiftpm_target_policy.dart';
 
 @internal
 final class SwiftPmFoundation<T extends PlatformHostInterface> {
@@ -68,7 +68,7 @@ final class SwiftPmFoundation<T extends PlatformHostInterface> {
   final SwiftPmHostBuildServices<T> hostBuildServices;
   final SwiftPmLibrarianResolver<T> librarianResolver;
   final SwiftPmGateExecution<T> gateExecution;
-  final FlutterTargetBuildPolicy<T> targetPolicy;
+  final SwiftPmTargetPolicy<T> targetPolicy;
   final ProcessRunner<T> runner;
   final DarwinSdkRepository<T> sdkRepository;
   final DarwinToolchainResolver<T> toolchainResolver;
