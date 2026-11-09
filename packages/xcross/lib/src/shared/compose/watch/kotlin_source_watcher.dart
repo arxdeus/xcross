@@ -52,6 +52,11 @@ final class KotlinSourceWatcher {
     '.properties',
   };
 
+  /// Files outside [_watchedExtensions] that change the build: the Swift
+  /// packages the SwiftUI host links are declared in the Xcode project and
+  /// pinned in `Package.resolved`.
+  static const _watchedNames = {'project.pbxproj', 'Package.resolved'};
+
   /// Directories that never contain hand-edited sources. `build/` is the big
   /// one: it holds Gradle's own outputs, which change on every build and would
   /// make every check report "changed" forever.
@@ -86,9 +91,13 @@ final class KotlinSourceWatcher {
             }
             pending.add(entity);
           } else if (entity is File &&
-              _watchedExtensions.contains(p.extension(name)) &&
-              (p.extension(name) != '.swift' ||
-                  isSwiftHostSource(entity.path, projectRoot: projectRoot))) {
+              (_watchedNames.contains(name) ||
+                  _watchedExtensions.contains(p.extension(name)) &&
+                      (p.extension(name) != '.swift' ||
+                          isSwiftHostSource(
+                            entity.path,
+                            projectRoot: projectRoot,
+                          )))) {
             paths.add(entity.absolute.path);
           }
         }
