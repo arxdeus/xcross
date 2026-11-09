@@ -38,7 +38,7 @@ const _importKinds = {
 /// exist on the target SDK.
 @internal
 List<SwiftImport> scanSwiftImports(String source, {required String path}) =>
-    _SwiftImportLexer(source, path).scan();
+    SwiftImportLexer(source, path).scan();
 
 bool _isIdentChar(int c) =>
     (c >= 0x30 && c <= 0x39) ||
@@ -49,8 +49,10 @@ bool _isIdentChar(int c) =>
 
 bool _isIdentStart(int c) => _isIdentChar(c) && !(c >= 0x30 && c <= 0x39);
 
-class _SwiftImportLexer {
-  _SwiftImportLexer(this.s, this.path);
+/// The state machine behind [scanSwiftImports]. Use that function instead.
+@internal
+final class SwiftImportLexer {
+  SwiftImportLexer(this.s, this.path);
 
   final String s;
   final String path;
