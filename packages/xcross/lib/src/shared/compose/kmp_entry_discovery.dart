@@ -244,6 +244,14 @@ List<String> tokenizeSwiftCode(String source) {
         hashes++;
         k++;
       }
+      if (hashes > 0 && k < n && source[k] == '/') {
+        // Extended regex literal `#/.../#`, skipped like the import scanner
+        // does so both agree on what is code.
+        final closer = '/${'#' * hashes}';
+        final end = source.indexOf(closer, k + 1);
+        i = end < 0 ? n : end + closer.length;
+        continue;
+      }
       if (k >= n || source[k] != '"') {
         i = k;
         continue;

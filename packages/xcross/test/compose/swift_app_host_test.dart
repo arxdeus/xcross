@@ -25,6 +25,11 @@ void main() {
       '/* @main struct X: App {} */',
       'let s = "@main struct X: App {}"',
       'struct X: App { }',
+      'let r = #/@main struct X: App {}/#',
+      'let r = ##/@main struct X: App {}/##',
+      'let s = #"@main struct X: App {}"#',
+      'let s = """\n@main struct X: App {}\n"""',
+      '/* /* */ @main struct X: App {} */',
     ]) {
       test('rejects $s', () => expect(host(s), isFalse));
     }
