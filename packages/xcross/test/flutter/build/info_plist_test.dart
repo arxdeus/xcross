@@ -7,8 +7,8 @@ import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 import 'package:xcross/src/shared/artifact/plist_mutations.dart';
 import 'package:xcross/src/shared/flutter/build/info_plist.dart';
-import 'package:xcross/src/shared/flutter/build/ios_deployment_target.dart';
 import 'package:xcross/src/shared/flutter/constants.dart';
+import 'package:xcross/src/shared/swiftpm/ios_deployment_target.dart';
 import 'package:xml/xml.dart';
 
 import '../flutter_test_runtime.dart';

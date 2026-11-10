@@ -13,6 +13,7 @@ import 'package:xcross/src/shared/compose/compose_build_context.dart';
 import 'package:xcross/src/shared/compose/kmp_project_detector.dart';
 import 'package:xcross/src/shared/compose/models/compose_build_options.dart';
 import 'package:xcross/src/shared/compose/project/kmp_project.dart';
+import 'package:xcross/src/shared/compose/swiftpm/host_packages_builder.dart';
 import 'package:xcross/src/shared/errors/errors.dart';
 import 'package:xcross/src/shared/models/pack_result.dart';
 import 'package:xcross/src/target/shared/compose/compose_target.dart';
@@ -45,6 +46,7 @@ final class ComposePackOperation<T extends PlatformHostInterface> {
     required Downloader downloader,
     String? cacheRoot,
     int processorCount = 1,
+    ComposeSwiftPmBuilder<T>? swiftPmBuilder,
   }) : context = ComposeBuildContext(
          target: target,
          runner: runner,
@@ -57,7 +59,8 @@ final class ComposePackOperation<T extends PlatformHostInterface> {
        ),
        _currentDirectory = (() => target.host.paths.context.current),
        _detectProject = null,
-       _packProject = null;
+       _packProject = null,
+       _swiftPmBuilder = swiftPmBuilder;
 
   ComposePackOperation.withSeams(
     ComposeTarget<T> target, {
@@ -83,7 +86,8 @@ final class ComposePackOperation<T extends PlatformHostInterface> {
        ),
        _currentDirectory = currentDirectory,
        _detectProject = detectProject,
-       _packProject = packProject;
+       _packProject = packProject,
+       _swiftPmBuilder = null;
 
   final ComposeBuildContext<T> context;
   ComposeTarget<T> get target => context.target;
@@ -97,6 +101,7 @@ final class ComposePackOperation<T extends PlatformHostInterface> {
   final ComposeCurrentDirectory _currentDirectory;
   final ComposeDetectProject? _detectProject;
   final ComposePackProject? _packProject;
+  final ComposeSwiftPmBuilder<T>? _swiftPmBuilder;
 
   Future<PackResult> pack({
     required ComposeBuildOptions options,
@@ -148,6 +153,7 @@ final class ComposePackOperation<T extends PlatformHostInterface> {
       sdkRepository: sdkRepository,
       cacheRoot: cacheRoot,
       processorCount: processorCount,
+      swiftPmBuilder: _swiftPmBuilder,
     ).pack();
     return packed;
   }

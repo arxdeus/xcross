@@ -8,6 +8,7 @@ import 'package:xcross/src/shared/compose/build/mach_o_validator.dart';
 import 'package:xcross/src/shared/compose/build/process_invocation.dart';
 import 'package:xcross/src/shared/compose/compose_ios_constants.dart';
 import 'package:xcross/src/shared/compose/project/kmp_project.dart';
+import 'package:xcross/src/shared/compose/swiftpm/host_package_link.dart';
 import 'package:xcross/src/shared/compose/toolchain/compose_toolchain.dart';
 import 'package:xcross/src/shared/errors/errors.dart';
 
@@ -49,6 +50,7 @@ final class SwiftRunnerBuilder<T extends PlatformHostInterface> {
     required KmpProject project,
     required String frameworkPath,
     required ComposeToolchain<T> toolchain,
+    HostPackageLink? packages,
   }) async {
     _validateFramework(project, frameworkPath, runner.host.fileSystem);
     if (project.swiftSources.isEmpty) {
@@ -77,7 +79,10 @@ final class SwiftRunnerBuilder<T extends PlatformHostInterface> {
       '-sdk',
       iphoneSdk,
       '-target',
-      toolchain.target.targetTriple,
+      if (packages == null)
+        toolchain.target.targetTriple
+      else
+        toolchain.target.buildPlatform.buildTriple(packages.deploymentTarget),
       '-resource-dir',
       resourceDir,
       '-F',
@@ -120,7 +125,7 @@ final class SwiftRunnerBuilder<T extends PlatformHostInterface> {
       '-Xlinker',
       toolchain.target.linkerPlatform,
       '-Xlinker',
-      _iosMinimumVersion,
+      packages?.deploymentTarget ?? _iosMinimumVersion,
       '-Xlinker',
       toolchain.target.sdkVersion(iphoneSdk) ?? composeDefaultSdkVersion,
       // Same non-Apple-clang gap as above, one layer further in: Apple
@@ -141,6 +146,10 @@ final class SwiftRunnerBuilder<T extends PlatformHostInterface> {
       '-rpath',
       '-Xlinker',
       '@executable_path/Frameworks',
+      // The Swift packages the Xcode project declares: their modules, the
+      // module maps of their C targets, binary frameworks, and the
+      // aggregate dylib (already named as the embedded framework).
+      ...?packages?.swiftcArguments,
       ...project.swiftSources,
       '-o',
       runnerPath,

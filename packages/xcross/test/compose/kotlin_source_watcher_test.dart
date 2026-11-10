@@ -74,6 +74,23 @@ void main() {
     expect(names, ['ContentView.swift']);
   });
 
+  test('watches the Swift package declarations of the Xcode project', () {
+    write('iosApp/iosApp.xcodeproj/project.pbxproj', '{}');
+    write(
+      'iosApp/iosApp.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/'
+          'Package.resolved',
+      '{}',
+    );
+    write('iosApp/iosApp.xcodeproj/xcuserdata/me.xcuserdatad/x.plist', '');
+
+    final names = session
+        .fixtureSourceWatcher(root.path)
+        .sourceFiles()
+        .map(p.basename)
+        .toSet();
+    expect(names, {'project.pbxproj', 'Package.resolved'});
+  });
+
   test('ignores build output directories', () {
     write('shared/src/commonMain/kotlin/App.kt', 'fun main() {}');
     // Gradle rewrites these on every build; treating them as sources would

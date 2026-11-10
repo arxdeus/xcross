@@ -10,16 +10,16 @@ import 'package:xcross/src/shared/flutter/build/info_plist.dart';
 import 'package:xcross/src/shared/flutter/build/internal/staged_directory_swap.dart';
 import 'package:xcross/src/shared/flutter/build/ios_bundle_resources.dart';
 import 'package:xcross/src/shared/flutter/build/ios_bundle_versions.dart';
-import 'package:xcross/src/shared/flutter/build/ios_deployment_target.dart';
 import 'package:xcross/src/shared/flutter/constants.dart';
 import 'package:xcross/src/shared/flutter/extensions/app_extension_plist.dart';
 import 'package:xcross/src/shared/flutter/flutter_build_runtime.dart';
 import 'package:xcross/src/shared/flutter/flutter_build_steps.dart';
 import 'package:xcross/src/shared/flutter/models/flutter/flutter_build_mode.dart';
 import 'package:xcross/src/shared/flutter/models/flutter/flutter_build_options.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/dynamic_product.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/resource_manifest.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/static_framework_stubs.dart';
+import 'package:xcross/src/shared/swiftpm/dynamic_product.dart';
+import 'package:xcross/src/shared/swiftpm/ios_deployment_target.dart';
+import 'package:xcross/src/shared/swiftpm/resource_manifest.dart';
+import 'package:xcross/src/shared/swiftpm/static_framework_stubs.dart';
 import 'package:xcross/src/target/shared/flutter/xcode_build_metadata.dart';
 
 @internal
@@ -282,6 +282,16 @@ final class FlutterBundleAssembler<T extends PlatformHostInterface>
         sdkName: sdkName,
         build: build,
       ),
+    );
+
+    // Xcode's "Copy Swift Standard Libraries": back-deployment libraries
+    // the app or its frameworks load through `@rpath`. Nothing changes for
+    // an app without such references.
+    await runtime.frameworks.embedSwiftBackDeployLibraries(
+      bundleDir,
+      sdkName: sdkName,
+      sdkPath: sdkPath,
+      warn: runtime.runner.log.logWarn,
     );
 
     await _embedAppExtensions(bundleDir, extensions);

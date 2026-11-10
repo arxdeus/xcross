@@ -3,8 +3,8 @@ import 'dart:io';
 import 'package:cli_kit/shared/platform/platform_host.dart';
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
+import 'package:xcross/src/shared/apple/xcodeproj/pbx_parser.dart';
 import 'package:xcross/src/shared/flutter/models/flutter/flutter_build_mode.dart';
-import 'package:xcross/src/shared/flutter/project/pbx_parser.dart';
 
 /// The base Xcode configuration name for [mode]
 /// (`Debug`/`Profile`/`Release`), before any flavor suffix.

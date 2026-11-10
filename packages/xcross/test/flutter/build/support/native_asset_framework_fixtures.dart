@@ -5,7 +5,7 @@ import 'package:cli_kit/shared/process/process.dart';
 import 'package:cli_kit/shared/process/process_models.dart';
 import 'package:meta/meta.dart';
 import 'package:xcross/src/shared/flutter/build/internal/native_asset_frameworks.dart';
-import 'package:xcross/src/shared/flutter/build/internal/recursive_directory_copy.dart';
+import 'package:xcross/src/shared/swiftpm/recursive_directory_copy.dart';
 
 import '../../../host_operations_fixtures.dart';
 

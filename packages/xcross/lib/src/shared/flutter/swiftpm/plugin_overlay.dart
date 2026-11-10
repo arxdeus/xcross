@@ -4,11 +4,11 @@ import 'dart:io';
 import 'package:cli_kit/shared/platform/platform_host.dart';
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
-import 'package:xcross/src/shared/flutter/swiftpm/binary_preparation.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/checkout_manifest_normalizer.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/filesystem.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/host_source_normalizer.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/manifest_lexer.dart';
+import 'package:xcross/src/shared/swiftpm/binary_preparation.dart';
+import 'package:xcross/src/shared/swiftpm/checkout_manifest_normalizer.dart';
+import 'package:xcross/src/shared/swiftpm/filesystem.dart';
+import 'package:xcross/src/shared/swiftpm/host_source_normalizer.dart';
+import 'package:xcross/src/shared/swiftpm/manifest_lexer.dart';
 
 @internal
 const String flutterFrameworkPackageName = 'FlutterFramework';

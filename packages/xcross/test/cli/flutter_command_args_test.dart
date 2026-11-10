@@ -8,8 +8,8 @@ import 'package:xcross/src/composition/cli/flutter_build_command.dart';
 import 'package:xcross/src/composition/cli/flutter_run_command.dart';
 import 'package:xcross/src/composition/cli/runner.dart';
 import 'package:xcross/src/shared/cli/basic/auth_command.dart';
+import 'package:xcross/src/shared/errors/build_error.dart';
 import 'package:xcross/src/shared/errors/errors.dart';
-import 'package:xcross/src/shared/flutter/errors.dart';
 import 'package:xcross/src/shared/flutter/models/flutter/flutter_build_mode.dart';
 import 'package:xcross/src/shared/flutter/models/flutter/flutter_build_options.dart';
 import 'package:xcross/src/shared/models/pack_result.dart';
@@ -277,7 +277,7 @@ void main() {
             throwsA(switch (flags) {
               _ when flags.contains('--ipa') => isA<XcrossError>(),
               _ when flags.contains('simulator') =>
-                isA<FlutterBuildError>().having(
+                isA<XcrossBuildError>().having(
                   (e) => e.message,
                   'message',
                   startsWith(

@@ -6,9 +6,9 @@ import 'dart:io';
 
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
-import 'package:xcross/src/shared/flutter/build/internal/recursive_directory_copy.dart';
 import 'package:xcross/src/shared/flutter/build/ios_bundle_resources.dart';
 import 'package:xcross/src/shared/flutter/project/pbx_project_reader.dart';
+import 'package:xcross/src/shared/swiftpm/recursive_directory_copy.dart';
 
 import '../../host_operations_fixtures.dart';
 import '../flutter_test_runtime.dart';

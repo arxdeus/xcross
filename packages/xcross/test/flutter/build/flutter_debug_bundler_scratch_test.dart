@@ -10,9 +10,9 @@ import 'package:test/test.dart';
 import 'package:xcross/src/shared/flutter/build/dart_plugin_registrant.dart';
 import 'package:xcross/src/shared/flutter/build/flutter_debug_bundler.dart';
 import 'package:xcross/src/shared/flutter/build/internal/toolchain.dart';
-import 'package:xcross/src/shared/flutter/build/ios_deployment_target.dart';
 import 'package:xcross/src/shared/flutter/flutter_assets_compiler.dart';
 import 'package:xcross/src/shared/flutter/flutter_kernel_compiler.dart';
+import 'package:xcross/src/shared/swiftpm/ios_deployment_target.dart';
 import 'package:xcross/src/target/iphone/flutter/iphone_flutter_target.dart';
 
 import '../flutter_test_runtime.dart';

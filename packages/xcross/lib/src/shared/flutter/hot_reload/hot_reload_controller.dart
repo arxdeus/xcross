@@ -11,6 +11,7 @@ import 'package:frontend_server_kit/shared/compiler/frontend_server_session.dart
 import 'package:frontend_server_kit/shared/compiler/package_uris.dart';
 import 'package:frontend_server_kit/shared/process/compiler_transport.dart';
 import 'package:meta/meta.dart';
+import 'package:xcross/src/shared/errors/build_error.dart';
 import 'package:xcross/src/shared/flutter/constants.dart';
 import 'package:xcross/src/shared/flutter/errors.dart';
 import 'package:xcross/src/shared/flutter/hot_reload/dart_vm_service_client.dart';
@@ -351,7 +352,7 @@ final class HotReloadController {
     try {
       await _putDevFsFile(client, targetUri: targetUri, body: gz);
     } catch (e) {
-      if (e is FlutterBuildError) rethrow;
+      if (e is XcrossBuildError) rethrow;
       throw FlutterBuildError('devFS upload failed: $e');
     } finally {
       client.close();

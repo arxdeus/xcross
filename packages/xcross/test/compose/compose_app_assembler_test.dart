@@ -7,7 +7,11 @@ import 'package:propertylistserialization/propertylistserialization.dart';
 import 'package:test/test.dart';
 import 'package:xcross/src/shared/compose/build/compose_app_assembler.dart';
 import 'package:xcross/src/shared/compose/project/kmp_project.dart';
+import 'package:xcross/src/shared/compose/swiftpm/host_package_link.dart';
 import 'package:xcross/src/shared/errors/errors.dart';
+import 'package:xcross/src/shared/swiftpm/dynamic_product.dart';
+import 'package:xcross/src/shared/swiftpm/package_types.dart';
+import 'package:xcross/src/shared/swiftpm/resource_manifest.dart';
 
 import 'support/compose_platforms.dart';
 
@@ -242,6 +246,100 @@ void main() {
       // A static framework's code is inside Runner; copying the archive in would
       // ship hundreds of megabytes of dead weight and break the signing layout.
       expect(Directory(p.join(appPath, 'Frameworks')).existsSync(), isFalse);
+    },
+  );
+
+  test(
+    testOn: '!windows',
+    'embeds Swift package products even when the KMP framework is static',
+    () async {
+      final fixture = ComposeFixture.create()..createInputs();
+      addTearDown(fixture.dispose);
+      final debug = p.join(fixture.root, 'swiftpm', 'debug');
+      final dylib = File(p.join(debug, 'libXcrossHostPackages.dylib'))
+        ..createSync(recursive: true)
+        ..writeAsStringSync('dylib');
+      final binary = p.join(debug, 'Tiny.framework');
+      File(p.join(binary, 'Tiny'))
+        ..createSync(recursive: true)
+        ..writeAsStringSync('tiny');
+      File(p.join(binary, 'Headers', 'Tiny.h'))
+        ..createSync(recursive: true)
+        ..writeAsStringSync('h');
+      Directory(p.join(binary, 'Modules')).createSync();
+      final bundle = p.join(debug, 'LocalPkg_LocalPkg.bundle');
+      File(p.join(bundle, 'greeting.json'))
+        ..createSync(recursive: true)
+        ..writeAsStringSync('{}');
+      final link = HostPackageLink(
+        productName: 'XcrossHostPackages',
+        libraryPath: dylib.path,
+        modulesDir: null,
+        moduleMapFiles: const [],
+        frameworkSearchPaths: [debug],
+        build: SwiftPmBuildResult(
+          libraryPath: dylib.path,
+          dylibPaths: [dylib.path],
+          modulesDir: null,
+          dynamicProducts: [
+            SwiftPmDynamicProduct(
+              libraryPath: dylib.path,
+              packageIdentity: null,
+            ),
+          ],
+          frameworkPaths: [binary],
+          resourceBundlePaths: [bundle],
+          resourceBundles: [SwiftPmResourceBundle(bundlePath: bundle)],
+        ),
+      );
+
+      final appPath =
+          await ComposeAppAssembler.withSeams(
+            session.fixtureIPhoneTarget,
+            session.fixtureRunner,
+            log: session.fixtureLog,
+          ).assemble(
+            project: fixture.staticProject,
+            runnerPath: fixture.runnerPath,
+            frameworkPath: fixture.frameworkPath,
+            packages: link,
+          );
+
+      final product = p.join(
+        appPath,
+        'Frameworks',
+        'XcrossHostPackages.framework',
+      );
+      expect(
+        File(p.join(product, 'XcrossHostPackages')).readAsStringSync(),
+        'dylib',
+      );
+      final plist =
+          PropertyListSerialization.propertyListWithString(
+                File(p.join(product, 'Info.plist')).readAsStringSync(),
+              )
+              as Map;
+      expect(plist['CFBundlePackageType'], 'FMWK');
+      expect(plist['CFBundleExecutable'], 'XcrossHostPackages');
+      expect(plist['MinimumOSVersion'], '15.0');
+      expect(plist['CFBundleSupportedPlatforms'], ['iPhoneOS']);
+      expect(plist['DTPlatformName'], 'iphoneos');
+      // Binary frameworks ship without headers and modules, as Xcode does.
+      final tiny = p.join(appPath, 'Frameworks', 'Tiny.framework');
+      expect(File(p.join(tiny, 'Tiny')).existsSync(), isTrue);
+      expect(Directory(p.join(tiny, 'Headers')).existsSync(), isFalse);
+      expect(Directory(p.join(tiny, 'Modules')).existsSync(), isFalse);
+      // Resource bundles sit in the app root, where Bundle.module looks.
+      final staged = p.join(appPath, 'LocalPkg_LocalPkg.bundle');
+      expect(File(p.join(staged, 'greeting.json')).existsSync(), isTrue);
+      expect(File(p.join(staged, 'Info.plist')).existsSync(), isTrue);
+      // The static KMP framework is still not embedded.
+      expect(
+        Directory(
+          p.join(appPath, 'Frameworks', 'Shared.framework'),
+        ).existsSync(),
+        isFalse,
+      );
     },
   );
 

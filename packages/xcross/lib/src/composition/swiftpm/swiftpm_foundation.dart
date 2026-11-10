@@ -1,0 +1,188 @@
+import 'package:cli_kit/shared/platform/platform_host.dart';
+import 'package:cli_kit/shared/process/process.dart';
+import 'package:darwin_sdk_kit/shared/sdk/darwin_sdk_repository.dart';
+import 'package:darwin_sdk_kit/shared/toolchain/darwin_toolchain_resolver.dart';
+import 'package:meta/meta.dart';
+import 'package:xcross/src/shared/swiftpm/apple_tool_shims.dart';
+import 'package:xcross/src/shared/swiftpm/artifact_copy_policy.dart';
+import 'package:xcross/src/shared/swiftpm/artifact_filesystem.dart';
+import 'package:xcross/src/shared/swiftpm/artifact_publication_coordinator.dart';
+import 'package:xcross/src/shared/swiftpm/artifact_transport.dart';
+import 'package:xcross/src/shared/swiftpm/binary_layout.dart';
+import 'package:xcross/src/shared/swiftpm/binary_preparation.dart';
+import 'package:xcross/src/shared/swiftpm/binary_provenance.dart';
+import 'package:xcross/src/shared/swiftpm/binary_recovery.dart';
+import 'package:xcross/src/shared/swiftpm/build_plan.dart';
+import 'package:xcross/src/shared/swiftpm/checkout_attributes.dart';
+import 'package:xcross/src/shared/swiftpm/extracted_artifact_recovery.dart';
+import 'package:xcross/src/shared/swiftpm/filesystem.dart';
+import 'package:xcross/src/shared/swiftpm/foundation.dart';
+import 'package:xcross/src/shared/swiftpm/gate_execution.dart';
+import 'package:xcross/src/shared/swiftpm/host_build_services.dart';
+import 'package:xcross/src/shared/swiftpm/host_policy.dart';
+import 'package:xcross/src/shared/swiftpm/interop_consumer_repair.dart';
+import 'package:xcross/src/shared/swiftpm/librarian_resolver.dart';
+import 'package:xcross/src/shared/swiftpm/network_retry.dart';
+import 'package:xcross/src/shared/swiftpm/open_apple_macros.dart';
+import 'package:xcross/src/shared/swiftpm/package_metadata.dart';
+import 'package:xcross/src/shared/swiftpm/plan_reader.dart';
+import 'package:xcross/src/shared/swiftpm/process_policy.dart';
+import 'package:xcross/src/shared/swiftpm/response_file_reader.dart';
+import 'package:xcross/src/shared/swiftpm/sdk_identity.dart';
+import 'package:xcross/src/shared/swiftpm/source_repair.dart';
+import 'package:xcross/src/shared/swiftpm/toolchain.dart';
+import 'package:xcross/src/target/shared/swiftpm/swiftpm_target_policy.dart';
+
+@internal
+SwiftPmFoundation<T> prepareSwiftPmFoundation<T extends PlatformHostInterface>({
+  required SwiftPmHostBuildServices<T> hostBuildServices,
+  required SwiftPmLibrarianResolver<T> librarianResolver,
+  required SwiftPmTargetPolicy<T> policy,
+  required ProcessRunner<T> runner,
+  required DarwinSdkRepository<T> sdkRepository,
+  required DarwinToolchainResolver<T> toolchainResolver,
+  required AppleToolShimResolver<T> tools,
+  required SwiftPmHostPolicy hostPolicy,
+  required SwiftPmArtifactFileSystem artifactFileSystem,
+  required SwiftPmSdkIdentity sdkIdentity,
+  required SwiftPmPublicationCoordinator publicationCoordinator,
+  required SwiftPmArchiveTransport transport,
+  required SwiftPmArtifactCopyPolicy copyPolicy,
+  required SwiftPmCheckoutAttributes checkoutAttributes,
+  required SwiftPmFilesystem<T> filesystem,
+}) {
+  if (!identical(policy.target.host, runner.host)) {
+    throw ArgumentError(
+      'SwiftPM policy and runner must share the configured host',
+    );
+  }
+  if (!identical(hostBuildServices.target, policy.target) ||
+      !identical(hostBuildServices.filesystem, filesystem) ||
+      !identical(hostBuildServices.sdkIdentity, sdkIdentity) ||
+      !identical(librarianResolver.runner, runner) ||
+      !identical(librarianResolver.filesystem, filesystem)) {
+    throw ArgumentError(
+      'SwiftPM foundation children must share the configured target, runner, filesystem and SDK identity',
+    );
+  }
+  final host = runner.host;
+  final gateExecution = SwiftPmGateExecution<T>(runner: runner);
+  final processPolicy = SwiftPmProcessPolicy<T>(
+    host: host,
+    hostPolicy: hostPolicy,
+    runner: runner,
+    tools: tools,
+  );
+  final sourceRepair = SwiftPmSourceRepair<T>(
+    filesystem: filesystem,
+    hostPolicy: hostPolicy,
+    processPolicy: processPolicy,
+    runner: runner,
+    sdkIdentity: sdkIdentity,
+  );
+  final toolchain = SwiftPmToolchain<T>(
+    filesystem: filesystem,
+    hostBuildServices: hostBuildServices,
+    librarianResolver: librarianResolver,
+  );
+  final macroServer = OpenAppleMacrosServer<T>(
+    runner: runner,
+    layout: tools.hostTools.toolchainPluginLayout,
+    executable: tools.executable,
+    launcher: tools.launcher,
+    configured: tools.openAppleMacrosServer,
+  );
+  final planReader = SwiftPmPlanReader(
+    fileSystem: artifactFileSystem,
+    responseFiles: SwiftPmResponseFileReader(fileSystem: artifactFileSystem),
+  );
+  final buildPlan = SwiftPmBuildPlan<T>(
+    filesystem: filesystem,
+    hostPolicy: hostPolicy,
+    runner: runner,
+    macroServer: macroServer,
+  );
+  final consumerRepair = SwiftPmInteropConsumerRepair<T>(
+    filesystem: filesystem,
+    fileSystem: artifactFileSystem,
+    planReader: planReader,
+  );
+  final networkRetry = SwiftPmNetworkRetry<T>(runner: runner);
+  final binaryLayout = SwiftPmBinaryLayout<T>(
+    artifactFileSystem: artifactFileSystem,
+    targetPolicy: policy,
+  );
+  final binaryProvenance = SwiftPmBinaryProvenance<T>(
+    artifactFileSystem: artifactFileSystem,
+    host: host,
+    hostPolicy: hostPolicy,
+    runner: runner,
+  );
+  final binaryPreparation = SwiftPmBinaryPreparation<T>(
+    artifactFileSystem: artifactFileSystem,
+    copyPolicy: copyPolicy,
+    filesystem: filesystem,
+    host: host,
+    publicationCoordinator: publicationCoordinator,
+    targetPolicy: policy,
+    transport: transport,
+  );
+  final binaryRecovery = SwiftPmBinaryRecovery<T>(
+    artifactFileSystem: artifactFileSystem,
+    binaryLayout: binaryLayout,
+    binaryProvenance: binaryProvenance,
+    copyPolicy: copyPolicy,
+    filesystem: filesystem,
+    host: host,
+    publicationCoordinator: publicationCoordinator,
+    targetPolicy: policy,
+    transport: transport,
+  );
+  final extractedArtifacts = SwiftPmExtractedArtifactRecovery<T>(
+    artifactFileSystem: artifactFileSystem,
+    binaryLayout: binaryLayout,
+    binaryRecovery: binaryRecovery,
+    checkoutAttributes: checkoutAttributes,
+    copyPolicy: copyPolicy,
+    filesystem: filesystem,
+    host: host,
+    publicationCoordinator: publicationCoordinator,
+    targetPolicy: policy,
+    transport: transport,
+  );
+  final packageMetadata = SwiftPmPackageMetadata(
+    fileSystem: artifactFileSystem,
+  );
+  return SwiftPmFoundation<T>(
+    hostBuildServices: hostBuildServices,
+    librarianResolver: librarianResolver,
+    gateExecution: gateExecution,
+    targetPolicy: policy,
+    runner: runner,
+    sdkRepository: sdkRepository,
+    toolchainResolver: toolchainResolver,
+    tools: tools,
+    hostPolicy: hostPolicy,
+    artifactFileSystem: artifactFileSystem,
+    sdkIdentity: sdkIdentity,
+    publicationCoordinator: publicationCoordinator,
+    transport: transport,
+    copyPolicy: copyPolicy,
+    checkoutAttributes: checkoutAttributes,
+    filesystem: filesystem,
+    processPolicy: processPolicy,
+    sourceRepair: sourceRepair,
+    toolchain: toolchain,
+    macroServer: macroServer,
+    planReader: planReader,
+    buildPlan: buildPlan,
+    consumerRepair: consumerRepair,
+    networkRetry: networkRetry,
+    binaryLayout: binaryLayout,
+    binaryProvenance: binaryProvenance,
+    binaryPreparation: binaryPreparation,
+    binaryRecovery: binaryRecovery,
+    extractedArtifacts: extractedArtifacts,
+    packageMetadata: packageMetadata,
+  );
+}

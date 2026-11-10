@@ -5,6 +5,7 @@ import 'package:cli_kit/shared/process/process.dart';
 import 'package:darwin_sdk_kit/shared/sdk/darwin_sdk_repository.dart';
 import 'package:darwin_sdk_kit/shared/toolchain/darwin_toolchain_resolver.dart';
 import 'package:meta/meta.dart';
+import 'package:path/path.dart' as p;
 import 'package:xcross/src/shared/compose/build/compose_app_assembler.dart';
 import 'package:xcross/src/shared/compose/build/gradle_klib_builder.dart';
 import 'package:xcross/src/shared/compose/build/kotlin_framework_builder.dart';
@@ -13,7 +14,13 @@ import 'package:xcross/src/shared/compose/build/swift_runner_builder.dart';
 import 'package:xcross/src/shared/compose/compose_build_context.dart';
 import 'package:xcross/src/shared/compose/models/compose_build_options.dart';
 import 'package:xcross/src/shared/compose/project/kmp_project.dart';
+import 'package:xcross/src/shared/compose/swift/swift_host_paths.dart';
 import 'package:xcross/src/shared/compose/swift/swift_import_check.dart';
+import 'package:xcross/src/shared/compose/swift/swift_module_index.dart';
+import 'package:xcross/src/shared/compose/swiftpm/host_package_link.dart';
+import 'package:xcross/src/shared/compose/swiftpm/host_packages_builder.dart';
+import 'package:xcross/src/shared/compose/swiftpm/host_swift_packages_reader.dart';
+import 'package:xcross/src/shared/compose/swiftpm/swift_package_model.dart';
 import 'package:xcross/src/shared/compose/toolchain/compose_toolchain.dart';
 import 'package:xcross/src/shared/compose/toolchain/compose_toolchain_resolver.dart';
 import 'package:xcross/src/shared/errors/errors.dart';
@@ -50,11 +57,30 @@ typedef ComposeBuildRunner<T extends PlatformHostInterface> =
       required ComposeToolchain<T> toolchain,
     });
 @internal
+typedef ComposeBuildSwiftRunner<T extends PlatformHostInterface> =
+    Future<String> Function({
+      required KmpProject project,
+      required String frameworkPath,
+      required ComposeToolchain<T> toolchain,
+      HostPackageLink? packages,
+    });
+@internal
 typedef ComposeAssembleApp =
     Future<String> Function({
       required KmpProject project,
       required String runnerPath,
       required String frameworkPath,
+      HostPackageLink? packages,
+    });
+@internal
+typedef ComposeReadHostPackages =
+    HostSwiftPackages Function(KmpProject project);
+@internal
+typedef ComposeBuildHostPackages<T extends PlatformHostInterface> =
+    Future<HostPackageLink> Function({
+      required KmpProject project,
+      required HostSwiftPackages packages,
+      required ComposeToolchain<T> toolchain,
     });
 
 @internal
@@ -70,7 +96,9 @@ final class ComposePacker<T extends PlatformHostInterface> {
     required DarwinSdkRepository<T> sdkRepository,
     String? cacheRoot,
     int processorCount = 1,
+    ComposeSwiftPmBuilder<T>? swiftPmBuilder,
   }) : this.withSeams(
+         swiftPmBuilder: swiftPmBuilder,
          project: project,
          options: options,
          target: target,
@@ -98,8 +126,11 @@ final class ComposePacker<T extends PlatformHostInterface> {
     ComposeBuildKlib<T>? buildKlib,
     ComposeBuildFramework<T>? buildFramework,
     ComposeBuildRunner<T>? buildObjcRunner,
-    ComposeBuildRunner<T>? buildSwiftRunner,
+    ComposeBuildSwiftRunner<T>? buildSwiftRunner,
     ComposeAssembleApp? assembleApp,
+    ComposeSwiftPmBuilder<T>? swiftPmBuilder,
+    ComposeReadHostPackages? readHostPackages,
+    ComposeBuildHostPackages<T>? buildHostPackages,
   }) : context = ComposeBuildContext(
          target: target,
          runner: runner,
@@ -115,7 +146,10 @@ final class ComposePacker<T extends PlatformHostInterface> {
        _buildFramework = buildFramework,
        _buildObjcRunner = buildObjcRunner,
        _buildSwiftRunner = buildSwiftRunner,
-       _assembleApp = assembleApp;
+       _assembleApp = assembleApp,
+       _swiftPmBuilder = swiftPmBuilder,
+       _readHostPackages = readHostPackages,
+       _buildHostPackages = buildHostPackages;
 
   final KmpProject project;
   final ComposeBuildOptions options;
@@ -132,14 +166,23 @@ final class ComposePacker<T extends PlatformHostInterface> {
   final ComposeBuildKlib<T>? _buildKlib;
   final ComposeBuildFramework<T>? _buildFramework;
   final ComposeBuildRunner<T>? _buildObjcRunner;
-  final ComposeBuildRunner<T>? _buildSwiftRunner;
+  final ComposeBuildSwiftRunner<T>? _buildSwiftRunner;
   final ComposeAssembleApp? _assembleApp;
+  final ComposeSwiftPmBuilder<T>? _swiftPmBuilder;
+  final ComposeReadHostPackages? _readHostPackages;
+  final ComposeBuildHostPackages<T>? _buildHostPackages;
 
   Future<PackResult> pack() async {
     target.validateOutput(ipa: options.ipa);
     final toolchain = await _resolveToolchain();
+    HostPackageLink? packages;
     if (project.entryKind == KmpEntryKind.swiftApp) {
-      checkSwiftImports(toolchain);
+      final declared = readHostPackages();
+      checkSwiftImports(toolchain, declared: declared);
+      if (!declared.isEmpty) {
+        packages = await _buildPackages(toolchain, declared);
+        checkBuiltSwiftImports(toolchain, declared, packages);
+      }
     }
     final klib = await log.logStep(
       'Compiling Kotlin sources',
@@ -157,7 +200,7 @@ final class ComposePacker<T extends PlatformHostInterface> {
         projectRoot: project.root,
       );
     }
-    final appPath = await _buildApp(toolchain, frameworkPath);
+    final appPath = await _buildApp(toolchain, frameworkPath, packages);
     return PackResult(
       outputPath: appPath,
       bundleId: project.bundleId,
@@ -165,27 +208,151 @@ final class ComposePacker<T extends PlatformHostInterface> {
     );
   }
 
-  /// Fails fast, before the slow Kotlin compile, when the Swift sources
-  /// import a module swiftc cannot resolve against the Darwin SDK.
-  void checkSwiftImports(ComposeToolchain<T> toolchain) {
-    final index = swiftModuleIndexFor(
-      files: runner.host.fileSystem,
-      sdkPath: toolchain.darwinSdkPath,
-      darwinSdkBundle: toolchain.darwinSdkBundle,
-      platformSdkName: toolchain.target.buildPlatform.sdkName,
-      baseName: project.baseName,
+  /// The Swift packages the app targets of `iosApp/*.xcodeproj` link.
+  HostSwiftPackages readHostPackages() =>
+      (_readHostPackages ??
+      (project) => readHostSwiftPackages(
+        files: runner.host.fileSystem,
+        paths: p.context,
+        iosAppDir: p.join(project.root, swiftHostDirectory),
+      ))(project);
+
+  /// Fails fast, before the network and the slow Kotlin compile, when the
+  /// Swift sources import a module that neither the Darwin SDK nor the
+  /// [declared] Swift packages can provide. That is only decided here when
+  /// the modules of every package are known without building (no packages,
+  /// only local ones, or an earlier build already resolved them all).
+  /// Otherwise an unknown import may come from a package not fetched yet
+  /// (product `FirebaseAnalytics` brings `FirebaseCore`), so it is left to
+  /// [checkBuiltSwiftImports], which still runs before Kotlin.
+  void checkSwiftImports(
+    ComposeToolchain<T> toolchain, {
+    HostSwiftPackages declared = HostSwiftPackages.empty,
+  }) {
+    final known = declaredPackageModules(
+      declared,
+      runner.host.fileSystem,
+      scratchDir: declared.isEmpty ? null : _scratchDir(),
     );
-    final missing = unresolvedSwiftImports(project, index);
+    final missing = unresolvedSwiftImports(
+      project,
+      _sdkIndex(toolchain, known.modules),
+    );
     if (missing.isEmpty) return;
+    if (!known.complete) {
+      log.logTrace(
+        'Swift imports not known before building the Swift packages, '
+        'checked after the build: '
+        '${missing.map((m) => m.module).toSet().join(', ')}',
+      );
+      return;
+    }
+    throw _unresolvedError(toolchain, declared, missing);
+  }
+
+  /// After the packages are built, checks every import against the modules
+  /// the build actually produced, still before the Kotlin compile.
+  void checkBuiltSwiftImports(
+    ComposeToolchain<T> toolchain,
+    HostSwiftPackages declared,
+    HostPackageLink packages,
+  ) {
+    final missing = unresolvedSwiftImports(
+      project,
+      _sdkIndex(toolchain, packages.modules),
+    );
+    if (missing.isEmpty) return;
+    throw _unresolvedError(toolchain, declared, missing);
+  }
+
+  String? _scratchDir() {
+    final builder = _swiftPmBuilder;
+    if (builder == null) return null;
+    final workspace = builder().workspaceFor(
+      project.root,
+      environment: runner.effectiveEnvironment,
+    );
+    return workspace.scratch;
+  }
+
+  SwiftModuleIndex _sdkIndex(
+    ComposeToolchain<T> toolchain,
+    Set<String> packageModules,
+  ) => swiftModuleIndexFor(
+    files: runner.host.fileSystem,
+    sdkPath: toolchain.darwinSdkPath,
+    darwinSdkBundle: toolchain.darwinSdkBundle,
+    platformSdkName: toolchain.target.buildPlatform.sdkName,
+    baseName: project.baseName,
+    extraModules: packageModules,
+  );
+
+  XcrossError _unresolvedError(
+    ComposeToolchain<T> toolchain,
+    HostSwiftPackages declared,
+    List<UnresolvedSwiftImport> missing,
+  ) {
     final lines = formatUnresolvedSwiftImports(project, missing);
-    throw XcrossError(
-      'Swift sources import modules the Darwin SDK does not provide:\n'
+    final xcodeproj = declared.xcodeprojPath;
+    final relativeProject = xcodeproj == null
+        ? null
+        : p.isWithin(project.root, xcodeproj)
+        ? p.relative(xcodeproj, from: project.root)
+        : xcodeproj;
+    final sources = declared.isEmpty
+        ? 'The Darwin SDK at ${toolchain.darwinSdkPath} does not contain '
+              'them, and ${relativeProject == null ? 'no Xcode project in '
+                        '$swiftHostDirectory/ declares Swift packages' : '$relativeProject declares no Swift packages'}. '
+              'xcross builds the Swift packages the app target of '
+              '$swiftHostDirectory/*.xcodeproj depends on; add the package '
+              'there.'
+        : 'Neither the Darwin SDK at ${toolchain.darwinSdkPath} nor the Swift '
+              'packages of $relativeProject provide them. Add the package to '
+              'the app target in Xcode.';
+    return XcrossError(
+      'Swift sources import modules that neither the Darwin SDK nor the '
+      'declared Swift packages provide:\n'
       '${lines.join('\n')}\n'
-      'The SDK at ${toolchain.darwinSdkPath} does not contain them, and '
-      'xcross links only that SDK and the KMP framework (third-party Swift '
-      'packages and CocoaPods are not linked). Wrap optional imports in '
+      '$sources CocoaPods are not supported. Wrap optional imports in '
       '`#if canImport(Module)`, or build just the framework with '
       '`xcross compose build --framework`.',
+    );
+  }
+
+  Future<HostPackageLink> _buildPackages(
+    ComposeToolchain<T> toolchain,
+    HostSwiftPackages declared,
+  ) {
+    final count = declared.packages.length;
+    return log.logStep(
+      'Building Swift packages ($count package${count == 1 ? '' : 's'})',
+      () {
+        final build = _buildHostPackages;
+        if (build != null) {
+          return build(
+            project: project,
+            packages: declared,
+            toolchain: toolchain,
+          );
+        }
+        final builder = _swiftPmBuilder;
+        if (builder == null) {
+          throw StateError(
+            'Swift packages need the SwiftPM engine, which this target does '
+            'not provide.',
+          );
+        }
+        return HostPackagesBuilder(
+          builder: builder(),
+          files: runner.host.fileSystem,
+          log: log,
+        ).build(
+          projectRoot: project.root,
+          packages: declared,
+          platform: toolchain.target.buildPlatform,
+          environment: runner.effectiveEnvironment,
+        );
+      },
     );
   }
 
@@ -241,30 +408,52 @@ final class ComposePacker<T extends PlatformHostInterface> {
   Future<String> _buildApp(
     ComposeToolchain<T> toolchain,
     String frameworkPath,
+    HostPackageLink? packages,
   ) async {
-    final buildRunner = switch (project.entryKind) {
-      KmpEntryKind.runnableApp =>
-        _buildObjcRunner ?? ObjcRunnerBuilder(runner).build,
-      KmpEntryKind.swiftApp =>
-        _buildSwiftRunner ?? SwiftRunnerBuilder(runner).build,
-      KmpEntryKind.frameworkOnly => throw StateError('unreachable'),
-    };
-    final runnerPath = await log.logStep(
-      'Compiling Runner',
-      () => buildRunner(
-        project: project,
-        frameworkPath: frameworkPath,
-        toolchain: toolchain,
-      ),
-    );
+    Future<String> buildRunner() {
+      switch (project.entryKind) {
+        case KmpEntryKind.runnableApp:
+          return (_buildObjcRunner ?? ObjcRunnerBuilder(runner).build)(
+            project: project,
+            frameworkPath: frameworkPath,
+            toolchain: toolchain,
+          );
+        case KmpEntryKind.swiftApp:
+          final build = _buildSwiftRunner ?? SwiftRunnerBuilder(runner).build;
+          // Without packages, the call (and so the swiftc arguments) is
+          // exactly what it was before Swift packages were supported.
+          return packages == null
+              ? build(
+                  project: project,
+                  frameworkPath: frameworkPath,
+                  toolchain: toolchain,
+                )
+              : build(
+                  project: project,
+                  frameworkPath: frameworkPath,
+                  toolchain: toolchain,
+                  packages: packages,
+                );
+        case KmpEntryKind.frameworkOnly:
+          throw StateError('unreachable');
+      }
+    }
+
+    final runnerPath = await log.logStep('Compiling Runner', buildRunner);
     final appPath = await log.logStep(
       'Assembling ${project.appName}.app',
       () =>
           (_assembleApp ??
-          ComposeAppAssembler(target, runner, log: log).assemble)(
+          ComposeAppAssembler(
+            target,
+            runner,
+            log: log,
+            sdkPath: toolchain.darwinSdkPath,
+          ).assemble)(
             project: project,
             runnerPath: runnerPath,
             frameworkPath: frameworkPath,
+            packages: packages,
           ),
     );
     return appPath;

@@ -3,7 +3,7 @@ import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 import 'package:xcross/src/host/shared/tools/unsupported_swiftpm_gate.dart';
 import 'package:xcross/src/host/windows/tools/windows_swiftpm_gate.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/gate_mode.dart';
+import 'package:xcross/src/shared/swiftpm/gate_mode.dart';
 import 'package:xcross/src/shared/tools/swiftpm_gate_operation.dart';
 
 void main() {

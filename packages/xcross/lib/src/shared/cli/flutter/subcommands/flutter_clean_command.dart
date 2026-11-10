@@ -2,7 +2,7 @@ import 'package:args/command_runner.dart';
 import 'package:cli_kit/shared/logging/logging.dart';
 import 'package:meta/meta.dart';
 import 'package:xcross/src/shared/cli/shared/clean_paths.dart';
-import 'package:xcross/src/shared/flutter/build/internal/swiftpm_workspace.dart';
+import 'package:xcross/src/shared/swiftpm/swiftpm_workspace.dart';
 import 'package:xcross/src/target/shared/flutter/flutter_target_build_policy.dart';
 
 /// `xcross flutter clean` — remove xcross build caches for this Flutter

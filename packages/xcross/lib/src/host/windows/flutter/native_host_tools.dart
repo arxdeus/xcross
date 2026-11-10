@@ -7,7 +7,8 @@ import 'package:path/path.dart' as p;
 import 'package:xcross/src/host/shared/flutter/native_host_tools.dart';
 import 'package:xcross/src/host/windows/flutter/windows_toolchain_plugin_layout.dart';
 import 'package:xcross/src/shared/flutter/errors.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/open_apple_macros.dart';
+import 'package:xcross/src/shared/swiftpm/apple_host_tools.dart';
+import 'package:xcross/src/shared/swiftpm/open_apple_macros.dart';
 
 @internal
 final class WindowsNativeHostTools<T extends WindowsHostInterface>

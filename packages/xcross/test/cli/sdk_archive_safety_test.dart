@@ -94,6 +94,29 @@ void main() {
       );
     });
 
+    test('keeps the iOS Swift back-deployment libraries, not the rest', () {
+      const toolchain =
+          'Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib';
+      for (final kept in [
+        '$toolchain/swift-6.2/iphoneos/libswiftCompatibilitySpan.dylib',
+        '$toolchain/swift-6.2/iphonesimulator/libswiftCompatibilitySpan.dylib',
+        '$toolchain/swift-5.5/iphoneos/libswift_Concurrency.dylib',
+        '$toolchain/swift-5.5/iphonesimulator/libswift_Concurrency.dylib',
+      ]) {
+        expect(
+          SdkInstall.sdkRelativePath(kept),
+          kept.substring('Xcode.app/Contents/'.length),
+        );
+      }
+      for (final excluded in [
+        '$toolchain/swift-6.2/macosx/libswiftCompatibilitySpan.dylib',
+        '$toolchain/swift-6.2/watchos/libswiftCompatibilitySpan.dylib',
+        '$toolchain/swift-5.0/iphoneos/libswiftCore.dylib',
+      ]) {
+        expect(SdkInstall.sdkRelativePath(excluded), isNull);
+      }
+    });
+
     test('excludes neighboring Xcode content', () {
       const excluded = [
         'Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX14.sdk/usr/include/stdio.h',

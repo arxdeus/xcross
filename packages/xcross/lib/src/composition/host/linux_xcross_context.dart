@@ -19,27 +19,28 @@ import 'package:darwin_sdk_kit/shared/sdk/darwin_sdk_repository.dart';
 import 'package:darwin_sdk_kit/shared/toolchain/darwin_toolchain_resolver.dart';
 import 'package:http/http.dart' as http;
 import 'package:meta/meta.dart';
+import 'package:xcross/src/composition/flutter/host_flutter_feature_services.dart';
 import 'package:xcross/src/composition/flutter/ios_gen_snapshot.dart';
-import 'package:xcross/src/composition/flutter/linux_flutter_feature_services.dart';
-import 'package:xcross/src/composition/flutter/swiftpm_checkout.dart';
 import 'package:xcross/src/composition/host_operations.dart';
+import 'package:xcross/src/composition/swiftpm/linux_swiftpm_services.dart';
+import 'package:xcross/src/composition/swiftpm/swiftpm_checkout.dart';
 import 'package:xcross/src/composition/xcross_application.dart';
 import 'package:xcross/src/composition/xcross_host_context.dart';
 import 'package:xcross/src/host/linux/flutter/native_host_tools.dart';
-import 'package:xcross/src/host/linux/flutter/swiftpm/swiftpm_host_policy.dart';
 import 'package:xcross/src/host/linux/runtime/compose_host_provider.dart';
+import 'package:xcross/src/host/linux/swiftpm/swiftpm_host_policy.dart';
 import 'package:xcross/src/host/shared/config/posix_config_host.dart';
 import 'package:xcross/src/host/shared/flutter/apple_tool_shim_renderer_posix.dart';
 import 'package:xcross/src/host/shared/flutter/posix_flutter_sdk_policy.dart';
-import 'package:xcross/src/host/shared/flutter/swiftpm/artifact_publication_lock.dart';
-import 'package:xcross/src/host/shared/flutter/swiftpm/posix_artifact_copy_policy.dart';
-import 'package:xcross/src/host/shared/flutter/swiftpm/posix_artifact_filesystem.dart';
-import 'package:xcross/src/host/shared/flutter/swiftpm/posix_checkout_attributes.dart';
-import 'package:xcross/src/host/shared/flutter/swiftpm/posix_checkout_link_creator.dart';
-import 'package:xcross/src/host/shared/flutter/swiftpm/posix_checkout_link_policy.dart';
-import 'package:xcross/src/host/shared/flutter/swiftpm/posix_checkout_manifest_policy.dart';
 import 'package:xcross/src/host/shared/runtime/unsupported_compose_simulator_capability.dart';
 import 'package:xcross/src/host/shared/sdk/preserved_sdk_archive_links.dart';
+import 'package:xcross/src/host/shared/swiftpm/artifact_publication_lock.dart';
+import 'package:xcross/src/host/shared/swiftpm/posix_artifact_copy_policy.dart';
+import 'package:xcross/src/host/shared/swiftpm/posix_artifact_filesystem.dart';
+import 'package:xcross/src/host/shared/swiftpm/posix_checkout_attributes.dart';
+import 'package:xcross/src/host/shared/swiftpm/posix_checkout_link_creator.dart';
+import 'package:xcross/src/host/shared/swiftpm/posix_checkout_link_policy.dart';
+import 'package:xcross/src/host/shared/swiftpm/posix_checkout_manifest_policy.dart';
 import 'package:xcross/src/host/shared/tools/unsupported_swiftpm_gate.dart';
 import 'package:xcross/src/shared/cli/basic/sdk_install.dart';
 import 'package:xcross/src/shared/cli/command_prompt.dart';
@@ -48,17 +49,16 @@ import 'package:xcross/src/shared/config/runtime_config.dart';
 import 'package:xcross/src/shared/device/signing_http_client_factory.dart';
 import 'package:xcross/src/shared/flutter/flutter_build_runtime.dart';
 import 'package:xcross/src/shared/flutter/hot_reload/vm_service_output.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/artifact_publication_coordinator.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/artifact_transport.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/checkout.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/checkout_manifest_normalizer.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/manifest_compiler.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/sdk_install_identity.dart';
 import 'package:xcross/src/shared/flutter/vm_service_connector.dart';
-import 'package:xcross/src/shared/runtime/flutter_feature_services.dart';
 import 'package:xcross/src/shared/runtime/xcross_runtime.dart';
 import 'package:xcross/src/shared/setup/host_operations.dart';
 import 'package:xcross/src/shared/setup/setup_requirements.dart';
+import 'package:xcross/src/shared/swiftpm/artifact_publication_coordinator.dart';
+import 'package:xcross/src/shared/swiftpm/artifact_transport.dart';
+import 'package:xcross/src/shared/swiftpm/checkout.dart';
+import 'package:xcross/src/shared/swiftpm/checkout_manifest_normalizer.dart';
+import 'package:xcross/src/shared/swiftpm/manifest_compiler.dart';
+import 'package:xcross/src/shared/swiftpm/sdk_install_identity.dart';
 import 'package:xcross/src/shared/tool/tool_alias_operation.dart';
 import 'package:xcross/src/shared/tools/swiftpm_gate_operation.dart';
 import 'package:xcross/src/shared/update/release_lookup.dart';
@@ -291,7 +291,7 @@ final class LinuxXcrossHostContext
     );
   }
 
-  LinuxFlutterFeatureServices<LinuxHostInterface> _createFlutterServices({
+  HostFlutterFeatureServices<LinuxHostInterface> _createFlutterServices({
     required ProcessRunner<LinuxHostInterface> runner,
     required DarwinSdkRepository<LinuxHostInterface> repository,
     required DarwinToolchainResolver<LinuxHostInterface> toolchain,
@@ -330,18 +330,16 @@ final class LinuxXcrossHostContext
             sourceFallback: checkoutParts.sourceFallback,
           ),
         );
-    return LinuxFlutterFeatureServices<LinuxHostInterface>(
+    final hostTools = LinuxNativeHostTools(host, runner);
+    final swiftPm = LinuxSwiftPmServices<LinuxHostInterface>(
       checkout: checkout,
       checkoutAttributes: checkoutAttributes,
       checkoutManifestNormalizer: checkoutManifestNormalizer,
       runner: runner,
       repository: repository,
       toolchain: toolchain,
-      downloader: downloader,
-      hostTools: LinuxNativeHostTools(host, runner),
-      renderer: PosixAppleToolShimRenderer(host),
-      sdkPolicy: PosixFlutterSdkPolicy(),
-      swiftPmPolicy: const LinuxSwiftPmHostPolicy(),
+      hostTools: hostTools,
+      hostPolicy: const LinuxSwiftPmHostPolicy(),
       artifactFileSystem: artifactFileSystem,
       publicationCoordinator: publicationCoordinator,
       transport: transport,
@@ -350,6 +348,16 @@ final class LinuxXcrossHostContext
         installer,
         platformIdentity: '${host.name}-${host.architecture}',
       ),
+      resolution: resolution.appleTools,
+    );
+    return HostFlutterFeatureServices<LinuxHostInterface>(
+      swiftPm: swiftPm,
+      repository: repository,
+      toolchain: toolchain,
+      downloader: downloader,
+      hostTools: hostTools,
+      renderer: PosixAppleToolShimRenderer(host),
+      sdkPolicy: PosixFlutterSdkPolicy(),
       resolution: resolution,
       aotCompilers: composeIosAotCompilerLocator(
         runner: runner,
@@ -383,7 +391,7 @@ final class LinuxXcrossHostContext
     required ProcessRunner<LinuxHostInterface> runner,
     required DarwinSdkRepository<LinuxHostInterface> repository,
     required DarwinToolchainResolver<LinuxHostInterface> toolchain,
-    required FlutterFeatureServices<LinuxHostInterface> flutter,
+    required HostFlutterFeatureServices<LinuxHostInterface> flutter,
     required String resolvedExecutable,
     required HostOperations operations,
     required LocalHttp<LinuxHostInterface> localHttp,
@@ -406,6 +414,7 @@ final class LinuxXcrossHostContext
       sdkRepository: repository,
       darwinToolchain: toolchain,
       flutter: flutter,
+      swiftPm: flutter.swiftPm,
       composeHostProvider: LinuxComposeHostProvider(host),
       composeSimulatorCapability: UnsupportedComposeSimulatorCapability(host),
       executable: resolvedExecutable,

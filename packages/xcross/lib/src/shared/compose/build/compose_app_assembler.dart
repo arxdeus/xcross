@@ -14,8 +14,14 @@ import 'package:xcross/src/shared/compose/build/compose_info_plist.dart';
 import 'package:xcross/src/shared/compose/compose_ios_constants.dart';
 import 'package:xcross/src/shared/compose/project/ios_app_config.dart';
 import 'package:xcross/src/shared/compose/project/kmp_project.dart';
+import 'package:xcross/src/shared/compose/swiftpm/host_package_link.dart';
 import 'package:xcross/src/shared/errors/errors.dart';
 import 'package:xcross/src/shared/flutter/build/bundle_pkg_info.dart';
+import 'package:xcross/src/shared/swiftpm/dynamic_product.dart';
+import 'package:xcross/src/shared/swiftpm/product_embedder.dart';
+import 'package:xcross/src/shared/swiftpm/recursive_directory_copy.dart';
+import 'package:xcross/src/shared/swiftpm/resource_manifest.dart';
+import 'package:xcross/src/shared/swiftpm/static_framework_stubs.dart';
 import 'package:xcross/src/target/shared/compose/compose_target.dart';
 
 @internal
@@ -52,20 +58,25 @@ Future<void> _copyDirectoryNoSymlinks(
 
 @internal
 final class ComposeAppAssembler<T extends PlatformHostInterface> {
-  ComposeAppAssembler(this.target, this.runner, {required this.log})
-    : _copyDirectory = ((source, destination) => _copyDirectoryNoSymlinks(
-        source,
-        destination,
-        target.host.fileSystem,
-      )),
-      _makeExecutable = runner.makeExecutable,
-      _renameDirectory = ((source, newPath) =>
-          source.rename(target.host.fileSystem.directory(newPath).path)),
-      _finishBundle = ((path) => target.finishBundle(path, runner));
+  ComposeAppAssembler(
+    this.target,
+    this.runner, {
+    required this.log,
+    this.sdkPath,
+  }) : _copyDirectory = ((source, destination) => _copyDirectoryNoSymlinks(
+         source,
+         destination,
+         target.host.fileSystem,
+       )),
+       _makeExecutable = runner.makeExecutable,
+       _renameDirectory = ((source, newPath) =>
+           source.rename(target.host.fileSystem.directory(newPath).path)),
+       _finishBundle = ((path) => target.finishBundle(path, runner));
   ComposeAppAssembler.withSeams(
     this.target,
     this.runner, {
     required this.log,
+    this.sdkPath,
     ComposeCopyDirectory? copyDirectory,
     ComposeMakeExecutable? makeExecutable,
     ComposeRenameDirectory? renameDirectory,
@@ -88,6 +99,11 @@ final class ComposeAppAssembler<T extends PlatformHostInterface> {
   final ComposeTarget<T> target;
   final ProcessRunner<T> runner;
   final Log log;
+
+  /// The platform SDK the app is built against (`<S>.sdk` inside the
+  /// Darwin SDK), the source of the Swift back-deployment libraries. Null
+  /// leaves any the app links unembedded, with a warning.
+  final String? sdkPath;
   final ComposeCopyDirectory _copyDirectory;
   final ComposeMakeExecutable _makeExecutable;
   final ComposeRenameDirectory _renameDirectory;
@@ -97,6 +113,7 @@ final class ComposeAppAssembler<T extends PlatformHostInterface> {
     required KmpProject project,
     required String runnerPath,
     required String frameworkPath,
+    HostPackageLink? packages,
   }) async {
     final runner = target.host.fileSystem.file(runnerPath);
     if (!runner.existsSync()) {
@@ -135,8 +152,13 @@ final class ComposeAppAssembler<T extends PlatformHostInterface> {
         runner: runner,
         framework: framework,
         stagingPath: stagingApp,
+        packages: packages,
       );
-      _validateStagedApp(project: project, appPath: stagingApp);
+      _validateStagedApp(
+        project: project,
+        appPath: stagingApp,
+        packages: packages,
+      );
       await _finishBundle(stagingApp);
 
       final finalDir = target.host.fileSystem.directory(appPath);
@@ -199,6 +221,7 @@ final class ComposeAppAssembler<T extends PlatformHostInterface> {
     required File runner,
     required Directory framework,
     required String stagingPath,
+    HostPackageLink? packages,
   }) async {
     await target.host.fileSystem.directory(stagingPath).create(recursive: true);
     // What the app declares it needs. A profile only grants what the App ID has
@@ -209,7 +232,10 @@ final class ComposeAppAssembler<T extends PlatformHostInterface> {
     final capabilities = AscCapabilities.forEntitlements(declared ?? const {});
     final runnerDest = p.join(stagingPath, 'Runner');
     await runner.copy(target.host.fileSystem.file(runnerDest).path);
+    final minimumOsVersion =
+        packages?.deploymentTarget ?? composeMinimumIosVersion;
     final infoPlist = ComposeInfoPlist(target.host.fileSystem, log).build(
+      minimumOsVersion: minimumOsVersion,
       project: project,
       target: target.buildPlatform,
       extras: {
@@ -225,6 +251,7 @@ final class ComposeAppAssembler<T extends PlatformHostInterface> {
       project: project,
       stagingPath: stagingPath,
       infoPlist: infoPlist,
+      deploymentTarget: minimumOsVersion,
     );
     await target.host.fileSystem
         .file(p.join(stagingPath, 'Info.plist'))
@@ -256,8 +283,85 @@ final class ComposeAppAssembler<T extends PlatformHostInterface> {
       frameworkPath: framework.path,
       stagingPath: stagingPath,
     );
+    if (packages != null) {
+      await _embedPackages(packages, stagingPath);
+    }
+    // After every binary is in place, as Xcode's "Copy Swift Standard
+    // Libraries" step runs after "Embed Frameworks".
+    await SwiftPmProductEmbedder(
+      target.host.fileSystem,
+      p.context,
+      copier: RecursiveDirectoryCopier(
+        fileSystem: target.host.fileSystem,
+        paths: p.context,
+      ),
+    ).embedSwiftBackDeployLibraries(
+      stagingPath,
+      sdkName: target.buildPlatform.sdkName,
+      sdkPath: sdkPath,
+      warn: log.logWarn,
+    );
 
     _makeExecutable(runnerDest);
+  }
+
+  /// Embeds the products of the host's Swift packages as Xcode does: each
+  /// dynamic product as `Frameworks/<Product>.framework`, binary-target
+  /// frameworks without headers and modules, stubs of statically linked
+  /// binary frameworks, and resource bundles in the app root.
+  Future<void> _embedPackages(
+    HostPackageLink packages,
+    String stagingPath,
+  ) async {
+    final files = target.host.fileSystem;
+    final frameworksDir = p.join(stagingPath, 'Frameworks');
+    await files.directory(frameworksDir).create(recursive: true);
+    final copier = RecursiveDirectoryCopier(
+      fileSystem: files,
+      paths: p.context,
+    );
+    final embedder = SwiftPmProductEmbedder(files, p.context, copier: copier);
+    final platform = target.buildPlatform;
+    final sdkName = platform.sdkName;
+    final build = packages.build;
+    await embedder.copyPluginLibraries(
+      build.dynamicProducts,
+      frameworksDir,
+      infoPlist: (product) => composePlatformPlist(
+        swiftPmDynamicProductInfoPlist(
+          product,
+          deploymentTarget: packages.deploymentTarget,
+          device: sdkName.startsWith('iphoneos'),
+        ),
+        platform,
+      ),
+    );
+    await embedder.copyMissingFrameworks(build.frameworkPaths, frameworksDir);
+    await StaticFrameworkStubs(
+      fileSystem: files,
+      paths: p.context,
+      copier: copier,
+    ).embedLinked(
+      build.dylibPaths,
+      frameworksDir,
+      simulator: !sdkName.startsWith('iphoneos'),
+      sdkVersion: composePlistSdkVersion,
+    );
+    await embedder.copyResourceBundles(
+      build.resourceBundles,
+      stagingPath,
+      warn: log.logWarn,
+      infoPlist: (bundle, region) => composePlatformPlist(
+        swiftPmResourceBundleInfoPlist(
+          bundle,
+          developmentRegion: region,
+          deploymentTarget: packages.deploymentTarget,
+          device: sdkName.startsWith('iphoneos'),
+          paths: p.context,
+        ),
+        platform,
+      ),
+    );
   }
 
   /// Compiles the iOS app's `Assets.xcassets` into `Assets.car` and loose app
@@ -268,6 +372,7 @@ final class ComposeAppAssembler<T extends PlatformHostInterface> {
     required KmpProject project,
     required String stagingPath,
     required String infoPlist,
+    required String deploymentTarget,
   }) {
     final catalog = _assetCatalog(project);
     if (catalog == null) return Future.value(infoPlist);
@@ -280,7 +385,7 @@ final class ComposeAppAssembler<T extends PlatformHostInterface> {
       bundleDir: stagingPath,
       infoPlistXml: infoPlist,
       catalogs: [catalog],
-      deploymentTarget: composeMinimumIosVersion,
+      deploymentTarget: deploymentTarget,
       appIconName: settings['ASSETCATALOG_COMPILER_APPICON_NAME'],
       alternateAppIconNames:
           (settings['ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES'] ?? '')
@@ -396,6 +501,7 @@ final class ComposeAppAssembler<T extends PlatformHostInterface> {
   void _validateStagedApp({
     required KmpProject project,
     required String appPath,
+    HostPackageLink? packages,
   }) {
     final requiredFiles = [
       p.join(appPath, 'Runner'),
@@ -407,6 +513,9 @@ final class ComposeAppAssembler<T extends PlatformHostInterface> {
           '${project.baseName}.framework',
           project.baseName,
         ),
+      for (final product
+          in packages?.build.dynamicProducts ?? const <SwiftPmDynamicProduct>[])
+        p.join(appPath, 'Frameworks', product.frameworkName, product.name),
     ];
     for (final path in requiredFiles) {
       if (!target.host.fileSystem.file(path).existsSync()) {

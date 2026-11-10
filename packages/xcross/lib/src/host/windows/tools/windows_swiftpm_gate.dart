@@ -1,6 +1,6 @@
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
-import 'package:xcross/src/shared/flutter/swiftpm/gate_mode.dart';
+import 'package:xcross/src/shared/swiftpm/gate_mode.dart';
 import 'package:xcross/src/shared/tools/swiftpm_gate_operation.dart';
 
 @internal

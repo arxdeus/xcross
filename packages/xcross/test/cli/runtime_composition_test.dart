@@ -59,8 +59,10 @@ void main() {
         final legacy = Directory('${home.path}/.pymobiledevice3')
           ..createSync(recursive: true);
         expect(
-          pymdWithEnvironment({'HOME': home.path, 'PATH': '/usr/bin:/bin'})
-              .pairingHome,
+          pymdWithEnvironment({
+            'HOME': home.path,
+            'PATH': '/usr/bin:/bin',
+          }).pairingHome,
           equals(legacy.path),
         );
       },
@@ -91,7 +93,9 @@ void main() {
       () {
         final home = Directory.systemTemp.createTempSync('xcross_choice_home');
         addTearDown(() => home.deleteSync(recursive: true));
-        final xdgData = Directory.systemTemp.createTempSync('xcross_choice_xdg');
+        final xdgData = Directory.systemTemp.createTempSync(
+          'xcross_choice_xdg',
+        );
         addTearDown(() => xdgData.deleteSync(recursive: true));
         Directory('${home.path}/.pymobiledevice3').createSync(recursive: true);
         expect(
@@ -116,7 +120,7 @@ void main() {
         }).pairingHome,
         equals(
           '${r'C:\Users\someone\AppData\Local\Temp\home'}'
-              '/.local/share/pymobiledevice3',
+          '/.local/share/pymobiledevice3',
         ),
       );
     });
@@ -504,6 +508,25 @@ void main() {
     expect(identical(physical.flutterRuntime.runner, runtime.runner), isTrue);
     final physicalServices = physical.flutterRuntime.plugins.runtime;
     final simulatorServices = simulator.flutterRuntime.plugins.runtime;
+    // Compose gets a SwiftPM builder for its own target from the same host
+    // services Flutter plugins build through.
+    final composeBuilder = physical.swiftPmBuilder;
+    expect(composeBuilder.policy.target, same(physical.target));
+    expect(composeBuilder.engine.runner, same(runtime.runner));
+    expect(
+      composeBuilder.engine.artifactFileSystem,
+      same(physicalServices.artifactFileSystem),
+    );
+    expect(composeBuilder.policy.workspaceSuffix, '');
+    expect(simulator.swiftPmBuilder.policy.workspaceSuffix, '-simulator');
+    expect(simulator.swiftPmBuilder.policy.xcframeworkSliceIdentifiers, [
+      'ios-arm64_x86_64-simulator',
+      'ios-arm64-simulator',
+    ]);
+    expect(
+      physical.flutterRuntime.plugins.builder.policy,
+      same(physical.flutterRuntime.policy),
+    );
     expect(
       physicalServices.toolchain.hostBuildServices.target,
       same(physical.target),
@@ -667,6 +690,7 @@ XcrossRuntime<LinuxHostInterface> copyRuntime(
   sdkRepository: repository ?? runtime.sdkRepository,
   darwinToolchain: runtime.darwinToolchain,
   flutter: runtime.flutter,
+  swiftPm: runtime.swiftPm,
   composeHostProvider: runtime.composeHostProvider,
   composeSimulatorCapability: runtime.composeSimulatorCapability,
   executable: runtime.executable,

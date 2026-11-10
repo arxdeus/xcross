@@ -3,9 +3,9 @@ import 'dart:io';
 
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
-import 'package:xcross/src/shared/flutter/build/internal/recursive_directory_copy.dart';
-import 'package:xcross/src/shared/flutter/flutter_framework_copier.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/resource_manifest.dart';
+import 'package:xcross/src/shared/swiftpm/product_embedder.dart';
+import 'package:xcross/src/shared/swiftpm/recursive_directory_copy.dart';
+import 'package:xcross/src/shared/swiftpm/resource_manifest.dart';
 
 import '../../apple/support/native_test_file_system.dart';
 
@@ -14,9 +14,9 @@ void main() {
   setUp(() => tmp = Directory.systemTemp.createTempSync('xcross-manifest-'));
   tearDown(() => tmp.deleteSync(recursive: true));
 
-  FlutterFrameworkCopier copierFor() {
+  SwiftPmProductEmbedder copierFor() {
     const fileSystem = NativeTestFileSystem();
-    return FlutterFrameworkCopier(
+    return SwiftPmProductEmbedder(
       fileSystem,
       p.context,
       copier: RecursiveDirectoryCopier(

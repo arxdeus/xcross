@@ -4,11 +4,14 @@ import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/shared/flutter/errors.dart';
 import 'package:xcross/src/target/shared/flutter/xcode_build_metadata.dart';
+import 'package:xcross/src/target/shared/swiftpm/swiftpm_target_policy.dart';
 
 @internal
 abstract interface class FlutterTargetBuildPolicy<
   T extends PlatformHostInterface
-> {
+>
+    implements SwiftPmTargetPolicy<T> {
+  @override
   IosTarget<T> get target;
   String outputDirectory(String projectRoot);
   String buildDirectory(String projectRoot, String name);
@@ -26,6 +29,7 @@ abstract interface class FlutterTargetBuildPolicy<
   bool get embedsEntitlements;
   List<String> get engineSliceIdentifiers;
   String selectEngineSlice(String xcframework);
+  @override
   bool matchesLibraryVariant(String? variant);
 
   /// Stamps the target's platform keys, plus the Xcode/SDK provenance keys
@@ -36,7 +40,9 @@ abstract interface class FlutterTargetBuildPolicy<
     XcodeBuildMetadata? build,
   });
   String get sanitizerRuntimeLibrary;
+  @override
   String get workspaceSuffix;
+  @override
   String get binaryArtifactDirectory;
 }
 

@@ -4,8 +4,8 @@ import 'dart:io';
 import 'package:cli_kit/host/linux/linux_host.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
+import 'package:xcross/src/shared/errors/build_error.dart';
 import 'package:xcross/src/shared/flutter/build/ios_plugins.dart';
-import 'package:xcross/src/shared/flutter/errors.dart';
 
 void main() {
   late Directory tmp;
@@ -221,7 +221,7 @@ void main() {
 
     expect(
       () => PluginDiscovery(LinuxHost().fileSystem).discover(tmp.path),
-      throwsA(isA<FlutterBuildError>()),
+      throwsA(isA<XcrossBuildError>()),
     );
   });
 
