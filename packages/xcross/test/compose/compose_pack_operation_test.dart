@@ -754,10 +754,13 @@ kotlin {
                 (e) => e.message,
                 'message',
                 allOf(
-                  contains('FirebaseCore (imported at iosApp/A.swift:5)'),
+                  contains(
+                    'FirebaseCore (imported at '
+                    '${p.join('iosApp', 'A.swift')}:5)',
+                  ),
                   isNot(contains('RealModule (')),
                   isNot(contains('Alamofire (')),
-                  contains('iosApp/iosApp.xcodeproj'),
+                  contains(p.join('iosApp', 'iosApp.xcodeproj')),
                   contains('CocoaPods are not supported'),
                   contains('#if canImport'),
                 ),
@@ -804,7 +807,10 @@ kotlin {
               isA<XcrossError>().having(
                 (e) => e.message,
                 'message',
-                contains('FirebaseCore (imported at iosApp/A.swift:5)'),
+                contains(
+                  'FirebaseCore (imported at '
+                  '${p.join('iosApp', 'A.swift')}:5)',
+                ),
               ),
             ),
           );
@@ -937,7 +943,9 @@ kotlin {
               isA<XcrossError>().having(
                 (e) => e.message,
                 'message',
-                contains('Numerics (imported at iosApp/A.swift:4)'),
+                contains(
+                  'Numerics (imported at ${p.join('iosApp', 'A.swift')}:4)',
+                ),
               ),
             ),
           );

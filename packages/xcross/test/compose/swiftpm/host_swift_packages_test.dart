@@ -1,12 +1,13 @@
 import 'dart:io';
 
-import 'package:cli_kit/host/linux/linux_host.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 import 'package:xcross/src/shared/compose/swiftpm/host_packages_manifest.dart';
 import 'package:xcross/src/shared/compose/swiftpm/host_swift_packages_reader.dart';
 import 'package:xcross/src/shared/compose/swiftpm/swift_package_model.dart';
 import 'package:xcross/src/shared/errors/errors.dart';
+
+import '../../apple/support/native_test_file_system.dart';
 
 /// A realistic Xcode 16 project: an app target with every requirement kind,
 /// a local package with and without `package`, a plugin product, plus a
@@ -330,7 +331,7 @@ let package = Package(
 void main() {
   late Directory root;
   late String iosApp;
-  final files = LinuxHost(architecture: 'x64').fileSystem;
+  const files = NativeTestFileSystem();
 
   void file(String path, [String content = '']) {
     File(p.join(root.path, path))
@@ -381,9 +382,12 @@ void main() {
     ]);
     expect(
       result.packages,
-      contains(LocalSwiftPackage('$r/Packages/SharedUI')),
+      contains(LocalSwiftPackage(p.join(r, 'Packages', 'SharedUI'))),
     );
-    expect(result.packages, contains(LocalSwiftPackage('$r/LegacyKit')));
+    expect(
+      result.packages,
+      contains(LocalSwiftPackage(p.join(r, 'LegacyKit'))),
+    );
     expect(
       result.packages,
       containsAll(const [
@@ -476,14 +480,44 @@ void main() {
       packages: read(),
       deploymentTarget: '15.0',
     );
-    expect(manifest.packageSwift.replaceAll(root.path, '/ROOT'), _golden);
+    // Swift string literals double the backslashes of Windows paths.
+    final normalized = manifest.packageSwift
+        .replaceAll(root.path.replaceAll(r'\', r'\\'), '/ROOT')
+        .replaceAll(r'\\', '/');
+    expect(normalized, _golden);
     expect(manifest.sources.keys, [
       'Sources/XcrossHostPackages/XcrossHostPackages.swift',
     ]);
     expect(manifest.allFiles.keys.first, 'Package.swift');
   });
 
-  test('custom product name and escaping', () {
+  test('custom product name and quote escaping', () {
+    final manifest = generateHostPackagesManifest(
+      packages: const HostSwiftPackages(
+        packages: [LocalSwiftPackage('/tmp/we"irdpkg')],
+        products: [
+          SwiftPackageProductDependency(
+            productName: 'A',
+            package: LocalSwiftPackage('/tmp/we"irdpkg'),
+          ),
+        ],
+        packageResolvedPath: null,
+        xcodeprojPath: null,
+      ),
+      deploymentTarget: '16.0',
+      productName: 'Host',
+    );
+    expect(
+      manifest.packageSwift,
+      contains(r'.package(path: "/tmp/we\"irdpkg")'),
+    );
+    expect(manifest.packageSwift, contains(r'package: "we\"irdpkg"'));
+    expect(manifest.sources.keys.single, 'Sources/Host/Host.swift');
+  });
+
+  // On Windows a backslash separates path components, so the package identity
+  // (the basename) is `pkg`, as SwiftPM computes it there.
+  test('backslash escaping in a package path', () {
     final manifest = generateHostPackagesManifest(
       packages: const HostSwiftPackages(
         packages: [LocalSwiftPackage(r'/tmp/we"ird\pkg')],
@@ -504,8 +538,7 @@ void main() {
       contains(r'.package(path: "/tmp/we\"ird\\pkg")'),
     );
     expect(manifest.packageSwift, contains(r'package: "we\"ird\\pkg"'));
-    expect(manifest.sources.keys.single, 'Sources/Host/Host.swift');
-  });
+  }, testOn: '!windows');
 
   test('empty package list generates an empty dependency list', () {
     final manifest = generateHostPackagesManifest(
