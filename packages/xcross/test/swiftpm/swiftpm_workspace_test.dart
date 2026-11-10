@@ -65,6 +65,27 @@ void main() {
     expect(p.basename(first.root), hasLength(16));
   });
 
+  test('resolves a relative project against the host current directory', () {
+    final environment = {'XCROSS_CACHE_DIR': p.join(temp.path, 'cache')};
+    final policy = testSwiftPmRuntime(
+      environment: environment,
+      currentDirectory: '/xcross-host-cwd',
+    ).targetPolicy;
+
+    final relative = SwiftPmWorkspace.forProject(
+      'proj',
+      environment: environment,
+      policy: policy,
+    );
+    final absolute = SwiftPmWorkspace.forProject(
+      '/xcross-host-cwd/proj',
+      environment: environment,
+      policy: policy,
+    );
+
+    expect(relative.root, absolute.root);
+  }, testOn: '!windows');
+
   test('uses different keys for different projects', () {
     final firstProject = Directory(p.join(temp.path, 'first'))..createSync();
     final secondProject = Directory(p.join(temp.path, 'second'))..createSync();

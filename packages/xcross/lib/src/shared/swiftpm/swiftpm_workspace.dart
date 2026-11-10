@@ -54,7 +54,8 @@ final class SwiftPmWorkspace {
     String projectRoot,
     SwiftPmTargetPolicy policy,
   ) {
-    final absolute = p.normalize(p.absolute(projectRoot));
+    final ctx = policy.target.host.paths.context;
+    final absolute = ctx.normalize(ctx.absolute(projectRoot));
     try {
       final resolved = policy.target.host.fileSystem
           .directory(absolute)

@@ -75,12 +75,16 @@ SwiftPmRuntime<MacOSHost> testSwiftPmRuntime({
   FlutterTargetBuildPolicy<MacOSHost> Function(MacOSHost)? targetPolicy,
   Map<String, String>? environment,
   SwiftPmSdkIdentity? sdkIdentity,
+  String? currentDirectory,
 }) {
   final host = MacOSHost(
     environment: environment ?? Platform.environment,
-    currentDirectory: Directory.current.path,
+    currentDirectory: currentDirectory ?? Directory.current.path,
     temporaryDirectory: Directory.systemTemp.path,
-    paths: nativeTestPaths(environment ?? Platform.environment),
+    paths: nativeTestPaths(
+      environment ?? Platform.environment,
+      currentDirectory: currentDirectory,
+    ),
   );
   final runner = ProcessRunner(
     host,
