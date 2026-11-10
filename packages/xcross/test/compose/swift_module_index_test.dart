@@ -1,9 +1,10 @@
 import 'dart:io';
 
-import 'package:cli_kit/host/linux/linux_host.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 import 'package:xcross/src/shared/compose/swift/swift_module_index.dart';
+
+import '../apple/support/native_test_file_system.dart';
 
 void main() {
   late Directory root;
@@ -19,7 +20,7 @@ void main() {
 
   SwiftModuleIndex scan({Iterable<String> extra = const []}) =>
       SwiftModuleIndex.scan(
-        files: LinuxHost(architecture: 'x64').fileSystem,
+        files: const NativeTestFileSystem(),
         sdkPath: sdk,
         resourceDir: resource,
         platformSdkName: 'iphoneos',
@@ -134,7 +135,7 @@ extern module Dispatch "dispatch.modulemap"
     dir('res/iphoneos/Cxx.swiftmodule');
     dir('res/iphonesimulator/CxxSim.swiftmodule');
     final index = SwiftModuleIndex.scan(
-      files: LinuxHost(architecture: 'x64').fileSystem,
+      files: const NativeTestFileSystem(),
       sdkPath: sdk,
       resourceDir: resource,
       platformSdkName: 'iphonesimulator',
@@ -167,7 +168,7 @@ extern module Dispatch "dispatch.modulemap"
   );
   test('resolves common modules in the real bundle', () {
     final index = SwiftModuleIndex.scan(
-      files: LinuxHost(architecture: 'x64').fileSystem,
+      files: const NativeTestFileSystem(),
       sdkPath: realSdk,
       resourceDir: p.join(
         bundle,

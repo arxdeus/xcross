@@ -648,7 +648,10 @@ kotlin {
               isA<XcrossError>().having(
                 (e) => e.message,
                 'message',
-                allOf(contains('Sparkle'), contains('iosApp/App.swift:3')),
+                allOf(
+                  contains('Sparkle'),
+                  contains('${p.join('iosApp', 'App.swift')}:3'),
+                ),
               ),
             ),
           );

@@ -1,11 +1,12 @@
 import 'dart:io';
 
-import 'package:cli_kit/host/linux/linux_host.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 import 'package:xcross/src/shared/compose/project/kmp_project.dart';
 import 'package:xcross/src/shared/compose/swift/swift_import.dart';
 import 'package:xcross/src/shared/compose/swift/swift_import_check.dart';
+
+import '../apple/support/native_test_file_system.dart';
 
 void main() {
   late Directory root;
@@ -37,7 +38,7 @@ void main() {
       unresolvedSwiftImports(
         project,
         swiftModuleIndexFor(
-          files: LinuxHost(architecture: 'x64').fileSystem,
+          files: const NativeTestFileSystem(),
           sdkPath: sdk,
           darwinSdkBundle: bundle,
           platformSdkName: 'iphoneos',
@@ -56,8 +57,8 @@ void main() {
     expect(result.map((u) => u.module), ['Alpha', 'Zed']);
     expect(result.first.firstUse.line, 2);
     expect(formatUnresolvedSwiftImports(proj, result), [
-      '  - Alpha (imported at iosApp/A.swift:2)',
-      '  - Zed (imported at iosApp/B.swift:4)',
+      '  - Alpha (imported at ${p.join('iosApp', 'A.swift')}:2)',
+      '  - Zed (imported at ${p.join('iosApp', 'B.swift')}:4)',
     ]);
   });
 
@@ -92,8 +93,8 @@ void main() {
     ]);
     final result = check(proj);
     expect(result.single.publicModule, 'SwiftUI');
-    const expected =
-        '  - SwiftUICore (imported at iosApp/A.swift:3): '
+    final expected =
+        '  - SwiftUICore (imported at ${p.join('iosApp', 'A.swift')}:3): '
         'implementation detail of SwiftUI, import SwiftUI instead';
     expect(formatUnresolvedSwiftImports(proj, result), [expected]);
   });

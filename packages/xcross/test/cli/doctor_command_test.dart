@@ -331,7 +331,7 @@ void main() {
       final check = (await run()).singleWhere((c) => c.name == 'Swift imports');
       expect(check.status, DoctorStatus.failure);
       expect(check.message, contains('Firebase'));
-      expect(check.message, contains('iosApp/App.swift:'));
+      expect(check.message, contains('${p.join('iosApp', 'App.swift')}:'));
     });
 
     test('success wording is singular, plural, and empty-aware', () async {
