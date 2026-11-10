@@ -8,6 +8,7 @@ import 'package:xcross/src/shared/compose/build/mach_o_validator.dart';
 import 'package:xcross/src/shared/compose/build/process_invocation.dart';
 import 'package:xcross/src/shared/compose/compose_ios_constants.dart';
 import 'package:xcross/src/shared/compose/project/kmp_project.dart';
+import 'package:xcross/src/shared/compose/swiftpm/host_package_link.dart';
 import 'package:xcross/src/shared/compose/toolchain/compose_toolchain.dart';
 import 'package:xcross/src/shared/errors/errors.dart';
 
@@ -18,6 +19,18 @@ typedef SwiftRunnerRunChecked =
       List<String> arguments, {
       String? workingDirectory,
     });
+
+/// The toolchain's Swift resource dir inside the Darwin SDK artifact bundle.
+@internal
+String swiftResourceDir(String darwinSdkBundle) => p.join(
+  darwinSdkBundle,
+  'Developer',
+  'Toolchains',
+  'XcodeDefault.xctoolchain',
+  'usr',
+  'lib',
+  'swift',
+);
 
 const _iosMinimumVersion = composeMinimumIosVersion;
 
@@ -37,6 +50,7 @@ final class SwiftRunnerBuilder<T extends PlatformHostInterface> {
     required KmpProject project,
     required String frameworkPath,
     required ComposeToolchain<T> toolchain,
+    HostPackageLink? packages,
   }) async {
     _validateFramework(project, frameworkPath, runner.host.fileSystem);
     if (project.swiftSources.isEmpty) {
@@ -51,15 +65,7 @@ final class SwiftRunnerBuilder<T extends PlatformHostInterface> {
     final buildDir = toolchain.target.runnerDirectory(project.root, 'swift');
     await runner.host.fileSystem.directory(buildDir).create(recursive: true);
     final runnerPath = p.join(buildDir, 'Runner');
-    final resourceDir = p.join(
-      toolchain.darwinSdkBundle,
-      'Developer',
-      'Toolchains',
-      'XcodeDefault.xctoolchain',
-      'usr',
-      'lib',
-      'swift',
-    );
+    final resourceDir = swiftResourceDir(toolchain.darwinSdkBundle);
     final moduleCache = p.join(buildDir, 'swift-module-cache');
     await runner.host.fileSystem.directory(moduleCache).create(recursive: true);
     final clangBuiltins = _clangBuiltins(resourceDir, runner.host.fileSystem);
@@ -73,7 +79,10 @@ final class SwiftRunnerBuilder<T extends PlatformHostInterface> {
       '-sdk',
       iphoneSdk,
       '-target',
-      toolchain.target.targetTriple,
+      if (packages == null)
+        toolchain.target.targetTriple
+      else
+        toolchain.target.buildPlatform.buildTriple(packages.deploymentTarget),
       '-resource-dir',
       resourceDir,
       '-F',
@@ -116,7 +125,7 @@ final class SwiftRunnerBuilder<T extends PlatformHostInterface> {
       '-Xlinker',
       toolchain.target.linkerPlatform,
       '-Xlinker',
-      _iosMinimumVersion,
+      packages?.deploymentTarget ?? _iosMinimumVersion,
       '-Xlinker',
       toolchain.target.sdkVersion(iphoneSdk) ?? composeDefaultSdkVersion,
       // Same non-Apple-clang gap as above, one layer further in: Apple
@@ -137,6 +146,10 @@ final class SwiftRunnerBuilder<T extends PlatformHostInterface> {
       '-rpath',
       '-Xlinker',
       '@executable_path/Frameworks',
+      // The Swift packages the Xcode project declares: their modules, the
+      // module maps of their C targets, binary frameworks, and the
+      // aggregate dylib (already named as the embedded framework).
+      ...?packages?.swiftcArguments,
       ...project.swiftSources,
       '-o',
       runnerPath,

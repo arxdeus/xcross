@@ -22,8 +22,8 @@ import 'package:xcross/src/host/macos/flutter/native_host_tools.dart';
 import 'package:xcross/src/host/shared/flutter/engine_archive_writer.dart';
 import 'package:xcross/src/host/shared/flutter/native_host_tools.dart';
 import 'package:xcross/src/host/windows/flutter/native_host_tools.dart';
+import 'package:xcross/src/shared/errors/build_error.dart';
 import 'package:xcross/src/shared/flutter/build/ios_engine_cache.dart';
-import 'package:xcross/src/shared/flutter/errors.dart';
 import 'package:xcross/src/shared/flutter/models/flutter/flutter_build_mode.dart';
 import 'package:xcross/src/target/iphone/flutter/iphone_flutter_target.dart';
 import 'package:xcross/src/target/shared/flutter/flutter_target_build_policy.dart';
@@ -231,7 +231,7 @@ void main() {
       expect(cache().flutterSlice(framework), p.join(framework, 'ios-arm64'));
       expect(
         () => simulator.flutterSlice(framework),
-        throwsA(isA<FlutterBuildError>()),
+        throwsA(isA<XcrossBuildError>()),
       );
       for (final identifier in [
         'ios-arm64-simulator',
@@ -406,7 +406,7 @@ void main() {
         log: _log(),
         downloader: _downloader(),
       ),
-      throwsA(isA<FlutterBuildError>()),
+      throwsA(isA<XcrossBuildError>()),
     );
     final arm = LinuxHost(architecture: 'arm');
     expect(
@@ -426,7 +426,7 @@ void main() {
         log: _log(),
         downloader: _downloader(),
       ),
-      throwsA(isA<FlutterBuildError>()),
+      throwsA(isA<XcrossBuildError>()),
     );
   });
   test(testOn: '!windows', 'does not reuse Linux x64 artifacts for ARM64', () {

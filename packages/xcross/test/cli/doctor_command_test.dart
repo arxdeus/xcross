@@ -9,12 +9,14 @@ import 'package:cli_kit/shared/logging/logging.dart';
 import 'package:cli_kit/shared/platform/platform_host.dart';
 import 'package:dart_mobile_device/shared/device/models/device.dart';
 import 'package:dart_mobile_device/shared/diagnostics/device_probe.dart';
+import 'package:darwin_sdk_kit/shared/sdk/darwin_sdk_repository.dart';
 import 'package:darwin_sdk_kit/target/iphone/iphone_build_platform.dart';
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 import 'package:xcross/src/composition/cli/doctor_sections.dart';
 import 'package:xcross/src/composition/cli/runner.dart';
+import 'package:xcross/src/composition/ios_target.dart';
 import 'package:xcross/src/shared/cli/basic/doctor_command.dart';
 import 'package:xcross/src/shared/cli/basic/doctor_environment_checks.dart';
 import 'package:xcross/src/shared/cli/basic/doctor_models.dart';
@@ -237,6 +239,300 @@ void main() {
 
     expect(checks.single.status, DoctorStatus.warning);
     expect(checks.single.message, contains('settings.gradle'));
+  });
+
+  group('Compose doctor Swift imports', () {
+    // The SwiftPM workspace `compose build` would use, inside [files].
+    const cacheEnv = {'XCROSS_CACHE_DIR': '/cache'};
+    late DoctorServiceFileSystem files;
+    void write(String path, String content) => files.file(path)
+      ..parent.createSync(recursive: true)
+      ..writeAsStringSync(content);
+
+    void project({required String swift, bool kotlinEntry = false}) {
+      write('/project/settings.gradle.kts', 'include(":shared")');
+      write(
+        '/project/shared/build.gradle.kts',
+        'kotlin { iosArm64() { binaries.framework { baseName = "Shared" } } }',
+      );
+      if (kotlinEntry) {
+        write(
+          '/project/shared/src/iosMain/kotlin/Main.kt',
+          'fun MainViewController() = ComposeUIViewController { }',
+        );
+      }
+      write(
+        '/project/iosApp/App.swift',
+        '@main\nstruct DemoApp: App {}\n$swift',
+      );
+    }
+
+    void installSdk({bool frameworks = true}) {
+      for (final m in ['info.json', 'swift-sdk.json', 'toolset.json']) {
+        write('/bundle/$m', '{}');
+      }
+      write(
+        '/bundle/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/'
+            'iphoneos/layouts-arm64.yaml',
+        'x',
+      );
+      write(
+        '/bundle/Developer/Runtimes/XcodeDefault.xctoolchain/usr/bin/'
+            'layouts-arm64.yaml',
+        'x',
+      );
+      const sdk =
+          '/bundle/Developer/Platforms/iPhoneOS.platform/Developer/SDKs'
+          '/iPhoneOS26.0.sdk/System/Library/Frameworks';
+      if (!frameworks) return;
+      files
+          .directory('$sdk/UIKit.framework/Modules')
+          .createSync(recursive: true);
+    }
+
+    Future<List<DoctorCheck>> run() {
+      final runtime = testRuntime(fileSystem: files, environment: cacheEnv);
+      final sections = DoctorSections(
+        runtime,
+        projectRoot: '/project',
+        environment: DoctorEnvironmentChecks(
+          hostPlatform: runtime.host,
+          buildPlatform: const IPhoneBuildPlatform(),
+          appleHostServices: runtime.appleHostServices,
+          runner: runtime.runner,
+          repository: DarwinSdkRepository(
+            runtime.host,
+            log: testLog(),
+            installBundle: '/bundle',
+          ),
+          toolchain: runtime.darwinToolchain,
+          deviceDiagnostics: DoctorNamespaceDiagnostics(),
+          sdkMismatch: (_) async => null,
+          sdkToolchainIdentity: () async => {},
+          createAppleHttpClient: () => throw StateError('Unexpected HTTP'),
+        ),
+      );
+      return sections.composeProject();
+    }
+
+    setUp(() => files = logicalProjectFiles());
+
+    test('succeeds when every import resolves', () async {
+      project(swift: 'import UIKit\nimport Shared');
+      installSdk();
+      final check = (await run()).singleWhere((c) => c.name == 'Swift imports');
+      expect(check.status, DoctorStatus.success);
+      expect(check.message, contains('resolve'));
+    });
+
+    test('fails naming module and file:line', () async {
+      project(swift: 'import UIKit\nimport Firebase');
+      installSdk();
+      final check = (await run()).singleWhere((c) => c.name == 'Swift imports');
+      expect(check.status, DoctorStatus.failure);
+      expect(check.message, contains('Firebase'));
+      expect(check.message, contains('${p.join('iosApp', 'App.swift')}:'));
+    });
+
+    test('success wording is singular, plural, and empty-aware', () async {
+      installSdk();
+      project(swift: '#if os(iOS)\nimport Firebase\n#endif');
+      var check = (await run()).singleWhere((c) => c.name == 'Swift imports');
+      expect(check.message, 'No unconditional imports to check');
+      files
+          .file('/project/iosApp/App.swift')
+          .writeAsStringSync('@main\nstruct DemoApp: App {}\nimport UIKit');
+      check = (await run()).singleWhere((c) => c.name == 'Swift imports');
+      expect(check.message, '1 module resolves against the Darwin SDK');
+      files
+          .file('/project/iosApp/App.swift')
+          .writeAsStringSync(
+            '@main\nstruct DemoApp: App {}\nimport UIKit\nimport Shared',
+          );
+      check = (await run()).singleWhere((c) => c.name == 'Swift imports');
+      expect(check.message, '2 modules resolve against the Darwin SDK');
+    });
+
+    test('a corrupt SDK degrades to a warning, not a crash', () async {
+      project(swift: 'import UIKit');
+      installSdk(frameworks: false);
+      final check = (await run()).singleWhere((c) => c.name == 'Swift imports');
+      expect(check.status, DoctorStatus.warning);
+      expect(check.message, startsWith('Not checked'));
+    });
+
+    test('warns when the Darwin SDK is absent', () async {
+      project(swift: 'import UIKit');
+      final check = (await run()).singleWhere((c) => c.name == 'Swift imports');
+      expect(check.status, DoctorStatus.warning);
+    });
+
+    void packageProject() =>
+        write('/project/iosApp/iosApp.xcodeproj/project.pbxproj', r'''
+// !$*UTF8*$!
+{
+  archiveVersion = 1;
+  objectVersion = 77;
+  objects = {
+    APP = {
+      isa = PBXNativeTarget;
+      name = iosApp;
+      packageProductDependencies = (PROD);
+      productType = "com.apple.product-type.application";
+    };
+    PROD = {
+      isa = XCSwiftPackageProductDependency;
+      package = PKG;
+      productName = Alamofire;
+    };
+    PKG = {
+      isa = XCRemoteSwiftPackageReference;
+      repositoryURL = "https://github.com/Alamofire/Alamofire.git";
+      requirement = {
+        kind = upToNextMajorVersion;
+        minimumVersion = 5.9.0;
+      };
+    };
+    ROOT = {
+      isa = PBXProject;
+      packageReferences = (PKG);
+      targets = (APP);
+    };
+  };
+  rootObject = ROOT;
+}
+''');
+
+    test('counts modules from the SDK and from Swift packages', () async {
+      project(swift: 'import UIKit\nimport Alamofire');
+      packageProject();
+      installSdk();
+      final check = (await run()).singleWhere((c) => c.name == 'Swift imports');
+      expect(check.status, DoctorStatus.success);
+      expect(
+        check.message,
+        '2 modules resolve: 1 from the Darwin SDK, 1 from Swift packages',
+      );
+    });
+
+    test('remote packages not fetched yet: an unknown import is a warning '
+        'checked at build time', () async {
+      project(swift: 'import Alamofire\nimport FirebaseCore');
+      packageProject();
+      installSdk();
+      final check = (await run()).singleWhere((c) => c.name == 'Swift imports');
+      expect(check.status, DoctorStatus.warning);
+      expect(check.message, contains('xcross compose build'));
+      expect(check.message, contains('FirebaseCore'));
+      expect(check.message, isNot(contains('Alamofire (')));
+    });
+
+    /// Writes the SwiftPM workspace an earlier `compose build` of `/project`
+    /// left: Alamofire resolved, and its checkout declaring [targets].
+    void resolvedWorkspace({required String targets}) {
+      final runtime = testRuntime(fileSystem: files, environment: cacheEnv);
+      final scratch = composePhysicalFeatures(
+        runtime,
+      ).swiftPmBuilder.workspaceFor('/project').scratch;
+      write('$scratch/workspace-state.json', '''
+{"object": {"dependencies": [
+  {"packageRef": {"identity": "alamofire", "kind": "remoteSourceControl",
+   "location": "https://github.com/Alamofire/Alamofire.git",
+   "name": "Alamofire"},
+   "subpath": "Alamofire"}
+]}}
+''');
+      write('$scratch/checkouts/Alamofire/Package.swift', targets);
+    }
+
+    test('after a build resolved the packages, a missing import is a '
+        'failure', () async {
+      project(swift: 'import Alamofire\nimport FirebaseCore');
+      packageProject();
+      installSdk();
+      resolvedWorkspace(targets: '.target(name: "Alamofire")');
+      final check = (await run()).singleWhere((c) => c.name == 'Swift imports');
+      expect(check.status, DoctorStatus.failure);
+      expect(check.message, contains('FirebaseCore'));
+      expect(check.message, isNot(contains('Alamofire (')));
+    });
+
+    test('after a build resolved the packages, a module of the resolved '
+        'graph that is not a product resolves', () async {
+      project(swift: 'import Alamofire\nimport AlamofireCore');
+      packageProject();
+      installSdk();
+      resolvedWorkspace(
+        targets: '.target(name: "Alamofire"),\n.target(name: "AlamofireCore")',
+      );
+      final check = (await run()).singleWhere((c) => c.name == 'Swift imports');
+      expect(check.status, DoctorStatus.success);
+      expect(check.message, contains('2 from Swift packages'));
+    });
+
+    test('only local packages: names Swift packages when an import is '
+        'missing', () async {
+      project(swift: 'import LocalPkg\nimport FirebaseCore');
+      write('/project/LocalPkg/Package.swift', '''
+let package = Package(
+  name: "LocalPkg",
+  products: [.library(name: "LocalPkg", targets: ["LocalPkg"])],
+  targets: [.target(name: "LocalPkg")]
+)
+''');
+      write('/project/iosApp/iosApp.xcodeproj/project.pbxproj', r'''
+// !$*UTF8*$!
+{
+  archiveVersion = 1;
+  objectVersion = 77;
+  objects = {
+    APP = {
+      isa = PBXNativeTarget;
+      name = iosApp;
+      packageProductDependencies = (PROD);
+      productType = "com.apple.product-type.application";
+    };
+    PROD = {
+      isa = XCSwiftPackageProductDependency;
+      package = PKG;
+      productName = LocalPkg;
+    };
+    PKG = {
+      isa = XCLocalSwiftPackageReference;
+      relativePath = ../LocalPkg;
+    };
+    ROOT = {
+      isa = PBXProject;
+      packageReferences = (PKG);
+      targets = (APP);
+    };
+  };
+  rootObject = ROOT;
+}
+''');
+      installSdk();
+      final check = (await run()).singleWhere((c) => c.name == 'Swift imports');
+      expect(check.status, DoctorStatus.failure);
+      expect(check.message, contains('or the Swift packages'));
+      expect(check.message, contains('FirebaseCore'));
+      expect(check.message, isNot(contains('LocalPkg (')));
+    });
+
+    test('an unreadable Xcode project is a warning, not a crash', () async {
+      project(swift: 'import UIKit');
+      write('/project/iosApp/iosApp.xcodeproj/project.pbxproj', '{ objects = ');
+      installSdk();
+      final check = (await run()).singleWhere((c) => c.name == 'Swift imports');
+      expect(check.status, DoctorStatus.warning);
+      expect(check.message, contains('Swift packages'));
+    });
+
+    test('non-Swift projects get no row', () async {
+      project(swift: 'import Firebase', kotlinEntry: true);
+      installSdk();
+      final checks = await run();
+      expect(checks.map((c) => c.name), isNot(contains('Swift imports')));
+    });
   });
 
   test('Windows host checks resolve PATHEXT executable names', () async {

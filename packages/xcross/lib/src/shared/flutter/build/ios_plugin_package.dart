@@ -6,116 +6,35 @@ import 'package:darwin_sdk_kit/shared/sdk/darwin_sdk_repository.dart';
 import 'package:darwin_sdk_kit/shared/toolchain/darwin_toolchain_resolver.dart';
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
-import 'package:xcross/src/shared/flutter/build/internal/apple_tool_shims.dart';
-import 'package:xcross/src/shared/flutter/build/internal/swiftpm_workspace.dart';
-import 'package:xcross/src/shared/flutter/build/ios_deployment_target.dart';
 import 'package:xcross/src/shared/flutter/build/ios_plugins.dart';
-import 'package:xcross/src/shared/flutter/build/swiftpm_binary_artifact_preparer.dart';
-import 'package:xcross/src/shared/flutter/build/swiftpm_binary_target.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/artifact_copy_policy.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/artifact_destination_publisher.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/artifact_filesystem.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/artifact_publication_coordinator.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/artifact_transport.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/build_execution.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/checkout.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/checkout_attributes.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/checkout_manifest_normalizer.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/dependency_preparation.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/dynamic_product.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/foundation.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/gate_platform.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/host_policy.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/manifest_dependencies.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/resource_manifest.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/runtime.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/sdk_identity.dart';
+import 'package:xcross/src/shared/flutter/swiftpm/flutter_staging.dart';
+import 'package:xcross/src/shared/swiftpm/apple_tool_shims.dart';
+import 'package:xcross/src/shared/swiftpm/artifact_copy_policy.dart';
+import 'package:xcross/src/shared/swiftpm/artifact_filesystem.dart';
+import 'package:xcross/src/shared/swiftpm/artifact_publication_coordinator.dart';
+import 'package:xcross/src/shared/swiftpm/artifact_transport.dart';
+import 'package:xcross/src/shared/swiftpm/build_execution.dart';
+import 'package:xcross/src/shared/swiftpm/checkout.dart';
+import 'package:xcross/src/shared/swiftpm/checkout_attributes.dart';
+import 'package:xcross/src/shared/swiftpm/checkout_manifest_normalizer.dart';
+import 'package:xcross/src/shared/swiftpm/dependency_preparation.dart';
+import 'package:xcross/src/shared/swiftpm/foundation.dart';
+import 'package:xcross/src/shared/swiftpm/gate_platform.dart';
+import 'package:xcross/src/shared/swiftpm/host_policy.dart';
+import 'package:xcross/src/shared/swiftpm/ios_deployment_target.dart';
+import 'package:xcross/src/shared/swiftpm/manifest_dependencies.dart';
+import 'package:xcross/src/shared/swiftpm/package_builder.dart';
+import 'package:xcross/src/shared/swiftpm/package_types.dart';
+import 'package:xcross/src/shared/swiftpm/resource_manifest.dart';
+import 'package:xcross/src/shared/swiftpm/runtime.dart';
+import 'package:xcross/src/shared/swiftpm/sdk_identity.dart';
+import 'package:xcross/src/shared/swiftpm/swiftpm_workspace.dart';
 import 'package:xcross/src/target/shared/flutter/flutter_target_build_policy.dart';
 
 @internal
 const String flutterFrameworkPackageName = 'FlutterFramework';
 @internal
 const String pluginsProductName = 'FlutterPluginsGenerated';
-@internal
-typedef PrepareSwiftPmBinaryArtifact =
-    Future<SwiftPmPreparedBinaryArtifact> Function(
-      SwiftPmRemoteBinaryTarget target,
-    );
-@internal
-typedef CreateSwiftPmBinaryAlias =
-    Future<void> Function({required String alias, required String target});
-@internal
-typedef MaterializeSwiftPmBinaryArtifact =
-    Future<SwiftPmBinaryArtifactPublication> Function({
-      required String source,
-      required String destination,
-    });
-
-@internal
-final class SwiftPmPackageDependency<T extends PlatformHostInterface> {
-  const SwiftPmPackageDependency({
-    required this.name,
-    required this.url,
-    required this.identity,
-    required this.match,
-  });
-
-  final String? name;
-  final String url;
-  final String identity;
-  final String match;
-}
-
-@internal
-final class SwiftPmBinaryArtifactProvenance<T extends PlatformHostInterface> {
-  const SwiftPmBinaryArtifactProvenance({
-    required this.packageIdentity,
-    required this.target,
-    required this.manifestPath,
-  });
-
-  final String packageIdentity;
-  final SwiftPmRemoteBinaryTarget target;
-  final String manifestPath;
-}
-
-@internal
-final class SwiftPmBinaryAttemptState {
-  final Set<String> finalRecovered = {};
-  final Set<String> copied = {};
-}
-
-@internal
-final class GeneratedPluginsBuildResult {
-  const GeneratedPluginsBuildResult({
-    required this.libraryPath,
-    required this.dylibPaths,
-    required this.modulesDir,
-    this.dynamicProducts = const [],
-    this.frameworkPaths = const [],
-    this.resourceBundlePaths = const [],
-    this.resourceBundles = const [],
-  });
-  final String libraryPath;
-  final List<String> dylibPaths;
-
-  /// [dylibPaths] as the frameworks the app embeds them as.
-  final List<SwiftPmDynamicProduct> dynamicProducts;
-  final List<String> frameworkPaths;
-
-  /// SwiftPM resource bundles (`<Package>_<Target>.bundle`, e.g. plugin
-  /// privacy manifests) that Xcode copies into the application root.
-  final List<String> resourceBundlePaths;
-
-  /// [resourceBundlePaths] with the resources SwiftPM's build manifest
-  /// copies into each, so they can be copied from their sources as Xcode does.
-  final List<SwiftPmResourceBundle> resourceBundles;
-  final String? modulesDir;
-}
-
-@internal
-typedef ArtifactJunctionCapabilityResolver =
-    Future<({bool swiftPmArtifact, bool packageLocalArtifact})> Function();
 
 @internal
 final class GeneratedPluginsPackage<T extends PlatformHostInterface> {
@@ -138,27 +57,45 @@ final class GeneratedPluginsPackage<T extends PlatformHostInterface> {
     required SwiftPmCheckoutManifestNormalizer<T> checkoutManifestNormalizer,
     required SwiftPmFoundation<T> foundation,
     required SwiftPmGatePlatform gatePlatform,
-  }) : runtime = SwiftPmRuntime(
+  }) : this.withBuilder(
          policy,
-         runner,
-         sdkRepository,
-         toolchain,
-         tools,
-         hostPolicy,
-         artifactFileSystem,
-         sdkIdentity,
-         publicationCoordinator,
-         transport,
-         copyPolicy,
-         buildExecution,
-         dependencyPreparation,
-         checkout,
-         checkoutAttributes,
-         checkoutManifestNormalizer,
-         foundation,
-         gatePlatform,
+         SwiftPmPackageBuilder<T>(
+           SwiftPmRuntime(
+             policy,
+             runner,
+             sdkRepository,
+             toolchain,
+             tools,
+             hostPolicy,
+             artifactFileSystem,
+             sdkIdentity,
+             publicationCoordinator,
+             transport,
+             copyPolicy,
+             buildExecution,
+             dependencyPreparation,
+             checkout,
+             checkoutAttributes,
+             checkoutManifestNormalizer,
+             foundation,
+             gatePlatform,
+           ),
+         ),
        );
-  final SwiftPmRuntime<T> runtime;
+
+  /// Builds Flutter plugins through [builder], whose engine must be
+  /// configured for [policy].
+  GeneratedPluginsPackage.withBuilder(
+    FlutterTargetBuildPolicy<T> policy,
+    this.builder,
+  ) : staging = FlutterSwiftPmStaging<T>(builder.engine, policy);
+
+  /// The generic SwiftPM build facade the plugins package builds through.
+  final SwiftPmPackageBuilder<T> builder;
+  SwiftPmRuntime<T> get runtime => builder.engine;
+
+  /// Flutter plugin staging (manifest, registrant, overlays, discovery).
+  final FlutterSwiftPmStaging<T> staging;
 
   Future<({bool swiftPmArtifact, bool packageLocalArtifact})>
   resolveArtifactJunctionCapabilities({required SwiftPmWorkspace workspace}) =>
@@ -174,7 +111,7 @@ final class GeneratedPluginsPackage<T extends PlatformHostInterface> {
   ///                         `IosEngineCache.flutterXcframework`).
   /// [workspace] owns the stable generated-package and scratch directories
   /// reused between builds.
-  Future<GeneratedPluginsBuildResult?> build({
+  Future<SwiftPmBuildResult?> build({
     required String projectRoot,
     required SwiftPmWorkspace workspace,
     required List<IosPlugin> plugins,
@@ -207,10 +144,9 @@ final class GeneratedPluginsPackage<T extends PlatformHostInterface> {
         'spmPlugins=${[for (final plugin in spmPlugins) plugin.name]}',
       );
 
-      final targetDebugDir = p.join(
-        workspace.scratch,
-        deploymentTarget.swiftSdkTriple,
-        'debug',
+      final targetDebugDir = builder.targetDebugDirectory(
+        workspace,
+        deploymentTarget,
       );
       final pluginIdentities = {
         for (final MapEntry(:key, :value) in flutterPluginSwiftPmIdentities({
@@ -219,7 +155,7 @@ final class GeneratedPluginsPackage<T extends PlatformHostInterface> {
         }).entries)
           key.toLowerCase(): value,
       };
-      final fingerprint = await runtime.discovery.incrementalBuildFingerprint(
+      final fingerprint = await staging.discovery.incrementalBuildFingerprint(
         plugins: spmPlugins,
         flutterXcframework: flutterXcframework,
         deploymentTarget: deploymentTarget,
@@ -238,9 +174,11 @@ final class GeneratedPluginsPackage<T extends PlatformHostInterface> {
           await fingerprintFile.readAsString() == fingerprint;
       if (fingerprintMatches && pluginsDylib.existsSync()) {
         runtime.runner.log.logTrace('reusing unchanged SwiftPM plugin build');
-        final reused = await runtime.assembly.discoverAndRewriteDylibs(
-          targetDebugDir,
-          pluginIdentities: pluginIdentities,
+        final reused = await builder.assemble(
+          workspace: workspace,
+          productName: pluginsProductName,
+          deploymentTarget: deploymentTarget,
+          packageIdentities: pluginIdentities,
         );
         return reused;
       }
@@ -268,7 +206,7 @@ final class GeneratedPluginsPackage<T extends PlatformHostInterface> {
         for (final products in interopProductsByPlugin.values) ...products,
       };
 
-      Future<void> stage() => runtime.workspaceStager.writeGeneratedPackages(
+      Future<void> stage() => staging.workspaceStager.writeGeneratedPackages(
         outputDir: outputDir,
         plugins: spmPlugins,
         flutterXcframework: flutterXcframework,
@@ -287,18 +225,29 @@ final class GeneratedPluginsPackage<T extends PlatformHostInterface> {
       await stage();
 
       final pluginsDir = p.join(outputDir, 'Plugins');
-      final scratchPath = workspace.scratch;
       final stagedFlutterXcframework = p.join(
         outputDir,
         'Packages',
         flutterFrameworkPackageName,
         'Flutter.xcframework',
       );
-      await runtime.buildDriver.runSwiftBuild(
+      final result = await builder.build(
         workspace: workspace,
-        pluginsDir: pluginsDir,
-        scratchPath: scratchPath,
-        flutterXcframework: stagedFlutterXcframework,
+        packageDir: pluginsDir,
+        productName: pluginsProductName,
+        // Real `Flutter.framework` (not our FlutterFramework binary-target
+        // wrapper). Our own aggregate target resolves `import Flutter` via
+        // that wrapper's declared package dependency, but individual
+        // third-party plugin targets often don't declare any such dependency
+        // in their own Package.swift at all; they rely on Xcode's implicit,
+        // project-wide framework search paths to make `import Flutter`
+        // resolve (verified against a real published plugin: its manifest
+        // lists zero dependencies, yet its Swift source does
+        // `import Flutter`). The slice is passed as a build-wide framework
+        // search path so `<Flutter/Flutter.h>` resolves for C targets too.
+        frameworkSearchPaths: [
+          staging.flutterPolicy.selectEngineSlice(stagedFlutterXcframework),
+        ],
         deploymentTarget: deploymentTarget,
         interopTargetCandidates: interopTargetCandidates,
         interopConsumers: {
@@ -315,12 +264,12 @@ final class GeneratedPluginsPackage<T extends PlatformHostInterface> {
         packageLocalArtifactJunctionCapability:
             capabilities.packageLocalArtifact,
         consumedProducts: runtime.processPolicy.sourceFallbackActive
-            ? await runtime.workspaceStager.consumedProducts(outputDir)
+            ? await staging.workspaceStager.consumedProducts(outputDir)
             : const {},
         reconcileDependencies: !runtime.processPolicy.sourceFallbackActive
             ? null
             : (scratchPath, consumedProducts) async {
-                final reconciled = await runtime.workspaceStager
+                final reconciled = await staging.workspaceStager
                     .reconcileCheckoutFallbacks(
                       outputDir: outputDir,
                       scratchPath: scratchPath,
@@ -334,11 +283,7 @@ final class GeneratedPluginsPackage<T extends PlatformHostInterface> {
                     ? null
                     : reconciled.consumedProducts;
               },
-      );
-
-      final result = await runtime.assembly.discoverAndRewriteDylibs(
-        targetDebugDir,
-        pluginIdentities: pluginIdentities,
+        packageIdentities: pluginIdentities,
       );
       await runtime.filesystem.writeStable(fingerprintFile.path, fingerprint);
       return result;

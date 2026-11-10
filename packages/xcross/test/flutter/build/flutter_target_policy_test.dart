@@ -5,7 +5,7 @@ import 'package:darwin_sdk_kit/target/iphone/iphone_target.dart';
 import 'package:darwin_sdk_kit/target/simulator/simulator_target.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
-import 'package:xcross/src/shared/flutter/errors.dart';
+import 'package:xcross/src/shared/errors/build_error.dart';
 import 'package:xcross/src/target/iphone/flutter/iphone_flutter_target.dart';
 import 'package:xcross/src/target/simulator/flutter/simulator_flutter_target.dart';
 
@@ -70,7 +70,7 @@ void main() {
     expect(iphone.selectEngineSlice(root.path), deviceSlice);
     expect(
       () => simulator.selectEngineSlice(root.path),
-      throwsA(isA<FlutterBuildError>()),
+      throwsA(isA<XcrossBuildError>()),
     );
     Directory(deviceSlice).deleteSync(recursive: true);
     final simSlice = p.join(root.path, 'ios-arm64-simulator');
@@ -80,7 +80,7 @@ void main() {
     expect(simulator.selectEngineSlice(root.path), simSlice);
     expect(
       () => iphone.selectEngineSlice(root.path),
-      throwsA(isA<FlutterBuildError>()),
+      throwsA(isA<XcrossBuildError>()),
     );
   });
 

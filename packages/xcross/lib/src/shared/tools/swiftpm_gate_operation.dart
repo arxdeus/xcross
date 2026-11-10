@@ -1,5 +1,5 @@
 import 'package:meta/meta.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/gate_mode.dart';
+import 'package:xcross/src/shared/swiftpm/gate_mode.dart';
 
 @internal
 typedef SwiftPmGateVerify =

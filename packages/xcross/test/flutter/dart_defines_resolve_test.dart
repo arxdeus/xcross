@@ -3,8 +3,8 @@ import 'dart:io';
 
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
+import 'package:xcross/src/shared/errors/build_error.dart';
 import 'package:xcross/src/shared/flutter/build/flutter_packer.dart';
-import 'package:xcross/src/shared/flutter/errors.dart';
 import 'package:xcross/src/shared/flutter/flutter_build_steps.dart';
 import 'package:xcross/src/shared/flutter/models/flutter/dart_defines.dart';
 import 'package:xcross/src/shared/flutter/models/flutter/flutter_build_options.dart';
@@ -48,7 +48,7 @@ void main() {
     });
 
     Matcher rejects(String message) => throwsA(
-      isA<FlutterBuildError>().having((e) => e.message, 'message', message),
+      isA<XcrossBuildError>().having((e) => e.message, 'message', message),
     );
 
     for (final key in ['FLUTTER_BUILD_NAME', 'FLUTTER_BUILD_NUMBER']) {
@@ -94,7 +94,7 @@ void main() {
     test('rejects a user-set FLUTTER_ENABLED_FEATURE_FLAGS', () {
       expect(
         () => DartDefines.resolve(const ['FLUTTER_ENABLED_FEATURE_FLAGS=x']),
-        throwsA(isA<FlutterBuildError>()),
+        throwsA(isA<XcrossBuildError>()),
       );
     });
   });

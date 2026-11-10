@@ -3,10 +3,7 @@ import 'package:meta/meta.dart';
 import 'package:xcross/src/shared/flutter/build/dart_plugin_registrant.dart';
 import 'package:xcross/src/shared/flutter/build/flutter_aot_snapshotter.dart';
 import 'package:xcross/src/shared/flutter/build/flutter_debug_bundler.dart';
-import 'package:xcross/src/shared/flutter/build/internal/swiftpm_workspace.dart';
-import 'package:xcross/src/shared/flutter/build/ios_deployment_target.dart';
 import 'package:xcross/src/shared/flutter/build/ios_native_assets.dart';
-import 'package:xcross/src/shared/flutter/build/ios_plugin_package.dart';
 import 'package:xcross/src/shared/flutter/build/ios_plugins.dart';
 import 'package:xcross/src/shared/flutter/errors.dart';
 import 'package:xcross/src/shared/flutter/flutter_assets_compiler.dart';
@@ -14,6 +11,9 @@ import 'package:xcross/src/shared/flutter/flutter_build_runtime.dart';
 import 'package:xcross/src/shared/flutter/flutter_build_steps.dart';
 import 'package:xcross/src/shared/flutter/flutter_kernel_compiler.dart';
 import 'package:xcross/src/shared/flutter/models/flutter/flutter_build_options.dart';
+import 'package:xcross/src/shared/swiftpm/ios_deployment_target.dart';
+import 'package:xcross/src/shared/swiftpm/package_types.dart';
+import 'package:xcross/src/shared/swiftpm/swiftpm_workspace.dart';
 
 @internal
 final class FlutterArtifactCompiler<T extends PlatformHostInterface>
@@ -172,7 +172,7 @@ final class FlutterArtifactCompiler<T extends PlatformHostInterface>
   /// plugins at all, or only CocoaPods-only ones xcross doesn't support (a
   /// warning is logged for those; matching Flutter's own tool, this doesn't
   /// fail the build).
-  Future<GeneratedPluginsBuildResult?> _buildPlugins(
+  Future<SwiftPmBuildResult?> _buildPlugins(
     String flutterRoot, {
     required IosDeploymentTarget deploymentTarget,
     required bool verbose,

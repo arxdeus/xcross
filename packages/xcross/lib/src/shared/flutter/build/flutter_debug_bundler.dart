@@ -5,13 +5,13 @@ import 'package:xcross/src/shared/flutter/build/flutter_aot_snapshotter.dart';
 import 'package:xcross/src/shared/flutter/build/icon_tree_shaker.dart';
 import 'package:xcross/src/shared/flutter/build/impeller_shader_compiler.dart';
 import 'package:xcross/src/shared/flutter/build/internal/toolchain.dart';
-import 'package:xcross/src/shared/flutter/build/ios_deployment_target.dart';
 import 'package:xcross/src/shared/flutter/build/ios_engine_cache.dart';
 import 'package:xcross/src/shared/flutter/constants.dart';
 import 'package:xcross/src/shared/flutter/errors.dart';
 import 'package:xcross/src/shared/flutter/flutter_assets_compiler.dart';
 import 'package:xcross/src/shared/flutter/flutter_build_runtime.dart';
 import 'package:xcross/src/shared/flutter/flutter_kernel_compiler.dart';
+import 'package:xcross/src/shared/swiftpm/ios_deployment_target.dart';
 
 /// Assembles `App.framework` (debug/JIT mode) for a Flutter iOS app without
 /// invoking `xcrun` or `flutter_tools.snapshot assemble`.

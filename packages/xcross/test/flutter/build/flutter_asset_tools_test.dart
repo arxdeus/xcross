@@ -10,9 +10,9 @@ import 'package:cli_kit/shared/logging/logging.dart';
 import 'package:cli_kit/shared/process/process.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
+import 'package:xcross/src/shared/errors/build_error.dart';
 import 'package:xcross/src/shared/flutter/build/icon_tree_shaker.dart';
 import 'package:xcross/src/shared/flutter/build/impeller_shader_compiler.dart';
-import 'package:xcross/src/shared/flutter/errors.dart';
 import 'package:xcross/src/shared/flutter/flutter_assets_compiler.dart';
 
 import '../flutter_test_log.dart';
@@ -392,7 +392,7 @@ flutter:
             {},
           ),
           throwsA(
-            isA<FlutterBuildError>().having(
+            isA<XcrossBuildError>().having(
               (e) => e.toString(),
               'message',
               contains(reason),
@@ -420,7 +420,7 @@ flutter:
           ),
           {},
         ),
-        throwsA(isA<FlutterBuildError>()),
+        throwsA(isA<XcrossBuildError>()),
       );
     });
 
@@ -448,7 +448,7 @@ flutter:
           {},
         ),
         throwsA(
-          isA<FlutterBuildError>().having(
+          isA<XcrossBuildError>().having(
             (e) => e.toString(),
             'message',
             contains('transformers'),
@@ -510,7 +510,7 @@ printf 'subset' > "$1"
           }),
         ).findConstants('/app.dill'),
         throwsA(
-          isA<FlutterBuildError>().having(
+          isA<XcrossBuildError>().having(
             (e) => e.toString(),
             'message',
             allOf(
@@ -527,7 +527,7 @@ printf 'subset' > "$1"
         shaker(dart: script('dart', 'echo boom >&2\nexit 3\n'))
             .findConstants('/app.dill'),
         throwsA(
-          isA<FlutterBuildError>().having(
+          isA<XcrossBuildError>().having(
             (e) => e.toString(),
             'message',
             contains('boom'),
@@ -571,7 +571,7 @@ printf 'subset' > "$1"
           ],
           {'Icons'},
         ),
-        throwsA(isA<FlutterBuildError>()),
+        throwsA(isA<XcrossBuildError>()),
       );
     });
 
@@ -649,7 +649,7 @@ printf 'subset' > "$1"
       await expectLater(
         failing.subset(font.path, [1]),
         throwsA(
-          isA<FlutterBuildError>().having(
+          isA<XcrossBuildError>().having(
             (e) => e.toString(),
             'message',
             contains('exit code 2'),

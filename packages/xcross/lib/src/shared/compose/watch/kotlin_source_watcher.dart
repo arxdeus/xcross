@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:cli_kit/shared/platform/platform_host.dart';
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
+import 'package:xcross/src/shared/compose/swift/swift_host_paths.dart';
 
 /// Content-hash watcher over a KMP module's Kotlin sources.
 ///
@@ -38,14 +39,23 @@ final class KotlinSourceWatcher {
   ///
   /// Gradle files matter as much as Kotlin here: a dependency bump in
   /// `build.gradle.kts` changes the framework without touching a single
-  /// `.kt` file.
+  /// `.kt` file. `.swift` covers SwiftUI hosts: the rebuild re-detects the
+  /// project, so a newly added Swift import is checked by the preflight. Only
+  /// the Swift files discovery reads count (see [isSwiftHostSource]), so a
+  /// `pod install` or an edited test target does not trigger a rebuild.
   static const _watchedExtensions = {
     '.kt',
+    '.swift',
     '.kts',
     '.klib',
     '.toml',
     '.properties',
   };
+
+  /// Files outside [_watchedExtensions] that change the build: the Swift
+  /// packages the SwiftUI host links are declared in the Xcode project and
+  /// pinned in `Package.resolved`.
+  static const _watchedNames = {'project.pbxproj', 'Package.resolved'};
 
   /// Directories that never contain hand-edited sources. `build/` is the big
   /// one: it holds Gradle's own outputs, which change on every build and would
@@ -81,7 +91,13 @@ final class KotlinSourceWatcher {
             }
             pending.add(entity);
           } else if (entity is File &&
-              _watchedExtensions.contains(p.extension(name))) {
+              (_watchedNames.contains(name) ||
+                  _watchedExtensions.contains(p.extension(name)) &&
+                      (p.extension(name) != '.swift' ||
+                          isSwiftHostSource(
+                            entity.path,
+                            projectRoot: projectRoot,
+                          )))) {
             paths.add(entity.absolute.path);
           }
         }

@@ -6,11 +6,11 @@ import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/shared/flutter/build/ios_app_extensions.dart';
 import 'package:xcross/src/shared/flutter/build/ios_bundle_versions.dart';
-import 'package:xcross/src/shared/flutter/build/ios_deployment_target.dart';
 import 'package:xcross/src/shared/flutter/errors.dart';
 import 'package:xcross/src/shared/flutter/extensions/app_extension_plist.dart';
 import 'package:xcross/src/shared/flutter/extensions/app_extension_resources.dart';
 import 'package:xcross/src/shared/flutter/flutter_build_runtime.dart';
+import 'package:xcross/src/shared/swiftpm/ios_deployment_target.dart';
 import 'package:xcross/src/target/shared/flutter/xcode_build_metadata.dart';
 
 /// A built `.appex` bundle staged outside the host app.

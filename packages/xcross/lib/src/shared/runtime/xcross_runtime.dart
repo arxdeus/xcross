@@ -23,6 +23,7 @@ import 'package:xcross/src/shared/runtime/compose_simulator_capability.dart';
 import 'package:xcross/src/shared/runtime/flutter_feature_services.dart';
 import 'package:xcross/src/shared/setup/host_operations.dart';
 import 'package:xcross/src/shared/setup/setup_requirements.dart';
+import 'package:xcross/src/shared/swiftpm/swiftpm_services.dart';
 import 'package:xcross/src/shared/update/release_lookup.dart';
 
 @internal
@@ -42,6 +43,7 @@ final class XcrossRuntime<T extends PlatformHostInterface> {
     required this.sdkRepository,
     required this.darwinToolchain,
     required this.flutter,
+    required this.swiftPm,
     required this.composeHostProvider,
     required this.composeSimulatorCapability,
     required this.executable,
@@ -60,6 +62,7 @@ final class XcrossRuntime<T extends PlatformHostInterface> {
     if (!identical(host, sdkRepository.host) ||
         !identical(host, darwinToolchain.host) ||
         !identical(host, flutter.runner.host) ||
+        !identical(host, swiftPm.runner.host) ||
         !identical(host, appleHostServices.host) ||
         !identical(host, sdkInstall.runner.host) ||
         !identical(host, localHttp.host) ||
@@ -69,6 +72,7 @@ final class XcrossRuntime<T extends PlatformHostInterface> {
     }
     if (!identical(runner, darwinToolchain.runner) ||
         !identical(runner, flutter.runner) ||
+        !identical(runner, swiftPm.runner) ||
         !identical(runner, sdkInstall.runner) ||
         !identical(log, sdkRepository.log) ||
         !identical(log, downloader.log)) {
@@ -99,6 +103,11 @@ final class XcrossRuntime<T extends PlatformHostInterface> {
   final DarwinSdkRepository<T> sdkRepository;
   final DarwinToolchainResolver<T> darwinToolchain;
   final FlutterFeatureServices<T> flutter;
+
+  /// The host's SwiftPM services. Flutter builds plugins through these;
+  /// Compose obtains a builder for its target with
+  /// `swiftPm.builder(IPhoneSwiftPmTarget(target))`.
+  final SwiftPmServices<T> swiftPm;
   final ComposeHostProvider<T> composeHostProvider;
   final ComposeSimulatorCapability<T> composeSimulatorCapability;
   final String executable;

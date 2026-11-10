@@ -4,9 +4,9 @@ import 'package:cli_kit/host/linux/linux_host.dart';
 import 'package:cli_kit/shared/platform/platform_host.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
+import 'package:xcross/src/shared/errors/build_error.dart';
 import 'package:xcross/src/shared/flutter/build/internal/native_asset_frameworks.dart';
-import 'package:xcross/src/shared/flutter/build/internal/recursive_directory_copy.dart';
-import 'package:xcross/src/shared/flutter/errors.dart';
+import 'package:xcross/src/shared/swiftpm/recursive_directory_copy.dart';
 
 import '../../host_operations_fixtures.dart';
 import 'macho_linkedit_aligner_test.dart';
@@ -122,7 +122,7 @@ void main() {
         }
         await expectLater(
           frameworks.stage([source.path], output),
-          throwsA(isA<FlutterBuildError>()),
+          throwsA(isA<XcrossBuildError>()),
         );
         expect(prior.readAsStringSync(), 'retained');
         expect(
@@ -239,7 +239,7 @@ void main() {
         await expectLater(
           frameworks.stage([unsafe.path], output),
           throwsA(
-            isA<FlutterBuildError>().having(
+            isA<XcrossBuildError>().having(
               (e) => e.message,
               'message',
               contains('Unsafe native asset framework symlink'),

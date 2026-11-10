@@ -4,8 +4,8 @@ import 'dart:io';
 import 'package:cli_kit/host/linux/linux_host.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
+import 'package:xcross/src/shared/errors/build_error.dart';
 import 'package:xcross/src/shared/flutter/build/flutter_notice_artifact.dart';
-import 'package:xcross/src/shared/flutter/errors.dart';
 
 import '../../host_operations_fixtures.dart';
 
@@ -86,7 +86,7 @@ void main() {
                 sourceFlutterAssetsDirectory: p.join(root.path, 'missing'),
                 destinationFlutterAssetsDirectory: destinationAssets.path,
               ),
-          throwsA(isA<FlutterBuildError>()),
+          throwsA(isA<XcrossBuildError>()),
         );
         expect(
           File(p.join(destinationAssets.path, 'NOTICES.Z')).existsSync(),
@@ -126,7 +126,7 @@ void main() {
         sourceFlutterAssetsDirectory: '/selected-notices-missing',
         destinationFlutterAssetsDirectory: output,
       ),
-      throwsA(isA<FlutterBuildError>()),
+      throwsA(isA<XcrossBuildError>()),
     );
     expect(fileSystem.file('$output/NOTICES.Z').readAsBytesSync(), bytes);
   });

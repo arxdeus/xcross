@@ -4,16 +4,16 @@ import 'package:cli_kit/shared/platform/platform_host.dart';
 import 'package:cli_kit/shared/process/process.dart';
 import 'package:darwin_sdk_kit/target/shared/ios_target.dart';
 import 'package:meta/meta.dart';
-import 'package:xcross/src/host/shared/flutter/apple_tool_shim_renderer.dart';
 import 'package:xcross/src/shared/flutter/build/apple_debug_symbols.dart';
-import 'package:xcross/src/shared/flutter/build/internal/apple_tool_shims.dart';
 import 'package:xcross/src/shared/flutter/build/internal/flutter_tool_workspace.dart';
 import 'package:xcross/src/shared/flutter/build/internal/native_asset_frameworks.dart';
 import 'package:xcross/src/shared/flutter/build/internal/native_assets_hook_discovery.dart';
 import 'package:xcross/src/shared/flutter/build/internal/native_assets_manifest.dart';
-import 'package:xcross/src/shared/flutter/build/ios_deployment_target.dart';
 import 'package:xcross/src/shared/flutter/build/ios_engine_cache.dart';
 import 'package:xcross/src/shared/flutter/errors.dart';
+import 'package:xcross/src/shared/swiftpm/apple_tool_shim_renderer.dart';
+import 'package:xcross/src/shared/swiftpm/apple_tool_shims.dart';
+import 'package:xcross/src/shared/swiftpm/ios_deployment_target.dart';
 
 /// Native code assets produced by Flutter's Dart build-hook pipeline.
 @internal

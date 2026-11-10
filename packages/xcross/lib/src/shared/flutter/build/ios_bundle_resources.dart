@@ -4,9 +4,9 @@ import 'package:cli_kit/shared/platform/platform_host.dart';
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:propertylistserialization/propertylistserialization.dart';
-import 'package:xcross/src/shared/flutter/build/internal/recursive_directory_copy.dart';
 import 'package:xcross/src/shared/flutter/build/pbxproj.dart';
 import 'package:xcross/src/shared/flutter/project/pbx_project_reader.dart';
+import 'package:xcross/src/shared/swiftpm/recursive_directory_copy.dart';
 
 /// What [IosBundleResources.stage] could not copy as-is and left for the
 /// resource compiler: Xcode compiles these rather than copying them.

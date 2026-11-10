@@ -11,11 +11,17 @@ import 'package:test/test.dart';
 import 'package:xcross/src/shared/compose/build/objc_runner_builder.dart';
 import 'package:xcross/src/shared/compose/build/swift_runner_builder.dart';
 import 'package:xcross/src/shared/compose/project/kmp_project.dart';
+import 'package:xcross/src/shared/compose/swiftpm/host_package_link.dart';
 import 'package:xcross/src/shared/compose/toolchain/compose_toolchain.dart';
 import 'package:xcross/src/shared/errors/errors.dart';
+import 'package:xcross/src/shared/swiftpm/package_types.dart';
 import 'package:xcross/src/target/shared/compose/compose_target.dart';
 
 import 'support/compose_platforms.dart';
+
+const _numericsMap =
+    '/ws/checkouts/swift-numerics/Sources/_NumericsShims/include/'
+    'module.modulemap';
 
 void main() {
   late ComposeTestSession session;
@@ -302,6 +308,63 @@ void main() {
       );
     },
   );
+
+  test('Swift runner compiles and links against the host Swift packages, '
+      'and without them passes exactly the same arguments as before', () async {
+    final fixture = ComposeFixture.create(session, session.fixtureIPhoneTarget)
+      ..createSdk();
+    addTearDown(fixture.dispose);
+    Future<List<String>> argumentsWith(HostPackageLink? packages) async {
+      late List<String> arguments;
+      await SwiftRunnerBuilder.withSeams(
+        fixture.toolchain.runner,
+        runChecked: (executable, args, {workingDirectory}) async {
+          arguments = args;
+          fixture.writeMachO(
+            p.join(fixture.root, 'build', 'xcross-compose', 'Runner'),
+          );
+        },
+      ).build(
+        project: fixture.swiftProject,
+        frameworkPath: fixture.frameworkPath,
+        toolchain: fixture.toolchain,
+        packages: packages,
+      );
+      return arguments;
+    }
+
+    const link = HostPackageLink(
+      productName: 'XcrossHostPackages',
+      libraryPath: '/ws/debug/libXcrossHostPackages.dylib',
+      modulesDir: '/ws/debug/Modules',
+      moduleMapFiles: [_numericsMap],
+      frameworkSearchPaths: ['/ws/debug'],
+      build: SwiftPmBuildResult(
+        libraryPath: '/ws/debug/libXcrossHostPackages.dylib',
+        dylibPaths: ['/ws/debug/libXcrossHostPackages.dylib'],
+        modulesDir: '/ws/debug/Modules',
+      ),
+    );
+    final without = await argumentsWith(null);
+    final with_ = await argumentsWith(link);
+    final extra = [
+      '-I',
+      '/ws/debug/Modules',
+      '-Xcc',
+      '-fmodule-map-file=$_numericsMap',
+      '-F',
+      '/ws/debug',
+      '-Xlinker',
+      '/ws/debug/libXcrossHostPackages.dylib',
+    ];
+    // The package flags go right before the sources; nothing else moves.
+    final sources = without.indexOf(fixture.swiftProject.swiftSources.first);
+    expect(with_, [
+      ...without.sublist(0, sources),
+      ...extra,
+      ...without.sublist(sources),
+    ]);
+  });
 
   test('Swift runner links the real compiler-rt static library when the '
       'Darwin SDK bundle has one', () async {

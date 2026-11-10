@@ -517,6 +517,15 @@ final class DoctorServiceDirectory implements Directory {
   @override
   bool existsSync() => backing.existsSync();
   @override
+  String resolveSymbolicLinksSync() {
+    // Logical paths carry no links; a missing directory fails as on disk.
+    if (!backing.existsSync()) {
+      throw FileSystemException('Cannot resolve symbolic links', path);
+    }
+    return path;
+  }
+
+  @override
   Directory get parent => files.directory(files.paths.dirname(path));
   @override
   void createSync({bool recursive = false}) =>

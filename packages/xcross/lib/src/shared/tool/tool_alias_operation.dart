@@ -5,7 +5,7 @@ import 'dart:typed_data';
 import 'package:cli_kit/shared/errors/errors.dart';
 import 'package:cli_kit/shared/process/process.dart';
 import 'package:meta/meta.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/manifest_compiler.dart';
+import 'package:xcross/src/shared/swiftpm/manifest_compiler.dart';
 import 'package:xcross/src/shared/tool/mach_o_slices.dart';
 
 @internal

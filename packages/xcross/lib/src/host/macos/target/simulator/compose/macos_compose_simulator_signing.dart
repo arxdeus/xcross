@@ -19,8 +19,15 @@ final class MacOSComposeSimulatorSigning<T extends MacOSHostInterface>
       p.join(appPath, 'Frameworks'),
     );
     if (frameworks.existsSync()) {
-      for (final framework in frameworks.listSync().whereType<Directory>()) {
-        await _sign(framework.path);
+      // Every framework and every loose dylib (the Swift back-deployment
+      // libraries Xcode embeds as `Frameworks/libswift*.dylib`).
+      final entries = frameworks.listSync()
+        ..sort((a, b) => a.path.compareTo(b.path));
+      for (final entry in entries) {
+        if (entry is Directory ||
+            (entry is File && entry.path.endsWith('.dylib'))) {
+          await _sign(entry.path);
+        }
       }
     }
     await _sign(appPath);

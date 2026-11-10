@@ -8,7 +8,7 @@ import 'package:xcross/src/composition/cli/runner.dart';
 import 'package:xcross/src/shared/cli/basic/sdk_command.dart';
 import 'package:xcross/src/shared/cli/compose/compose_clean_command.dart';
 import 'package:xcross/src/shared/cli/flutter/subcommands/flutter_clean_command.dart';
-import 'package:xcross/src/shared/flutter/build/internal/swiftpm_workspace.dart';
+import 'package:xcross/src/shared/swiftpm/swiftpm_workspace.dart';
 import 'package:xcross/src/target/iphone/flutter/iphone_flutter_target.dart';
 import 'package:xcross/src/target/shared/flutter/flutter_target_build_policy.dart';
 import 'package:xcross/src/target/simulator/flutter/simulator_flutter_target.dart';

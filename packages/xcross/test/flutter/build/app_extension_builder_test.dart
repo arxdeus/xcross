@@ -9,9 +9,9 @@ import 'package:xcross/src/shared/artifact/embedded_extension.dart';
 import 'package:xcross/src/shared/flutter/build/app_extension_builder.dart';
 import 'package:xcross/src/shared/flutter/build/ios_app_extensions.dart';
 import 'package:xcross/src/shared/flutter/build/ios_bundle_versions.dart';
-import 'package:xcross/src/shared/flutter/build/ios_deployment_target.dart';
 import 'package:xcross/src/shared/flutter/extensions/app_extension_plist.dart';
 import 'package:xcross/src/shared/flutter/extensions/app_extension_resources.dart';
+import 'package:xcross/src/shared/swiftpm/ios_deployment_target.dart';
 
 import '../flutter_test_runtime.dart';
 

@@ -16,6 +16,26 @@ const sdkIncludedRoots = <String>[
   'Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift_static',
   'Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/clang',
   'Developer/Toolchains/XcodeDefault.xctoolchain/usr/include',
+  ...sdkSwiftBackDeployRoots,
+];
+
+/// The Swift runtime back-deployment libraries Xcode's "Copy Swift Standard
+/// Libraries" step embeds in `.app/Frameworks` when an app built for an
+/// older iOS links one through `@rpath` (see `SwiftBackDeployLibraries`).
+///
+/// `swift-6.2` holds `libswiftCompatibilitySpan.dylib` (Span on iOS < 26,
+/// about 200 KB) and `swift-5.5` holds `libswift_Concurrency.dylib` (Swift
+/// concurrency on iOS < 15, about 3 MB for both platforms), which a Flutter
+/// app targeting iOS 13 or 14 needs. `swift-5.0` (about 23 MB) is left out:
+/// it only serves iOS < 12.2, below every deployment target xcross builds
+/// for. Only the iOS device and simulator platforms are kept. An Xcode
+/// without one of them simply contributes nothing.
+@internal
+const sdkSwiftBackDeployRoots = <String>[
+  '$sdkToolchainRelativePath/usr/lib/swift-5.5/iphoneos',
+  '$sdkToolchainRelativePath/usr/lib/swift-5.5/iphonesimulator',
+  '$sdkToolchainRelativePath/usr/lib/swift-6.2/iphoneos',
+  '$sdkToolchainRelativePath/usr/lib/swift-6.2/iphonesimulator',
 ];
 
 /// Swift's platform registry needs the descriptors of the imported platform

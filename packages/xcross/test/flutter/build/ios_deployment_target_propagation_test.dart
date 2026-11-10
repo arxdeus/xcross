@@ -3,8 +3,8 @@ import 'package:darwin_sdk_kit/target/simulator/simulator_build_platform.dart';
 import 'package:test/test.dart';
 import 'package:xcross/src/shared/flutter/build/flutter_debug_bundler.dart';
 import 'package:xcross/src/shared/flutter/build/internal/toolchain.dart';
-import 'package:xcross/src/shared/flutter/build/ios_deployment_target.dart';
 import 'package:xcross/src/shared/flutter/build/runner_shim.dart';
+import 'package:xcross/src/shared/swiftpm/ios_deployment_target.dart';
 
 void main() {
   test('propagates ARM64 simulator platform through App and Runner', () {

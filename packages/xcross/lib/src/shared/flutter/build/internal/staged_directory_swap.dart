@@ -4,7 +4,7 @@ import 'dart:math';
 import 'package:cli_kit/shared/platform/platform_host.dart';
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
-import 'package:xcross/src/shared/flutter/build/internal/recursive_directory_copy.dart';
+import 'package:xcross/src/shared/swiftpm/recursive_directory_copy.dart';
 
 /// Renames [source] to [destination]. Injectable so tests can simulate a
 /// locked file (Windows antivirus or indexer).

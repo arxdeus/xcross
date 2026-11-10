@@ -1,6 +1,6 @@
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
-import 'package:xcross/src/shared/flutter/swiftpm/open_apple_macros.dart';
+import 'package:xcross/src/shared/swiftpm/open_apple_macros.dart';
 
 /// Linux and macOS toolchains keep host macro plugins under the resource
 /// directory: `<prefix>/usr/lib/swift/host/plugins`.

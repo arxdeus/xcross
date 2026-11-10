@@ -13,6 +13,7 @@ import 'package:meta/meta.dart';
 import 'package:xcross/src/host/shared/flutter/engine_archive_writer.dart';
 import 'package:xcross/src/host/shared/flutter/ios_gen_snapshot_host.dart';
 import 'package:xcross/src/shared/config/config.dart';
+import 'package:xcross/src/shared/errors/build_error.dart';
 import 'package:xcross/src/shared/flutter/errors.dart';
 import 'package:xcross/src/shared/flutter/gen_snapshot/flutter_sdk_release.dart';
 import 'package:xcross/src/shared/flutter/gen_snapshot/ios_gen_snapshot_manifest.dart';
@@ -157,7 +158,7 @@ final class IosGenSnapshotResolver<T extends PlatformHostInterface> {
         );
       }
       release = FlutterSdkReleaseReader(host).read(flutterRoot);
-    } on FlutterBuildError catch (error) {
+    } on XcrossBuildError catch (error) {
       return IosGenSnapshotAvailability(detail: error.message);
     }
     final platform = hostPolicy.prebuiltPlatform;
@@ -515,7 +516,7 @@ final class IosGenSnapshotResolver<T extends PlatformHostInterface> {
           '${error.message}',
         );
       } on Exception catch (error) {
-        if (error is FlutterBuildError) rethrow;
+        if (error is XcrossBuildError) rethrow;
         if (attempt >= manifestAttempts) {
           throw FlutterBuildError(
             'Could not look up the iOS gen_snapshot release at $url: $error',

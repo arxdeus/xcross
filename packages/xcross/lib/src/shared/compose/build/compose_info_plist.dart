@@ -9,6 +9,31 @@ import 'package:xcross/src/shared/compose/project/ios_app_config.dart';
 import 'package:xcross/src/shared/compose/project/kmp_project.dart';
 import 'package:xcross/src/shared/errors/errors.dart';
 
+/// [xml] (the `Info.plist` of an embedded framework or resource bundle)
+/// with the platform keys the Compose app's own plist carries
+/// (`CFBundleSupportedPlatforms`, `DTPlatformName`, `DTSDKName`,
+/// `DTPlatformVersion`), so every bundle in the app names the same platform.
+@internal
+String composePlatformPlist(String xml, IosBuildPlatformInterface target) {
+  final parsed = PropertyListSerialization.propertyListWithString(xml);
+  if (parsed is! Map) {
+    throw const FormatException('Info.plist has no root dict');
+  }
+  return PropertyListSerialization.stringWithPropertyList({
+    ...parsed.cast<String, Object?>(),
+    ...composePlatformKeys(target),
+  });
+}
+
+/// The platform keys of a Compose bundle's `Info.plist` for [target].
+@internal
+Map<String, Object?> composePlatformKeys(IosBuildPlatformInterface target) => {
+  'CFBundleSupportedPlatforms': [target.platformName],
+  'DTPlatformName': target.sdkName,
+  'DTSDKName': '${target.sdkName}$composePlistSdkVersion',
+  'DTPlatformVersion': composePlistSdkVersion,
+};
+
 @internal
 final class ComposeInfoPlist {
   const ComposeInfoPlist(this.files, this.log);
@@ -18,6 +43,7 @@ final class ComposeInfoPlist {
     required KmpProject project,
     required IosBuildPlatformInterface target,
     Map<String, Object?> extras = const {},
+    String minimumOsVersion = composeMinimumIosVersion,
   }) {
     final merged = <String, Object?>{..._composeDefaults};
     final partial = _readPartial(project.root);
@@ -27,7 +53,7 @@ final class ComposeInfoPlist {
       );
     }
     merged.addAll(_safeMap(extras, 'extras'));
-    merged.addAll(_required(project, target));
+    merged.addAll(_required(project, target, minimumOsVersion));
     return PropertyListSerialization.stringWithPropertyList(merged);
   }
 
@@ -49,6 +75,7 @@ final class ComposeInfoPlist {
   Map<String, Object?> _required(
     KmpProject project,
     IosBuildPlatformInterface target,
+    String minimumOsVersion,
   ) {
     final config = project.iosConfig;
     final appName = project.appName;
@@ -62,14 +89,11 @@ final class ComposeInfoPlist {
       'CFBundleVersion': config?.currentProjectVersion ?? '1',
       'CFBundlePackageType': 'APPL',
       'LSRequiresIPhoneOS': true,
-      'MinimumOSVersion': '15.0',
-      'CFBundleSupportedPlatforms': [target.platformName],
+      'MinimumOSVersion': minimumOsVersion,
       'UIRequiredDeviceCapabilities': ['arm64'],
       'UIDeviceFamily': deviceFamilyOf(config?.buildSettings),
       'UILaunchScreen': <String, Object?>{},
-      'DTPlatformName': target.sdkName,
-      'DTSDKName': '${target.sdkName}$composePlistSdkVersion',
-      'DTPlatformVersion': composePlistSdkVersion,
+      ...composePlatformKeys(target),
     };
   }
 

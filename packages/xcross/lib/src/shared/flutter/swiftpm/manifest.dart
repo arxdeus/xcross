@@ -1,10 +1,10 @@
 import 'package:cli_kit/shared/platform/platform_host.dart';
 import 'package:meta/meta.dart';
-import 'package:xcross/src/shared/flutter/build/ios_deployment_target.dart';
 import 'package:xcross/src/shared/flutter/build/ios_plugins.dart';
 import 'package:xcross/src/shared/flutter/constants.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/filesystem.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/module_warmup.dart';
+import 'package:xcross/src/shared/swiftpm/filesystem.dart';
+import 'package:xcross/src/shared/swiftpm/ios_deployment_target.dart';
+import 'package:xcross/src/shared/swiftpm/module_warmup.dart';
 import 'package:xcross/src/target/shared/flutter/flutter_target_build_policy.dart';
 
 @internal

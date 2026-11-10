@@ -1,6 +1,6 @@
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
-import 'package:xcross/src/shared/flutter/swiftpm/open_apple_macros.dart';
+import 'package:xcross/src/shared/swiftpm/open_apple_macros.dart';
 
 /// Windows toolchains ship host macro plugins as DLLs beside the compiler,
 /// in `<toolchain>\usr\bin`.

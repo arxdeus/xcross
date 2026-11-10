@@ -5,7 +5,7 @@ import 'dart:io';
 
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
-import 'package:xcross/src/shared/flutter/errors.dart';
+import 'package:xcross/src/shared/errors/build_error.dart';
 
 import '../flutter_test_runtime.dart';
 
@@ -101,7 +101,7 @@ void main() {
     expect(
       () => testIPhoneRuntime().bundleIds.resolve(tmp.path),
       throwsA(
-        isA<FlutterBuildError>().having(
+        isA<XcrossBuildError>().having(
           (e) => e.message,
           'message',
           contains('Could not resolve iOS bundle identifier'),

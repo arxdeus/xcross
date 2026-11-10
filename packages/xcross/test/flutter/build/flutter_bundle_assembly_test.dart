@@ -10,12 +10,12 @@ import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 import 'package:xcross/src/shared/flutter/build/internal/runner_binary.dart';
 import 'package:xcross/src/shared/flutter/build/ios_native_assets.dart';
-import 'package:xcross/src/shared/flutter/build/ios_plugin_package.dart';
 import 'package:xcross/src/shared/flutter/flutter_build_runtime.dart';
 import 'package:xcross/src/shared/flutter/flutter_build_steps.dart';
 import 'package:xcross/src/shared/flutter/flutter_bundle_assembler.dart';
 import 'package:xcross/src/shared/flutter/models/flutter/flutter_build_options.dart';
-import 'package:xcross/src/shared/flutter/swiftpm/dynamic_product.dart';
+import 'package:xcross/src/shared/swiftpm/dynamic_product.dart';
+import 'package:xcross/src/shared/swiftpm/package_types.dart';
 import 'package:xcross/src/target/iphone/flutter/iphone_flutter_target.dart';
 import 'package:xcross/src/target/simulator/flutter/simulator_flutter_target.dart';
 
@@ -84,7 +84,7 @@ void main() {
                 manifestPath: '/unused',
                 frameworks: [native.path],
               ),
-              plugins: GeneratedPluginsBuildResult(
+              plugins: SwiftPmBuildResult(
                 libraryPath: library.path,
                 dylibPaths: [library.path],
                 frameworkPaths: [pluginFramework.path],

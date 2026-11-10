@@ -4,7 +4,7 @@ import 'package:cli_kit/host/linux/linux_host.dart';
 import 'package:cli_kit/shared/http/local_http.dart';
 import 'package:test/test.dart';
 
-import 'package:xcross/src/shared/flutter/errors.dart';
+import 'package:xcross/src/shared/errors/build_error.dart';
 import 'package:xcross/src/shared/flutter/hot_reload/dart_vm_service_client.dart';
 import 'package:xcross/src/shared/flutter/vm_service_connector.dart';
 import 'flutter_test_log.dart';
@@ -195,7 +195,7 @@ void main() {
         timeout: const Duration(milliseconds: 150),
       ),
       throwsA(
-        isA<FlutterBuildError>().having(
+        isA<XcrossBuildError>().having(
           (e) => e.message,
           'message',
           contains('timed out'),
