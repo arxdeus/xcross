@@ -572,7 +572,10 @@ void main() {
       read().packageResolvedPath,
       p.join(
         iosApp,
-        'iosApp.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/'
+        'iosApp.xcodeproj',
+        'project.xcworkspace',
+        'xcshareddata',
+        'swiftpm',
         'Package.resolved',
       ),
     );
@@ -605,7 +608,10 @@ void main() {
       read().packageResolvedPath,
       p.join(
         iosApp,
-        'iosApp.xcworkspace/xcshareddata/swiftpm/Package.resolved',
+        'iosApp.xcworkspace',
+        'xcshareddata',
+        'swiftpm',
+        'Package.resolved',
       ),
     );
   });
@@ -730,6 +736,8 @@ void main() {
     file('iosApp/RootPkg/Package.swift', '.library(name: "RootPkg")');
     file('Elsewhere/AbsPkg/Package.swift', '.library(name: "AbsPkg")');
     final abs = p.join(root.path, 'Elsewhere', 'AbsPkg');
+    // A pbxproj string literal escapes backslashes (Windows temp paths).
+    final absLiteral = abs.replaceAll(r'\', r'\\');
     file('iosApp/iosApp.xcodeproj/project.pbxproj', '''
 { objects = {
   P = { isa = PBXProject; mainGroup = G0; targets = (T); };
@@ -738,7 +746,7 @@ void main() {
   G2 = { isa = PBXGroup; children = (F1); path = Packages/Nested; sourceTree = "<group>"; };
   F1 = { isa = PBXFileReference; lastKnownFileType = wrapper; path = Inner; sourceTree = "<group>"; };
   F2 = { isa = PBXFileReference; lastKnownFileType = folder; path = RootPkg; sourceTree = SOURCE_ROOT; };
-  F3 = { isa = PBXFileReference; lastKnownFileType = wrapper; path = "$abs"; sourceTree = "<absolute>"; };
+  F3 = { isa = PBXFileReference; lastKnownFileType = wrapper; path = "$absLiteral"; sourceTree = "<absolute>"; };
   T = { isa = PBXNativeTarget; productType = "com.apple.product-type.application"; packageProductDependencies = (D1, D2, D3); };
   D1 = { isa = XCSwiftPackageProductDependency; productName = Inner; };
   D2 = { isa = XCSwiftPackageProductDependency; productName = RootPkg; };
