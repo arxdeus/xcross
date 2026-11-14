@@ -85,7 +85,13 @@ final class NativeAssetFrameworks<T extends PlatformHostInterface> {
     for (final asset in assets.values) {
       if (asset is! List || asset.length < 2 || asset[1] is! String) continue;
       if (asset[0] != 'absolute' && asset[0] != 'relative') continue;
-      final path = (asset[1] as String).replaceAll(r'\', '/');
+      // Flutter 3.50+ writes dyld install names such as
+      // `@rpath/objective_c.framework/objective_c` instead of paths relative
+      // to the native_assets directory. Strip the loader prefix so they
+      // resolve like the legacy relative entries.
+      final path = _stripDyldPrefix(
+        (asset[1] as String).replaceAll(r'\', '/'),
+      );
       final component = path
           .split('/')
           .lastIndexWhere((part) => part.endsWith('.framework'));
@@ -118,6 +124,13 @@ final class NativeAssetFrameworks<T extends PlatformHostInterface> {
     }
     return frameworks.values.toList();
   }
+
+  static final _dyldPrefix = RegExp(
+    '^@(?:rpath|executable_path|loader_path)/(?:Frameworks/)?',
+  );
+
+  static String _stripDyldPrefix(String path) =>
+      path.replaceFirst(_dyldPrefix, '');
 
   /// Makes disposable copies before thinning and repairing Flutter-owned outputs.
   ///

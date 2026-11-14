@@ -416,6 +416,25 @@ void main() {
         projectRoot: project,
       );
       expect(selected, [asset, table]);
+      // Flutter 3.50+ writes dyld install names into the manifest.
+      expect(
+        service.collect(
+          jsonEncode({
+            'native-assets': {
+              'ios_arm64': {
+                'asset': ['absolute', '@rpath/Asset.framework/Asset'],
+                'table': [
+                  'absolute',
+                  '@executable_path/Frameworks/Table.framework/Table',
+                ],
+              },
+            },
+          }),
+          output,
+          projectRoot: project,
+        ),
+        [asset, table],
+      );
       final staged = await service.stage(selected, output);
       expect(staged, [
         paths.join(output, 'xcross_staged_frameworks', 'Asset.framework'),
