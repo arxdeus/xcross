@@ -490,6 +490,25 @@ void main() {
       // executables against the parent PATH, which would hit /usr/bin/xcrun.
       final xcrunShim = p.join(tmp.path, 'xcrun');
       final ccShim = p.join(tmp.path, 'cc');
+      // Still prove PATH lookup reaches the shims (flutter_tools runs bare
+      // `xcrun`/`cc`): a shell resolves names against the supplied PATH.
+      for (final tool in ['xcrun', 'cc']) {
+        final lookup = await Process.run(
+          '/bin/sh',
+          ['-c', 'command -v $tool'],
+          environment: {'PATH': tmp.path},
+          includeParentEnvironment: false,
+        );
+        expect(lookup.exitCode, 0, reason: lookup.stderr.toString());
+        expect(lookup.stdout.toString().trim(), p.join(tmp.path, tool));
+      }
+      final viaPath = await Process.run(
+        '/bin/sh',
+        ['-c', 'xcrun --show-sdk-path'],
+        environment: {'PATH': tmp.path},
+        includeParentEnvironment: false,
+      );
+      expect(viaPath.stdout.toString().trim(), '--show-sdk-path');
       final xcrun = await Process.run(
         xcrunShim,
         const ['--show-sdk-path'],

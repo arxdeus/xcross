@@ -89,9 +89,7 @@ final class NativeAssetFrameworks<T extends PlatformHostInterface> {
       // `@rpath/objective_c.framework/objective_c` instead of paths relative
       // to the native_assets directory. Strip the loader prefix so they
       // resolve like the legacy relative entries.
-      final path = _stripDyldPrefix(
-        (asset[1] as String).replaceAll(r'\', '/'),
-      );
+      final path = _stripDyldPrefix((asset[1] as String).replaceAll(r'\', '/'));
       final component = path
           .split('/')
           .lastIndexWhere((part) => part.endsWith('.framework'));
