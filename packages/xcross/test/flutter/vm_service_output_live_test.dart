@@ -47,11 +47,40 @@ void main() {
     addTearDown(() => child.kill(ProcessSignal.sigkill));
 
     // "The Dart VM service is listening on http://127.0.0.1:<port>/"
-    final banner = await child.stdout
-        .transform(const SystemEncoding().decoder)
-        .transform(const LineSplitter())
-        .firstWhere((l) => l.contains('listening on'))
-        .timeout(const Duration(seconds: 30));
+    // Depending on SDK version and platform the banner can land on stdout or
+    // stderr, so watch both and keep the output for a useful failure message.
+    final output = StringBuffer();
+    final bannerFound = Completer<String>();
+    void watch(Stream<List<int>> stream) {
+      stream
+          .transform(const SystemEncoding().decoder)
+          .transform(const LineSplitter())
+          .listen((line) {
+            output.writeln(line);
+            if (line.contains('listening on') && !bannerFound.isCompleted) {
+              bannerFound.complete(line);
+            }
+          });
+    }
+
+    watch(child.stdout);
+    watch(child.stderr);
+    unawaited(
+      child.exitCode.then((code) {
+        if (!bannerFound.isCompleted) {
+          bannerFound.completeError(
+            StateError(
+              'VM exited with $code before the service banner:\n'
+              '$output',
+            ),
+          );
+        }
+      }),
+    );
+    final banner = await bannerFound.future.timeout(
+      const Duration(seconds: 30),
+      onTimeout: () => fail('no VM service banner; output:\n$output'),
+    );
     final httpUri = Uri.parse(
       RegExp(r'(http://\S+)').firstMatch(banner)!.group(1)!,
     );
