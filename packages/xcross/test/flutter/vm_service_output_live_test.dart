@@ -47,11 +47,51 @@ void main() {
     addTearDown(() => child.kill(ProcessSignal.sigkill));
 
     // "The Dart VM service is listening on http://127.0.0.1:<port>/"
-    final banner = await child.stdout
+    // Depending on SDK version and platform the banner can land on stdout or
+    // stderr, so watch both and keep the output for a useful failure message.
+    final output = StringBuffer();
+    final bannerFound = Completer<String>();
+    Future<void> watch(Stream<List<int>> stream) => stream
         .transform(const SystemEncoding().decoder)
         .transform(const LineSplitter())
-        .firstWhere((l) => l.contains('listening on'))
-        .timeout(const Duration(seconds: 30));
+        .listen((line) {
+          output.writeln(line);
+          if (line.contains('listening on') && !bannerFound.isCompleted) {
+            bannerFound.complete(line);
+          }
+        })
+        .asFuture<void>();
+
+    final drained = Future.wait([watch(child.stdout), watch(child.stderr)]);
+    unawaited(
+      // Exit can be observed before the pipes are drained; classify the
+      // failure only once all of the child's output has been collected.
+      Future.wait([child.exitCode, drained]).then((results) {
+        final code = results.first;
+        if (bannerFound.isCompleted) return;
+        if (output.toString().contains(_missingServiceSnapshot)) {
+          // SDK packaging defect (seen on Dart 3.14.0 windows-arm64): the new
+          // dart_runtime_service_vm snapshot is absent, so no VM in this SDK
+          // can host a service at all. Not something this code can affect.
+          bannerFound.complete(_missingServiceSnapshot);
+        } else {
+          bannerFound.completeError(
+            StateError(
+              'VM exited with $code before the service banner:\n'
+              '$output',
+            ),
+          );
+        }
+      }),
+    );
+    final banner = await bannerFound.future.timeout(
+      const Duration(seconds: 30),
+      onTimeout: () => fail('no VM service banner; output:\n$output'),
+    );
+    if (banner == _missingServiceSnapshot) {
+      markTestSkipped('SDK ships without a VM service snapshot:\n$output');
+      return;
+    }
     final httpUri = Uri.parse(
       RegExp(r'(http://\S+)').firstMatch(banner)!.group(1)!,
     );
@@ -86,6 +126,8 @@ void main() {
     );
   }, timeout: const Timeout(Duration(seconds: 60)));
 }
+
+const _missingServiceSnapshot = 'Unable to find VM service snapshot';
 
 /// Environment for the child VM with loopback exempted from any proxy.
 ///
