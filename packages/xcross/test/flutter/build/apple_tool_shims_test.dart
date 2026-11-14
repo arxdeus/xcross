@@ -486,8 +486,31 @@ void main() {
       );
       expect(File(p.join(tmp.path, 'xcrun')).existsSync(), isTrue);
       expect(File(p.join(tmp.path, 'plutil')).existsSync(), isTrue);
+      // Invoke shims by absolute path: on macOS, Process.run resolves bare
+      // executables against the parent PATH, which would hit /usr/bin/xcrun.
+      final xcrunShim = p.join(tmp.path, 'xcrun');
+      final ccShim = p.join(tmp.path, 'cc');
+      // Still prove PATH lookup reaches the shims (flutter_tools runs bare
+      // `xcrun`/`cc`): a shell resolves names against the supplied PATH.
+      for (final tool in ['xcrun', 'cc']) {
+        final lookup = await Process.run(
+          '/bin/sh',
+          ['-c', 'command -v $tool'],
+          environment: {'PATH': tmp.path},
+          includeParentEnvironment: false,
+        );
+        expect(lookup.exitCode, 0, reason: lookup.stderr.toString());
+        expect(lookup.stdout.toString().trim(), p.join(tmp.path, tool));
+      }
+      final viaPath = await Process.run(
+        '/bin/sh',
+        ['-c', 'xcrun --show-sdk-path'],
+        environment: {'PATH': tmp.path},
+        includeParentEnvironment: false,
+      );
+      expect(viaPath.stdout.toString().trim(), '--show-sdk-path');
       final xcrun = await Process.run(
-        'xcrun',
+        xcrunShim,
         const ['--show-sdk-path'],
         environment: {'PATH': tmp.path},
         includeParentEnvironment: false,
@@ -496,7 +519,7 @@ void main() {
       expect(xcrun.stdout.toString().trim(), '--show-sdk-path');
 
       final version = await Process.run(
-        'xcrun',
+        xcrunShim,
         const ['--version'],
         environment: {'PATH': tmp.path},
         includeParentEnvironment: false,
@@ -509,7 +532,7 @@ void main() {
           ['--sdk=$sdk'],
         ]) {
           final probe = await Process.run(
-            'xcrun',
+            xcrunShim,
             [...selection, '--show-sdk-path'],
             environment: {'PATH': tmp.path},
             includeParentEnvironment: false,
@@ -521,7 +544,7 @@ void main() {
         }
       }
       final targeted = await Process.run(
-        'xcrun',
+        xcrunShim,
         const ['--sdk', 'iphoneos', '--show-sdk-path'],
         environment: {'PATH': tmp.path},
         includeParentEnvironment: false,
@@ -542,7 +565,7 @@ void main() {
       );
 
       final hostCc = await Process.run(
-        'cc',
+        ccShim,
         const ['-m64', '-Wl,--as-needed', 'host.c'],
         environment: {'PATH': tmp.path},
         includeParentEnvironment: false,
@@ -551,7 +574,7 @@ void main() {
       expect(hostCc.stdout.toString().trim(), '-m64 -Wl,--as-needed host.c');
 
       final plainCc = await Process.run(
-        'cc',
+        ccShim,
         [
           '-target',
           'arm64-apple-ios15.6',
