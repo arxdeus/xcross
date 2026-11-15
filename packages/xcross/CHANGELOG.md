@@ -1,3 +1,7 @@
+## 2.1.1
+
+- Flutter 3.50 builds with native assets compile again. Flutter 3.50 records code asset paths as `@rpath/...` install names, which xcross could not resolve to the built frameworks. ([#160](https://github.com/arxdeus/xcross/issues/160), [#161](https://github.com/arxdeus/xcross/pull/161))
+
 ## 2.1.0
 
 - `xcross compose build` builds the Swift packages a SwiftUI host's app target declares in `iosApp/*.xcodeproj` and links and embeds them. Remote and local packages, C targets, resource bundles and binary targets go through the SwiftPM engine Flutter plugins build with, honoring Xcode's `Package.resolved`, into one `XcrossHostPackages.framework`. Resource bundles land in the app root and binary frameworks in `Frameworks/`. Packages used only by test or extension targets are skipped, and the app follows the app target's `IPHONEOS_DEPLOYMENT_TARGET` when it is above 15.0. Swift imports are checked twice before the Kotlin compile: against the SDK and the declared packages before anything is downloaded (only when every package's modules are known then, so a module a remote package brings in transitively, such as `FirebaseCore` from product `FirebaseAnalytics`, is never rejected early), and against the modules the packages actually built. `xcross compose doctor` counts imports resolved by packages, and `xcross compose run --watch` rebuilds when `project.pbxproj` or `Package.resolved` changes. Projects without packages build as before. CocoaPods are still not supported.
