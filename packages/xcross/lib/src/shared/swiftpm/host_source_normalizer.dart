@@ -38,7 +38,7 @@ final class SwiftPmHostSourceNormalizer {
       // `settings.append(.unsafeFlags([...]))` (apple/swift-log): dropping only
       // the argument leaves an invalid `settings.append()`, so drop the call.
       final appendOpen = RegExp(
-        r'\b[A-Za-z_][\w.]*\s*\.\s*append\s*\(\s*$',
+        r'\b[A-Za-z_][\w.?!]*?[?!]?\s*\.\s*append\s*\(\s*$',
       ).firstMatch(result.substring(0, start));
       final appendClose = RegExp(r'^\s*\)').firstMatch(result.substring(end));
       if (appendOpen != null && appendClose != null) {

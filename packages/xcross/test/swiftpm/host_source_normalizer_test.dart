@@ -20,6 +20,16 @@ target.swiftSettings = settings
       expect(result, contains('target.swiftSettings = settings'));
     });
 
+    test('drops optional-chained append of unsafeFlags', () {
+      const manifest =
+          'package.targets.first?.swiftSettings?.append(.unsafeFlags(["-x"]))\n'
+          'let done = true\n';
+      expect(
+        SwiftPmHostSourceNormalizer.removeUnsafeFlags(manifest).trim(),
+        'let done = true',
+      );
+    });
+
     test('still removes unsafeFlags list elements', () {
       const manifest =
           'swiftSettings: [.define("A"), .unsafeFlags(["-x"]), .define("B")]';
