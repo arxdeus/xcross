@@ -109,6 +109,108 @@ void main() {
   );
 
   test(
+    testOn: '!windows',
+    'selected flavor xcconfig reaches the final plist substitutions',
+    () async {
+      final project = await Directory.systemTemp.createTemp(
+        'xcross-flavor-xcconfig-',
+      );
+      addTearDown(() => project.delete(recursive: true));
+
+      File(
+        p.join(project.path, 'pubspec.yaml'),
+      ).writeAsStringSync('name: example\n');
+
+      final flutter = Directory(p.join(project.path, 'ios', 'Flutter'))
+        ..createSync(recursive: true);
+
+      File(
+        p.join(flutter.path, 'Generated.xcconfig'),
+      ).writeAsStringSync('GENERATED_VALUE = generated\n');
+
+      File(p.join(flutter.path, 'prodDebug.xcconfig')).writeAsStringSync(
+        '#include "Generated.xcconfig"\n'
+        'DISPLAY_NAME[config=Debug-prod] = Production\n'
+        'ASSET_PREFIX = prod\n'
+        'APP_ICON = AppIcon-\$(ASSET_PREFIX)\n',
+      );
+
+      final xcodeproj = Directory(
+        p.join(project.path, 'ios', 'Runner.xcodeproj'),
+      )..createSync(recursive: true);
+
+      File(p.join(xcodeproj.path, 'project.pbxproj')).writeAsStringSync(r'''
+{
+	archiveVersion = 1;
+	objects = {
+		PROJECT = {
+			isa = PBXProject;
+			buildConfigurationList = PROJECT_CONFIGS;
+			targets = (
+				APP,
+			);
+		};
+		PROJECT_CONFIGS = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				PROJECT_DEBUG_PROD,
+			);
+		};
+		PROJECT_DEBUG_PROD = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+			};
+			name = "Debug-prod";
+		};
+		APP = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = APP_CONFIGS;
+			name = Runner;
+			productType = "com.apple.product-type.application";
+		};
+		APP_CONFIGS = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				APP_DEBUG_PROD,
+			);
+		};
+		APP_DEBUG_PROD = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = PROD_CONFIG;
+			buildSettings = {
+				PRODUCT_BUNDLE_IDENTIFIER = com.example.prod;
+			};
+			name = "Debug-prod";
+		};
+		PROD_CONFIG = {
+			isa = PBXFileReference;
+			path = Flutter/prodDebug.xcconfig;
+			sourceTree = SOURCE_ROOT;
+		};
+	};
+	rootObject = PROJECT;
+}
+''');
+
+      final packer = FlutterPacker(
+        runtime: testIPhoneRuntime(),
+        projectRoot: project.path,
+        bundleId: 'com.example.prod',
+        options: const FlutterBuildOptions(flavor: 'prod'),
+      );
+
+      final substitutions = await FlutterBundleAssembler(
+        FlutterBuildContext(request: packer.request, flutterRoot: '/flutter'),
+      ).buildSubstitutionMap(sdkName: 'iphoneos26.5');
+
+      expect(substitutions['GENERATED_VALUE'], 'generated');
+      expect(substitutions['DISPLAY_NAME'], 'Production');
+      expect(substitutions['ASSET_PREFIX'], 'prod');
+      expect(substitutions['APP_ICON'], 'AppIcon-prod');
+    },
+  );
+
+  test(
     'explicit and configured roots precede environment without global mutation',
     () async {
       final configured = testIPhoneRuntime(

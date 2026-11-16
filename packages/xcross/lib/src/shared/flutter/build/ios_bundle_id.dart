@@ -38,13 +38,21 @@ final class IosBundleId {
   ///
   /// Throws [FlutterBuildError] when neither a literal plist value nor a
   /// pbxproj `PRODUCT_BUNDLE_IDENTIFIER` can be found.
-  String resolve(String projectRoot) {
+  String resolve(
+    String projectRoot, {
+    String baseConfiguration = 'Debug',
+    String? flavor,
+  }) {
     final fromPlist = _cfBundleIdentifierFromPlist(projectRoot);
     if (fromPlist != null && !fromPlist.contains(r'$')) {
       return fromPlist;
     }
 
-    final fromPbxproj = _productBundleIdFromPbxproj(projectRoot);
+    final fromPbxproj = _productBundleIdFromPbxproj(
+      projectRoot,
+      baseConfiguration: baseConfiguration,
+      flavor: flavor,
+    );
     if (fromPbxproj != null && fromPbxproj.isNotEmpty) {
       return fromPbxproj;
     }
@@ -69,7 +77,11 @@ final class IosBundleId {
     return value;
   }
 
-  String? _productBundleIdFromPbxproj(String projectRoot) {
+  String? _productBundleIdFromPbxproj(
+    String projectRoot, {
+    required String baseConfiguration,
+    required String? flavor,
+  }) {
     final pbxprojPath = _findPbxproj(projectRoot);
     if (pbxprojPath == null) return null;
     final pbxproj = fileSystem.file(pbxprojPath);
@@ -78,7 +90,11 @@ final class IosBundleId {
     // several PRODUCT_BUNDLE_IDENTIFIERs, and the extension's often comes
     // first in the file. Resolve through the application target when the
     // project graph parses, and only then fall back to a first-match scan.
-    final fromAppTarget = _appTargetBundleId(pbxprojPath);
+    final fromAppTarget = _appTargetBundleId(
+      pbxprojPath,
+      baseConfiguration: baseConfiguration,
+      flavor: flavor,
+    );
     if (fromAppTarget != null) return fromAppTarget;
 
     final match = _productBundleIdPattern.firstMatch(
@@ -89,15 +105,25 @@ final class IosBundleId {
 
   /// Bundle id of the `com.apple.product-type.application` target, preferring
   /// a target literally named `Runner`.
-  String? _appTargetBundleId(String pbxprojPath) {
+  String? _appTargetBundleId(
+    String pbxprojPath, {
+    required String baseConfiguration,
+    required String? flavor,
+  }) {
     final project = projects.parseFile(pbxprojPath);
     if (project == null) return null;
+
+    final configuration = project.configurationName(baseConfiguration, flavor);
 
     String? fallback;
     for (final target in project.nativeTargets) {
       if (target.string('productType') != _applicationProductType) continue;
       final bundleId = _clean(
-        project.buildSetting(target, 'PRODUCT_BUNDLE_IDENTIFIER'),
+        project.buildSetting(
+          target,
+          'PRODUCT_BUNDLE_IDENTIFIER',
+          configuration: configuration,
+        ),
       );
       if (bundleId == null) continue;
       if (target.string('name') == 'Runner') return bundleId;

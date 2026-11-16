@@ -12,12 +12,14 @@ void main() {
       PLIST = { isa = XCConfigurationList; buildConfigurations = (PDEBUG, PRELEASE, PRELEASEPROD); };
       PDEBUG = { isa = XCBuildConfiguration; name = Debug; buildSettings = { TARGETED_DEVICE_FAMILY = "1,2"; SWIFT_VERSION = 5.0; OTHER = "-a"; }; };
       PRELEASE = { isa = XCBuildConfiguration; name = Release; buildSettings = { TARGETED_DEVICE_FAMILY = "1,2"; SWIFT_VERSION = 5.0; OTHER = "-r"; }; };
-      PRELEASEPROD = { isa = XCBuildConfiguration; name = "Release-prod"; buildSettings = { TARGETED_DEVICE_FAMILY = 1; }; };
+            PRELEASEPROD = { isa = XCBuildConfiguration; name = "Release-prod"; baseConfigurationReference = PROJECT_PROD_CONFIG; buildSettings = { TARGETED_DEVICE_FAMILY = 1; }; };
       APP = { isa = PBXNativeTarget; name = Runner; productType = "com.apple.product-type.application"; buildConfigurationList = TLIST; };
       TLIST = { isa = XCConfigurationList; buildConfigurations = (TDEBUG, TRELEASE, TRELEASEPROD); };
       TDEBUG = { isa = XCBuildConfiguration; name = Debug; buildSettings = { PRODUCT_BUNDLE_IDENTIFIER = dev.debug; SWIFT_VERSION = 6.0; OTHER = "$(inherited) -t"; }; };
       TRELEASE = { isa = XCBuildConfiguration; name = Release; buildSettings = { PRODUCT_BUNDLE_IDENTIFIER = dev.release; CODE_SIGN_ENTITLEMENTS = Runner/Runner.entitlements; }; };
-      TRELEASEPROD = { isa = XCBuildConfiguration; name = "Release-prod"; buildSettings = { PRODUCT_BUNDLE_IDENTIFIER = dev.prod; }; };
+            TRELEASEPROD = { isa = XCBuildConfiguration; name = "Release-prod"; baseConfigurationReference = TARGET_PROD_CONFIG; buildSettings = { PRODUCT_BUNDLE_IDENTIFIER = dev.prod; }; };
+      PROJECT_PROD_CONFIG = { isa = PBXFileReference; path = Config/ProjectProd.xcconfig; sourceTree = SOURCE_ROOT; };
+      TARGET_PROD_CONFIG = { isa = PBXFileReference; path = Flutter/prodRelease.xcconfig; sourceTree = SOURCE_ROOT; };
     };
     rootObject = ROOT;
   }
@@ -59,5 +61,15 @@ void main() {
     expect(project.configurationName('Release', 'prod'), 'Release-prod');
     expect(project.configurationName('Release', 'missing'), 'Release');
     expect(project.configurationName('Debug', null), 'Debug');
+  });
+
+  test('returns project and target xcconfig paths in Xcode layering order', () {
+    expect(
+      project.baseConfigurationPaths(
+        target,
+        preferredConfiguration: 'Release-prod',
+      ),
+      ['ios/Config/ProjectProd.xcconfig', 'ios/Flutter/prodRelease.xcconfig'],
+    );
   });
 }

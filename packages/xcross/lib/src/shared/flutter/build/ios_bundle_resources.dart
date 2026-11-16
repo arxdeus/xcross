@@ -30,7 +30,8 @@ final class StagedIosResources {
   /// `.storyboardc` beside them.
   final List<String> storyboards;
 
-  /// The target's `ASSETCATALOG_COMPILER_APPICON_NAME`, when set literally.
+  /// The target's `ASSETCATALOG_COMPILER_APPICON_NAME`, before build-setting
+  /// substitution.
   final String? appIconName;
 
   /// `ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES`, space separated.
@@ -160,14 +161,19 @@ final class IosBundleResources {
       target,
       preferredConfiguration: configuration,
     );
-    String? literal(String key) {
+    String? setting(String key) {
       final value = settings[key];
       final text = switch (value) {
         final String s => s.trim(),
         final num n => '$n',
         _ => null,
       };
-      return text == null || text.isEmpty || text.contains(r'$') ? null : text;
+      return text == null || text.isEmpty ? null : text;
+    }
+
+    String? literal(String key) {
+      final text = setting(key);
+      return text == null || text.contains(r'$') ? null : text;
     }
 
     final family = literal(
@@ -176,7 +182,7 @@ final class IosBundleResources {
     return StagedIosResources(
       assetCatalogs: catalogs,
       storyboards: storyboards,
-      appIconName: literal('ASSETCATALOG_COMPILER_APPICON_NAME'),
+      appIconName: setting('ASSETCATALOG_COMPILER_APPICON_NAME'),
       alternateAppIconNames:
           literal(
             'ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES',
