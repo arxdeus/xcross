@@ -63,6 +63,7 @@ void main() {
       adapter.args = DartLaunchRequestArguments.fromJson({
         'program': 'lib/main.dart',
         'cwd': logicalRoot,
+        'env': {'XCROSS': 'true', 'XDG_CONFIG_HOME': '/profiles/zann'},
       });
       var responded = false;
       final watch = Stopwatch()..start();
@@ -83,7 +84,11 @@ void main() {
         '--target',
         'lib/main.dart',
       ]);
-      expect(processes.environment, {'XCROSS_DAP': '1'});
+      expect(processes.environment, {
+        'XCROSS': 'true',
+        'XDG_CONFIG_HOME': '/profiles/zann',
+        'XCROSS_DAP': '1',
+      });
       expect(processes.workingDirectory, logicalRoot);
       expect(
         adapter
