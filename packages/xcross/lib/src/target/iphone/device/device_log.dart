@@ -48,10 +48,26 @@ final class DeviceLog {
   final Process? _process;
   final int _pid;
 
-  /// Whether the app's Dart output is echoed from the device log. Switched
-  /// on mid-session when hot reload (and with it the VM Service stdout
-  /// stream) fails to start, so `print` output is never silently lost.
-  bool echoDartOutput = false;
+  bool _echoDartOutput = false;
+  void Function(String)? _output;
+
+  /// Start echoing the app's Dart output mid-session, for when hot reload
+  /// (and with it the VM Service stdout stream) failed to start.
+  ///
+  /// [replay] first prints the Dart output already received, for a session
+  /// whose VM Service never connected: those lines went nowhere, and setup
+  /// can poll for a minute before giving up.
+  void echoDartOutputFromNowOn({required bool replay}) {
+    if (_echoDartOutput) return;
+    _echoDartOutput = true;
+    final output = _output;
+    if (!replay || output == null) return;
+    for (final message in _recent) {
+      final echoed = echoLine(message, verbose: false, dartOutput: true);
+      if (echoed != null) output(echoed);
+    }
+  }
+
   StreamSubscription<String>? _stdout;
   StreamSubscription<String>? _stderr;
 
@@ -160,7 +176,7 @@ final class DeviceLog {
       ], environment: processEnvironment(pymd.usbmuxEnvironment()));
       final log =
           DeviceLog._(process, pid, pymd.runner.log, pymd.runner.killTree)
-            ..echoDartOutput = echoDartOutput
+            .._echoDartOutput = echoDartOutput
             .._listen(verbose: verbose, output: pymd.console.writeln);
       unawaited(
         process.exitCode.then((code) {
@@ -179,8 +195,13 @@ final class DeviceLog {
     }
   }
 
-  void _listen({required bool verbose, required void Function(String) output}) {
+  void _listen({
+    required bool verbose,
+    required void Function(String) output,
+  }) {
     final process = _process!;
+    // Verbose already prints every line, Dart output included.
+    if (!verbose) _output = output;
     _stdout = process.stdout
         .transform(const Utf8Decoder(allowMalformed: true))
         .transform(const LineSplitter())
@@ -191,7 +212,7 @@ final class DeviceLog {
           final echoed = echoLine(
             message,
             verbose: verbose,
-            dartOutput: echoDartOutput,
+            dartOutput: _echoDartOutput,
           );
           if (echoed != null) output(echoed);
         });
@@ -203,6 +224,10 @@ final class DeviceLog {
 
   @visibleForTesting
   void rememberForTesting(String message) => _remember(message);
+
+  /// Route echoed lines to [output] without a process behind the log.
+  @visibleForTesting
+  void setOutputForTesting(void Function(String) output) => _output = output;
 
   void _remember(String message) {
     _recent.addLast(message);
