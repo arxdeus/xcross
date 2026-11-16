@@ -96,6 +96,18 @@ jobs:
       - name: Smoke-test bundled OpenAppleMacrosServer
         run: bash .github/scripts/smoke_open_apple_macros.sh packages/xcross/build/cli/*/bundle
 
+      - name: Smoke-test bundled xcrun
+        # A launcher missing its lib/libdartaot<name> payload silently becomes
+        # a bare Dart runtime (#165), so assert the real xcrun answers.
+        run: |
+          bundle=$(echo packages/xcross/build/cli/*/bundle)
+          output=$("$bundle/bin/xcrun" --version)
+          echo "$output"
+          case "$output" in
+            "xcrun version "*) ;;
+            *) echo "bundled xcrun is not the xcross xcrun" >&2; exit 1 ;;
+          esac
+
       - name: Compile binary
         run: |
           mkdir -p dist
