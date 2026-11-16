@@ -26,11 +26,12 @@ const _released = bool.fromEnvironment('XCROSS_RELEASED');
 const _bundleMacros = bool.fromEnvironment('XCROSS_BUNDLE_MACROS');
 
 @internal
-typedef BuildCliRun = Future<int> Function(
-  String executable,
-  List<String> arguments, {
-  required String workingDirectory,
-});
+typedef BuildCliRun =
+    Future<int> Function(
+      String executable,
+      List<String> arguments, {
+      required String workingDirectory,
+    });
 
 Future<void> main() async {
   final snapshot = detectPlatformHostSnapshot();
@@ -141,7 +142,10 @@ Future<int> buildXcross({
       await for (final entity in xcrunLib.list()) {
         if (entity is! File) continue;
         final target = p.join(libDestination.path, p.basename(entity.path));
-        if (File(target).existsSync()) continue;
+        // xcrun's own payload must always be refreshed (a reused output dir
+        // could hold a stale one). Shared native assets keep xcross's copy.
+        final ownedByXcrun = p.basename(entity.path).contains('dartaotxcrun');
+        if (!ownedByXcrun && File(target).existsSync()) continue;
         await entity.copy(target);
       }
     }

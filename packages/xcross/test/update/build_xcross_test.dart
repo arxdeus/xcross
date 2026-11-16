@@ -18,10 +18,12 @@ void main() {
 
   void seed({
     String pubspecVersion = '1.2.1',
-    String generatedSource = "part of 'version.dart';\n\nconst String _xcrossBuildVersion = 'unreleased';\nconst bool _xcrossBuildReleased = false;\n",
+    String generatedSource =
+        "part of 'version.dart';\n\nconst String _xcrossBuildVersion = 'unreleased';\nconst bool _xcrossBuildReleased = false;\n",
   }) {
-    File(p.join(sandbox.path, 'pubspec.yaml'))
-        .writeAsStringSync('name: xcross\nversion: $pubspecVersion\n');
+    File(
+      p.join(sandbox.path, 'pubspec.yaml'),
+    ).writeAsStringSync('name: xcross\nversion: $pubspecVersion\n');
     final lib = Directory(
       p.join(sandbox.path, 'lib', 'src', 'shared', 'runtime'),
     )..createSync(recursive: true);
@@ -30,13 +32,15 @@ void main() {
     final builtBin = Directory(
       p.join(sandbox.path, 'build', 'cli', 'linux_x64', 'bundle', 'bin'),
     )..createSync(recursive: true);
-    File(p.join(builtBin.path, Platform.isWindows ? 'xcross.exe' : 'xcross'))
-        .writeAsStringSync('');
+    File(
+      p.join(builtBin.path, Platform.isWindows ? 'xcross.exe' : 'xcross'),
+    ).writeAsStringSync('');
     final xcrunBin = Directory(
       p.join(sandbox.path, 'build', 'xcrun', 'bundle', 'bin'),
     )..createSync(recursive: true);
-    File(p.join(xcrunBin.path, Platform.isWindows ? 'xcrun.exe' : 'xcrun'))
-        .writeAsStringSync('');
+    File(
+      p.join(xcrunBin.path, Platform.isWindows ? 'xcrun.exe' : 'xcrun'),
+    ).writeAsStringSync('');
   }
 
   setUp(() => sandbox = Directory.systemTemp.createTempSync('xcross-build-'));
@@ -116,8 +120,9 @@ void main() {
                 : currentOutput;
             final bin = Directory(p.join(output, 'bundle', 'bin'))
               ..createSync(recursive: true);
-            File(p.join(bin.path, 'xcross'))
-                .writeAsStringSync('current xcross');
+            File(
+              p.join(bin.path, 'xcross'),
+            ).writeAsStringSync('current xcross');
           } else {
             File(
               p.join(sandbox.path, 'build', 'xcrun', 'bundle', 'bin', 'xcrun'),
@@ -166,11 +171,13 @@ void main() {
             ..createSync(recursive: true)
             ..writeAsStringSync('$name payload');
           if (name == 'xcross') {
-            File(p.join(output, 'bundle', 'lib', 'libsysv_abi_bridge.so'))
-                .writeAsStringSync('xcross bridge');
+            File(
+              p.join(output, 'bundle', 'lib', 'libsysv_abi_bridge.so'),
+            ).writeAsStringSync('xcross bridge');
           } else {
-            File(p.join(output, 'bundle', 'lib', 'libsysv_abi_bridge.so'))
-                .writeAsStringSync('xcrun bridge');
+            File(
+              p.join(output, 'bundle', 'lib', 'libsysv_abi_bridge.so'),
+            ).writeAsStringSync('xcrun bridge');
           }
           return 0;
         },
@@ -258,8 +265,9 @@ void main() {
   test(testOn: '!windows', 'sibling copy failure restores identity', () async {
     seed();
     final original = File(generatedPath).readAsBytesSync();
-    File(p.join(sandbox.path, 'build', 'xcrun', 'bundle', 'bin', 'xcrun'))
-        .deleteSync();
+    File(
+      p.join(sandbox.path, 'build', 'xcrun', 'bundle', 'bin', 'xcrun'),
+    ).deleteSync();
     await expectLater(
       buildXcross(
         runner: fixtureRunner(
@@ -380,11 +388,8 @@ void main() {
           packageRoot: sandbox,
           encodedVersion: Uri.encodeComponent('2.0.0+1'),
           released: true,
-          runBuild: (
-            executable,
-            arguments, {
-            required workingDirectory,
-          }) async => 0,
+          runBuild:
+              (executable, arguments, {required workingDirectory}) async => 0,
         ),
         throwsArgumentError,
       );
