@@ -132,6 +132,23 @@ Future<int> buildXcross({
       executable,
     );
     await File(source).copy(destination);
+    // Newer `dart build cli` emits a thin launcher in bin/ that loads its
+    // AOT payload from ../lib/libdartaot<name>.so. Without copying that
+    // library the xcrun launcher falls back to a bare Dart runtime (#165).
+    final xcrunLib = Directory(p.join(xcrunBuild, 'bundle', 'lib'));
+    if (xcrunLib.existsSync()) {
+      final libDestination = Directory(p.join(xcrossBuild, 'bundle', 'lib'));
+      await libDestination.create(recursive: true);
+      await for (final entity in xcrunLib.list()) {
+        if (entity is! File) continue;
+        final target = p.join(libDestination.path, p.basename(entity.path));
+        // xcrun's own payload must always be refreshed (a reused output dir
+        // could hold a stale one). Shared native assets keep xcross's copy.
+        final ownedByXcrun = p.basename(entity.path).contains('dartaotxcrun');
+        if (!ownedByXcrun && File(target).existsSync()) continue;
+        await entity.copy(target);
+      }
+    }
     if (bundleMacros) {
       return await _bundleOpenAppleMacros(
         runner,

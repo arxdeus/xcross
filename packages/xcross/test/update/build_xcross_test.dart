@@ -142,6 +142,66 @@ void main() {
   );
 
   test(
+    'ships the xcrun launcher payload library beside xcross (#165)',
+    () async {
+      seed();
+      final bundle = p.join(
+        sandbox.path,
+        'build',
+        'cli',
+        'linux_x64',
+        'bundle',
+      );
+      File(p.join(bundle, 'lib', 'libdartaotxcrun.so'))
+        ..createSync(recursive: true)
+        ..writeAsStringSync('stale payload');
+      final result = await buildXcross(
+        output: fixtureSink(),
+        errors: fixtureSink(),
+        runner: fixtureRunner(
+          LinuxHost(architecture: 'x64'),
+          log: fixtureLog(),
+        ),
+        dartExecutable: '/fixture/dart',
+        packageRoot: sandbox,
+        encodedVersion: 'unreleased',
+        released: false,
+        runBuild: (_, arguments, {required workingDirectory}) async {
+          final target = arguments[arguments.indexOf('-t') + 1];
+          final name = target == 'bin/xcross.dart' ? 'xcross' : 'xcrun';
+          final output = arguments[arguments.indexOf('-o') + 1];
+          // The fixture host is Linux, so xcross copies an extensionless
+          // xcrun even when the tests run on Windows.
+          if (name == 'xcrun') {
+            File(p.join(output, 'bundle', 'bin', 'xcrun'))
+              ..createSync(recursive: true)
+              ..writeAsStringSync('xcrun');
+          }
+          File(p.join(output, 'bundle', 'lib', 'libdartaot$name.so'))
+            ..createSync(recursive: true)
+            ..writeAsStringSync('$name payload');
+          if (name == 'xcross') {
+            File(
+              p.join(output, 'bundle', 'lib', 'libsysv_abi_bridge.so'),
+            ).writeAsStringSync('xcross bridge');
+          } else {
+            File(
+              p.join(output, 'bundle', 'lib', 'libsysv_abi_bridge.so'),
+            ).writeAsStringSync('xcrun bridge');
+          }
+          return 0;
+        },
+      );
+      expect(result, 0);
+      String read(String name) =>
+          File(p.join(bundle, 'lib', name)).readAsStringSync();
+      expect(read('libdartaotxcrun.so'), 'xcrun payload');
+      expect(read('libdartaotxcross.so'), 'xcross payload');
+      expect(read('libsysv_abi_bridge.so'), 'xcross bridge');
+    },
+  );
+
+  test(
     testOn: '!windows',
     'embeds decoded ref identity only while the build runs',
     () async {

@@ -1,3 +1,7 @@
+## Unreleased
+
+- Linux and macOS release binaries ship a working `xcrun` again. Dart 3.14's `dart build cli` puts each executable's code in `lib/libdartaot<name>`, and the release copied only `bin/xcrun`, so it ran as a bare Dart runtime and Flutter native-asset builds failed with "Failed to find clang with xcrun". ([#165](https://github.com/arxdeus/xcross/issues/165))
+
 ## 2.1.1
 
 - Flutter 3.50 builds with native assets compile again. Flutter 3.50 records code asset paths as `@rpath/...` install names, which xcross could not resolve to the built frameworks. ([#160](https://github.com/arxdeus/xcross/issues/160), [#161](https://github.com/arxdeus/xcross/pull/161))

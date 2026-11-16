@@ -96,6 +96,9 @@ jobs:
       - name: Smoke-test bundled OpenAppleMacrosServer
         run: bash .github/scripts/smoke_open_apple_macros.sh packages/xcross/build/cli/*/bundle
 
+      - name: Smoke-test bundled xcrun
+        run: bash .github/scripts/smoke_xcrun.sh packages/xcross/build/cli/*/bundle
+
       - name: Compile binary
         run: |
           mkdir -p dist
@@ -249,6 +252,10 @@ jobs:
       - name: Smoke-test bundled OpenAppleMacrosServer
         shell: bash
         run: bash .github/scripts/smoke_open_apple_macros.sh "packages/xcross/build/cli/${{ matrix.cli-dir }}/bundle"
+
+      - name: Smoke-test bundled xcrun
+        shell: bash
+        run: bash .github/scripts/smoke_xcrun.sh "packages/xcross/build/cli/${{ matrix.cli-dir }}/bundle"
 
       - name: Compile binary
         shell: pwsh
