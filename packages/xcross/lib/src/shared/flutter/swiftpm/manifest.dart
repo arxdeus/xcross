@@ -187,6 +187,7 @@ $targetDependencies            ]
 import Flutter
 import UIKit
 $imports
+@MainActor
 @_cdecl("${GeneratedPluginsConstants.registrantSymbol}")
 public func xcrossRegisterGeneratedPlugins(_ registry: FlutterPluginRegistry) {
 $diagnosticsStart$registrations$diagnosticsEnd}
