@@ -47,6 +47,11 @@ final class DeviceLog {
 
   final Process? _process;
   final int _pid;
+
+  /// Whether the app's Dart output is echoed from the device log. Switched
+  /// on mid-session when hot reload (and with it the VM Service stdout
+  /// stream) fails to start, so `print` output is never silently lost.
+  bool echoDartOutput = false;
   StreamSubscription<String>? _stdout;
   StreamSubscription<String>? _stderr;
 
@@ -155,11 +160,8 @@ final class DeviceLog {
       ], environment: processEnvironment(pymd.usbmuxEnvironment()));
       final log =
           DeviceLog._(process, pid, pymd.runner.log, pymd.runner.killTree)
-            .._listen(
-              verbose: verbose,
-              dartOutput: echoDartOutput,
-              output: pymd.console.writeln,
-            );
+            ..echoDartOutput = echoDartOutput
+            .._listen(verbose: verbose, output: pymd.console.writeln);
       unawaited(
         process.exitCode.then((code) {
           if (code != 0) {
@@ -177,11 +179,7 @@ final class DeviceLog {
     }
   }
 
-  void _listen({
-    required bool verbose,
-    required bool dartOutput,
-    required void Function(String) output,
-  }) {
+  void _listen({required bool verbose, required void Function(String) output}) {
     final process = _process!;
     _stdout = process.stdout
         .transform(const Utf8Decoder(allowMalformed: true))
@@ -193,7 +191,7 @@ final class DeviceLog {
           final echoed = echoLine(
             message,
             verbose: verbose,
-            dartOutput: dartOutput,
+            dartOutput: echoDartOutput,
           );
           if (echoed != null) output(echoed);
         });

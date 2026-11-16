@@ -245,6 +245,12 @@ final class CoreDeviceLauncher {
       final hotReloadSetup = await _awaitSetupOrStop(setupFuture, console);
       if (hotReloadSetup != null) {
         hotReloadController = hotReloadSetup.controller;
+        // Without a live VM Service connection nothing forwards the app's
+        // `print` output, so fall back to the device log rather than leave
+        // the session silent (issue #167).
+        if (hotReloadController == null && profile.buildMode != null) {
+          deviceLog?.echoDartOutput = true;
+        }
         console.configureHotReload(
           controller: hotReloadController,
           unavailable: hotReloadSetup.unavailable,
