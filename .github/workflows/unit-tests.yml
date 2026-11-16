@@ -78,3 +78,55 @@ jobs:
       - name: Test repo analyzer plugin
         working-directory: tool/repo_analyzer
         run: dart test
+
+  smoke:
+    name: bundle smoke (${{ matrix.name }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-x64
+            runner: ubuntu-24.04
+            architecture: x64
+          - name: linux-arm64
+            runner: ubuntu-24.04-arm
+            architecture: arm64
+          - name: macos-arm64
+            runner: macos-15
+            architecture: arm64
+          - name: windows-x64
+            runner: windows-2022
+            architecture: x64
+          - name: windows-arm64
+            runner: windows-11-arm
+            architecture: arm64
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+          submodules: true
+
+      - name: Set up Dart
+        # v1
+        uses: dart-lang/setup-dart@65eb853c7ba17dde3be364c3d2858773e7144260
+        with:
+          sdk: stable
+          architecture: ${{ matrix.architecture }}
+
+      - name: Resolve dependencies
+        run: dart pub get
+
+      # Builds the release bundle layout (without the macro server, which
+      # needs Swift) and runs the shipped xcrun, catching a launcher that
+      # lost its lib/ payload before a release does (#165).
+      - name: Build xcross bundle
+        working-directory: packages/xcross
+        run: dart run tool/build_xcross.dart
+
+      - name: Smoke-test bundled xcrun
+        shell: bash
+        run: bash .github/scripts/smoke_xcrun.sh packages/xcross/build/cli/*/bundle
