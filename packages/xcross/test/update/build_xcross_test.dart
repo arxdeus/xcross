@@ -152,6 +152,9 @@ void main() {
         'linux_x64',
         'bundle',
       );
+      File(p.join(bundle, 'lib', 'libdartaotxcrun.so'))
+        ..createSync(recursive: true)
+        ..writeAsStringSync('stale payload');
       final result = await buildXcross(
         output: fixtureSink(),
         errors: fixtureSink(),
