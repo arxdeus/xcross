@@ -24,17 +24,17 @@ import 'package:xcross/src/target/shared/runtime/build_features.dart';
 part 'flutter_run_command.g.dart';
 
 @internal
-typedef FlutterRunPack =
-    Future<PackResult> Function(FlutterBuildOptions options);
+typedef FlutterRunPack = Future<PackResult> Function(
+  FlutterBuildOptions options,
+);
 
 @internal
-typedef FlutterRunDevice =
-    Future<void> Function({
-      required PackResult pack,
-      required String? selector,
-      required DeviceSearchMode mode,
-      required CoreDeviceLaunchProfile launchProfile,
-    });
+typedef FlutterRunDevice = Future<void> Function({
+  required PackResult pack,
+  required String? selector,
+  required DeviceSearchMode mode,
+  required CoreDeviceLaunchProfile launchProfile,
+});
 
 /// Options for `xcross flutter run`.
 @internal
@@ -222,12 +222,11 @@ final class FlutterRunCommand<T extends PlatformHostInterface>
             verbose: options.verbose,
           );
     if (hotReload == null &&
+        !buildMode.isPrecompiled &&
         runtime.runner.effectiveEnvironment['XCROSS_DAP'] == '1') {
       throw XcrossError(
-        buildMode.isPrecompiled
-            ? 'DAP launch requires a debug build.'
-            : 'DAP launch requires the Flutter frontend_server artifacts '
-                  'needed for hot reload.',
+        'DAP launch requires the Flutter frontend_server artifacts '
+        'needed for hot reload.',
       );
     }
 

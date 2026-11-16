@@ -60,6 +60,8 @@ final class XcrossDap
   );
   String _pendingLine = '';
   bool _vmServiceReported = false;
+  bool _appStartedReported = false;
+  late String _flutterMode;
   PackageUris? _packageUris;
 
   /// Re-keys breakpoints from local file paths to `package:` URIs, which
@@ -83,6 +85,7 @@ final class XcrossDap
   @override
   Future<void> launchAndRespond(void Function() sendResponse) async {
     final launchArgs = args as DartLaunchRequestArguments;
+    _flutterMode = _modeForArgs(launchArgs.args);
     final cwd = launchArgs.cwd ?? runner.host.paths.context.current;
     await _prepareUriMappings(cwd);
     await _warnIfTunnelUnreachable();
@@ -102,8 +105,8 @@ final class XcrossDap
       RawEventBody({
         'appId': 'xcross',
         'deviceId': 'ios',
-        'mode': 'debug',
-        'supportsRestart': true,
+        'mode': _flutterMode,
+        'supportsRestart': _flutterMode == 'debug',
       }),
       eventType: 'flutter.appStart',
     );
@@ -161,22 +164,46 @@ final class XcrossDap
 
   void _onChildStdout(String text) {
     sendOutput('stdout', text);
-    if (_vmServiceReported) return;
+
     final lines = (_pendingLine + text).split('\n');
     _pendingLine = lines.removeLast();
+
     for (final line in lines) {
+      // Release builds have no Dart VM Service. This line is emitted only after
+      // the app has launched, resumed and entered its interactive session.
+      if (_flutterMode == 'release' &&
+          !_appStartedReported &&
+          line.contains('Streaming app output')) {
+        _appStartedReported = true;
+        sendEvent(RawEventBody(const {}), eventType: 'flutter.appStarted');
+      }
+
+      if (_vmServiceReported) continue;
+
       final start = line.indexOf(DeviceConstants.vmServiceMarker);
       if (start < 0) continue;
+
       _vmServiceReported = true;
-      sendEvent(RawEventBody(const {}), eventType: 'flutter.appStarted');
+
+      if (!_appStartedReported) {
+        _appStartedReported = true;
+        sendEvent(RawEventBody(const {}), eventType: 'flutter.appStarted');
+      }
+
       final uri = line
           .substring(start + DeviceConstants.vmServiceMarker.length)
           .trim();
+
       if (uri.isNotEmpty) {
         unawaited(connectDebugger(Uri.parse(uri)));
       }
-      return;
     }
+  }
+
+  static String _modeForArgs(List<String>? args) {
+    if (args?.contains('--release') ?? false) return 'release';
+    if (args?.contains('--profile') ?? false) return 'profile';
+    return 'debug';
   }
 
   /// Handles Dart-Code's `hotReload`/`hotRestart` toolbar commands.
@@ -188,10 +215,10 @@ final class XcrossDap
   ) async {
     switch (request.command) {
       case 'hotReload':
-        _writeKey('r');
+        if (_flutterMode == 'debug') _writeKey('r');
         sendResponse(null);
       case 'hotRestart':
-        _writeKey('R');
+        if (_flutterMode == 'debug') _writeKey('R');
         sendResponse(null);
       default:
         await super.customRequest(request, args, sendResponse);
@@ -205,7 +232,7 @@ final class XcrossDap
     RestartArguments? args,
     void Function() sendResponse,
   ) async {
-    _writeKey('R');
+    if (_flutterMode == 'debug') _writeKey('R');
     sendResponse();
   }
 
