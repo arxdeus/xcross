@@ -170,6 +170,13 @@ void main() {
           final target = arguments[arguments.indexOf('-t') + 1];
           final name = target == 'bin/xcross.dart' ? 'xcross' : 'xcrun';
           final output = arguments[arguments.indexOf('-o') + 1];
+          // The fixture host is Linux, so xcross copies an extensionless
+          // xcrun even when the tests run on Windows.
+          if (name == 'xcrun') {
+            File(p.join(output, 'bundle', 'bin', 'xcrun'))
+              ..createSync(recursive: true)
+              ..writeAsStringSync('xcrun');
+          }
           File(p.join(output, 'bundle', 'lib', 'libdartaot$name.so'))
             ..createSync(recursive: true)
             ..writeAsStringSync('$name payload');
