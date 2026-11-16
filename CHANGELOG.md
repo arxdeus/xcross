@@ -1,3 +1,7 @@
+## Unreleased
+
+- `xcross flutter run` on an iOS device shows the app's logs and starts hot reload again with Flutter 3.50. Dart 3.14's VM Service rejects requests whose `Host` is not loopback or its own bind address, so connecting through the device tunnel (`[fdxx::1]`) failed with "was not upgraded to websocket". Debug and profile launches now pass `--disable-service-origin-check`. If hot reload still cannot start, the app's `print` output is shown from the device log instead of going silent. ([#167](https://github.com/arxdeus/xcross/issues/167))
+
 ## 2.1.1
 
 - Flutter 3.50 builds with native assets compile again. Flutter 3.50 records code asset paths as `@rpath/...` install names, which xcross could not resolve to the built frameworks. ([#160](https://github.com/arxdeus/xcross/issues/160), [#161](https://github.com/arxdeus/xcross/pull/161))

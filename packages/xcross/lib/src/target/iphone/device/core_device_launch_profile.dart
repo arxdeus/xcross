@@ -50,6 +50,13 @@ final class CoreDeviceLaunchProfile {
       '--vm-service-host=$vmServiceBindAddress',
       '--vm-service-port=${TunnelConstants.vmServicePort}',
       '--disable-service-auth-codes',
+      // Dart 3.14 (Flutter 3.50) validates the Host header of every VM
+      // Service request against loopback and the bind address. xcross
+      // reaches the service at the device's tunnel address (`[fdxx::1]`),
+      // so without this every WebSocket upgrade is rejected with 403
+      // (issue #167). The service is already unauthenticated on purpose;
+      // the tunnel is the trust boundary.
+      '--disable-service-origin-check',
       if (isDap) '--start-paused',
       '--enable-checked-mode',
       '--verify-entry-points',

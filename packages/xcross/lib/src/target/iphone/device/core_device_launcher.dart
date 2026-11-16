@@ -197,6 +197,7 @@ final class CoreDeviceLauncher {
     final hotReload = profile.hotReload;
     HotReloadController? hotReloadController;
     PortForwarder? vmService;
+    var vmServiceConnected = false;
     // Hot-reload setup is inside the same cleanup boundary as the session. A
     // failed VM connection must not leak the attached debugger or leave a DAP
     // launch paused forever.
@@ -234,6 +235,7 @@ final class CoreDeviceLauncher {
         // retrying a gone app for the whole VM Service timeout.
         cancelled: () => console.isStopped,
         onVmServiceReady: () async {
+          vmServiceConnected = true;
           final forwarder = await _publishVmService(transport: transport);
           if (console.isStopped) {
             await forwarder?.close();
@@ -245,6 +247,14 @@ final class CoreDeviceLauncher {
       final hotReloadSetup = await _awaitSetupOrStop(setupFuture, console);
       if (hotReloadSetup != null) {
         hotReloadController = hotReloadSetup.controller;
+        // Without a live VM Service connection nothing forwards the app's
+        // `print` output, so fall back to the device log rather than leave
+        // the session silent (issue #167). Lines that arrived while setup
+        // was still polling went nowhere, so replay them when the VM
+        // Service never connected (it forwarded them otherwise).
+        if (hotReloadController == null && profile.buildMode != null) {
+          deviceLog?.echoDartOutputFromNowOn(replay: !vmServiceConnected);
+        }
         console.configureHotReload(
           controller: hotReloadController,
           unavailable: hotReloadSetup.unavailable,
