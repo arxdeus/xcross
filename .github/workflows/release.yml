@@ -262,6 +262,17 @@ jobs:
         shell: bash
         run: bash .github/scripts/smoke_open_apple_macros.sh "packages/xcross/build/cli/${{ matrix.cli-dir }}/bundle"
 
+      - name: Smoke-test bundled xcrun
+        # See #165: a launcher missing its payload library degrades silently.
+        shell: bash
+        run: |
+          output=$("packages/xcross/build/cli/${{ matrix.cli-dir }}/bundle/bin/xcrun.exe" --version | tr -d '\r')
+          echo "$output"
+          case "$output" in
+            "xcrun version "*) ;;
+            *) echo "bundled xcrun is not the xcross xcrun" >&2; exit 1 ;;
+          esac
+
       - name: Compile binary
         shell: pwsh
         run: |
