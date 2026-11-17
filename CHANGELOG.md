@@ -1,7 +1,9 @@
-## Unreleased
+## 2.1.2
 
 - Linux and macOS release binaries ship a working `xcrun` again. Dart 3.14's `dart build cli` puts each executable's code in `lib/libdartaot<name>`, and the release copied only `bin/xcrun`, so it ran as a bare Dart runtime and Flutter native-asset builds failed with "Failed to find clang with xcrun". ([#165](https://github.com/arxdeus/xcross/issues/165))
 - `xcross flutter run` on an iOS device shows the app's logs and starts hot reload again with Flutter 3.50. Dart 3.14's VM Service rejects requests whose `Host` is not loopback or its own bind address, so connecting through the device tunnel (`[fdxx::1]`) failed with "was not upgraded to websocket". Debug and profile launches now pass `--disable-service-origin-check`. If hot reload still cannot start, the app's `print` output is shown from the device log instead of going silent. ([#167](https://github.com/arxdeus/xcross/issues/167))
+- `xcross flutter build` and `run` with `--flavor` use the Xcode build configuration of the selected flavor (such as `Debug-dev`), so its bundle identifier, build settings and resources apply instead of the default configuration's. ([#169](https://github.com/arxdeus/xcross/pull/169))
+- The debug adapter launches Flutter apps in profile and release mode, not only debug, and forwards the launch configuration's environment to the child process. ([#170](https://github.com/arxdeus/xcross/pull/170))
 
 ## 2.1.1
 
