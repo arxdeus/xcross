@@ -16,6 +16,12 @@ enum FlutterBuildMode {
     required this.patchedSdk,
   });
 
+  factory FlutterBuildMode.fromArgs(List<String>? args) =>
+      [release, profile].firstWhere(
+        (mode) => args?.contains('--${mode.name}') ?? false,
+        orElse: () => debug,
+      );
+
   /// The precompiled mode an iOS AOT compiler [mode] builds for.
   static FlutterBuildMode of(IosGenSnapshotMode mode) => switch (mode) {
     IosGenSnapshotMode.profile => profile,
@@ -30,6 +36,9 @@ enum FlutterBuildMode {
 
   /// Ahead-of-time compiled (profile and release).
   bool get isPrecompiled => this != debug;
+
+  /// Just-in-time compiled (debug).
+  bool get isJit => this == debug;
 
   /// The AOT compiler mode, or `null` for JIT debug builds.
   IosGenSnapshotMode? get genSnapshotMode => switch (this) {

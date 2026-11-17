@@ -85,7 +85,7 @@ final class XcrossDap
   @override
   Future<void> launchAndRespond(void Function() sendResponse) async {
     final launchArgs = args as DartLaunchRequestArguments;
-    _flutterMode = _modeForArgs(launchArgs.args);
+    _flutterMode = FlutterBuildMode.fromArgs(launchArgs.args);
     final cwd = launchArgs.cwd ?? runner.host.paths.context.current;
     await _prepareUriMappings(cwd);
     await _warnIfTunnelUnreachable();
@@ -197,16 +197,6 @@ final class XcrossDap
     }
   }
 
-  static FlutterBuildMode _modeForArgs(List<String>? args) {
-    if (args?.contains('--release') ?? false) {
-      return FlutterBuildMode.release;
-    }
-    if (args?.contains('--profile') ?? false) {
-      return FlutterBuildMode.profile;
-    }
-    return FlutterBuildMode.debug;
-  }
-
   /// Handles Dart-Code's `hotReload`/`hotRestart` toolbar commands.
   @override
   Future<void> customRequest(
@@ -216,10 +206,10 @@ final class XcrossDap
   ) async {
     switch (request.command) {
       case 'hotReload':
-        if (_flutterMode == FlutterBuildMode.debug) _writeKey('r');
+        if (_flutterMode.isJit) _writeKey('r');
         sendResponse(null);
       case 'hotRestart':
-        if (_flutterMode == FlutterBuildMode.debug) _writeKey('R');
+        if (_flutterMode.isJit) _writeKey('R');
         sendResponse(null);
       default:
         await super.customRequest(request, args, sendResponse);
@@ -233,7 +223,7 @@ final class XcrossDap
     RestartArguments? args,
     void Function() sendResponse,
   ) async {
-    if (_flutterMode == FlutterBuildMode.debug) _writeKey('R');
+    if (_flutterMode.isJit) _writeKey('R');
     sendResponse();
   }
 
