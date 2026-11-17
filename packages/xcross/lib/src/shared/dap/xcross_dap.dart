@@ -10,6 +10,7 @@ import 'package:meta/meta.dart';
 import 'package:pure/pure.dart';
 import 'package:vm_service/vm_service.dart' as vm;
 import 'package:xcross/src/shared/dap/dap_child_controller.dart';
+import 'package:xcross/src/shared/flutter/models/flutter/flutter_build_mode.dart';
 import 'package:xcross/src/shared/packages/package_config_resolver.dart';
 import 'package:xcross/src/shared/runtime/constants.dart';
 
@@ -60,8 +61,7 @@ final class XcrossDap
   );
   String _pendingLine = '';
   bool _vmServiceReported = false;
-  bool _appStartedReported = false;
-  late String _flutterMode;
+  FlutterBuildMode _flutterMode = FlutterBuildMode.debug;
   PackageUris? _packageUris;
 
   /// Re-keys breakpoints from local file paths to `package:` URIs, which
@@ -105,8 +105,8 @@ final class XcrossDap
       RawEventBody({
         'appId': 'xcross',
         'deviceId': 'ios',
-        'mode': _flutterMode,
-        'supportsRestart': _flutterMode == 'debug',
+        'mode': _flutterMode.name,
+        'supportsRestart': _flutterMode == FlutterBuildMode.debug,
       }),
       eventType: 'flutter.appStart',
     );
@@ -172,10 +172,10 @@ final class XcrossDap
     for (final line in lines) {
       // Release builds have no Dart VM Service. This line is emitted only after
       // the app has launched, resumed and entered its interactive session.
-      if (_flutterMode == 'release' &&
-          !_appStartedReported &&
-          line.contains('Streaming app output')) {
-        _appStartedReported = true;
+      final releaseAppStarted =
+          _flutterMode == FlutterBuildMode.release &&
+          line.contains('Streaming app output');
+      if (releaseAppStarted) {
         sendEvent(RawEventBody(const {}), eventType: 'flutter.appStarted');
       }
 
@@ -185,11 +185,7 @@ final class XcrossDap
       if (start < 0) continue;
 
       _vmServiceReported = true;
-
-      if (!_appStartedReported) {
-        _appStartedReported = true;
-        sendEvent(RawEventBody(const {}), eventType: 'flutter.appStarted');
-      }
+      sendEvent(RawEventBody(const {}), eventType: 'flutter.appStarted');
 
       final uri = line
           .substring(start + DeviceConstants.vmServiceMarker.length)
@@ -201,10 +197,14 @@ final class XcrossDap
     }
   }
 
-  static String _modeForArgs(List<String>? args) {
-    if (args?.contains('--release') ?? false) return 'release';
-    if (args?.contains('--profile') ?? false) return 'profile';
-    return 'debug';
+  static FlutterBuildMode _modeForArgs(List<String>? args) {
+    if (args?.contains('--release') ?? false) {
+      return FlutterBuildMode.release;
+    }
+    if (args?.contains('--profile') ?? false) {
+      return FlutterBuildMode.profile;
+    }
+    return FlutterBuildMode.debug;
   }
 
   /// Handles Dart-Code's `hotReload`/`hotRestart` toolbar commands.
@@ -216,10 +216,10 @@ final class XcrossDap
   ) async {
     switch (request.command) {
       case 'hotReload':
-        if (_flutterMode == 'debug') _writeKey('r');
+        if (_flutterMode == FlutterBuildMode.debug) _writeKey('r');
         sendResponse(null);
       case 'hotRestart':
-        if (_flutterMode == 'debug') _writeKey('R');
+        if (_flutterMode == FlutterBuildMode.debug) _writeKey('R');
         sendResponse(null);
       default:
         await super.customRequest(request, args, sendResponse);
@@ -233,7 +233,7 @@ final class XcrossDap
     RestartArguments? args,
     void Function() sendResponse,
   ) async {
-    if (_flutterMode == 'debug') _writeKey('R');
+    if (_flutterMode == FlutterBuildMode.debug) _writeKey('R');
     sendResponse();
   }
 
