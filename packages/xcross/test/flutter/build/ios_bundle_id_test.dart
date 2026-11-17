@@ -87,9 +87,8 @@ void main() {
     await writePlist(r'$(PRODUCT_BUNDLE_IDENTIFIER)');
     final dir = Directory(p.join(tmp.path, 'ios', 'Runner.xcodeproj'));
     await dir.create(recursive: true);
-    await File(
-      p.join(dir.path, 'project.pbxproj'),
-    ).writeAsString('PRODUCT_BUNDLE_IDENTIFIER = "com.example.Quoted";\n');
+    await File(p.join(dir.path, 'project.pbxproj'))
+        .writeAsString('PRODUCT_BUNDLE_IDENTIFIER = "com.example.Quoted";\n');
 
     expect(
       testIPhoneRuntime().bundleIds.resolve(tmp.path),
@@ -169,4 +168,58 @@ void main() {
       );
     },
   );
+
+  test('uses the bundle id from the selected flavor configuration', () async {
+    await writePlist(r'$(PRODUCT_BUNDLE_IDENTIFIER)');
+
+    final dir = Directory(p.join(tmp.path, 'ios', 'Runner.xcodeproj'));
+    await dir.create(recursive: true);
+
+    await File(p.join(dir.path, 'project.pbxproj')).writeAsString('''
+{
+archiveVersion = 1;
+objects = {
+  PROJECT = {
+    isa = PBXProject;
+    targets = (
+      APP,
+    );
+  };
+  APP = {
+    isa = PBXNativeTarget;
+    buildConfigurationList = CONFIGS;
+    name = Runner;
+    productType = "com.apple.product-type.application";
+  };
+  CONFIGS = {
+    isa = XCConfigurationList;
+    buildConfigurations = (
+      DEBUG,
+      DEBUG_PROD,
+    );
+  };
+  DEBUG = {
+    isa = XCBuildConfiguration;
+    buildSettings = {
+      PRODUCT_BUNDLE_IDENTIFIER = com.example.Debug;
+    };
+    name = Debug;
+  };
+  DEBUG_PROD = {
+    isa = XCBuildConfiguration;
+    buildSettings = {
+      PRODUCT_BUNDLE_IDENTIFIER = com.example.Prod;
+    };
+    name = "Debug-prod";
+  };
+};
+rootObject = PROJECT;
+}
+''');
+
+    expect(
+      testIPhoneRuntime().bundleIds.resolve(tmp.path, flavor: 'prod'),
+      'com.example.Prod',
+    );
+  });
 }

@@ -2,6 +2,7 @@ import 'package:cli_kit/shared/platform/platform_host.dart';
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/shared/flutter/build/flutter_packer.dart';
+import 'package:xcross/src/shared/flutter/build/pbxproj.dart';
 import 'package:xcross/src/shared/flutter/flutter_build_runtime.dart';
 import 'package:xcross/src/shared/flutter/models/flutter/flutter_build_options.dart';
 import 'package:xcross/src/shared/models/pack_result.dart';
@@ -17,7 +18,11 @@ abstract final class FlutterPackOperation {
     options.validate(
       supportsPrecompiledModes: runtime.policy.supportsPrecompiledModes,
     );
-    final bundleId = runtime.bundleIds.resolve(projectRoot);
+    final bundleId = runtime.bundleIds.resolve(
+      projectRoot,
+      baseConfiguration: xcodeBaseConfiguration(options.buildMode),
+      flavor: options.flavor,
+    );
     final workspace = SwiftPmWorkspace.forProject(
       projectRoot,
       policy: runtime.policy,

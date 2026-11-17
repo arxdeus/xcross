@@ -185,6 +185,35 @@ final class PbxProject {
     return declared ? flavored : base;
   }
 
+  /// The xcconfig files layered by Xcode for [target] in the selected
+  /// configuration, in project-then-target order.
+  List<String> baseConfigurationPaths(
+    PbxObject target, {
+    String preferredConfiguration = 'Debug',
+  }) {
+    final targetConfig = _configuration(
+      target.string('buildConfigurationList'),
+      preferredConfiguration,
+    );
+
+    final root = object(rootObjectId);
+    final projectConfig = root?.isa == 'PBXProject'
+        ? _configuration(
+            root!.string('buildConfigurationList'),
+            targetConfig?.string('name') ?? preferredConfiguration,
+          )
+        : null;
+
+    final result = <String>[];
+    for (final configuration in [projectConfig, targetConfig]) {
+      final reference = configuration?.string('baseConfigurationReference');
+      final path = resolveFileReference(reference);
+      if (path != null) result.add(path);
+    }
+
+    return result;
+  }
+
   /// The `XCBuildConfiguration` named [name] in the list [listId], falling
   /// back to the first configuration that has settings.
   PbxObject? _configuration(String? listId, String name) {
