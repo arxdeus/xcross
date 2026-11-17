@@ -179,12 +179,13 @@ void main() {
                 bundleId: 'dev.example.app',
               );
             },
-            runDevice: ({
-              required pack,
-              required selector,
-              required mode,
-              required launchProfile,
-            }) async => launched.add(launchProfile),
+            runDevice:
+                ({
+                  required pack,
+                  required selector,
+                  required mode,
+                  required launchProfile,
+                }) async => launched.add(launchProfile),
           ),
         );
       return runner.run(['run', ...args]);

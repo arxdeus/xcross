@@ -24,17 +24,17 @@ import 'package:xcross/src/target/shared/runtime/build_features.dart';
 part 'flutter_run_command.g.dart';
 
 @internal
-typedef FlutterRunPack = Future<PackResult> Function(
-  FlutterBuildOptions options,
-);
+typedef FlutterRunPack =
+    Future<PackResult> Function(FlutterBuildOptions options);
 
 @internal
-typedef FlutterRunDevice = Future<void> Function({
-  required PackResult pack,
-  required String? selector,
-  required DeviceSearchMode mode,
-  required CoreDeviceLaunchProfile launchProfile,
-});
+typedef FlutterRunDevice =
+    Future<void> Function({
+      required PackResult pack,
+      required String? selector,
+      required DeviceSearchMode mode,
+      required CoreDeviceLaunchProfile launchProfile,
+    });
 
 /// Options for `xcross flutter run`.
 @internal
