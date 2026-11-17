@@ -1,3 +1,4 @@
+import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 import 'package:xcross/src/shared/flutter/build/pbxproj.dart';
 import 'package:xcross/src/shared/flutter/models/flutter/flutter_build_mode.dart';
@@ -69,7 +70,10 @@ void main() {
         target,
         preferredConfiguration: 'Release-prod',
       ),
-      ['ios/Config/ProjectProd.xcconfig', 'ios/Flutter/prodRelease.xcconfig'],
+      [
+        p.join('ios', 'Config', 'ProjectProd.xcconfig'),
+        p.join('ios', 'Flutter', 'prodRelease.xcconfig'),
+      ],
     );
   });
 }

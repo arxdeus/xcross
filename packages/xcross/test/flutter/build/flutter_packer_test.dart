@@ -49,9 +49,8 @@ void main() {
     () async {
       final project = await Directory.systemTemp.createTemp('xcross-plist-');
       addTearDown(() => project.delete(recursive: true));
-      File(
-        p.join(project.path, 'pubspec.yaml'),
-      ).writeAsStringSync('name: example\n');
+      File(p.join(project.path, 'pubspec.yaml'))
+          .writeAsStringSync('name: example\n');
       final flutter = Directory(p.join(project.path, 'ios', 'Flutter'))
         ..createSync(recursive: true);
       File(p.join(flutter.path, 'Generated.xcconfig')).writeAsStringSync(
@@ -117,16 +116,14 @@ void main() {
       );
       addTearDown(() => project.delete(recursive: true));
 
-      File(
-        p.join(project.path, 'pubspec.yaml'),
-      ).writeAsStringSync('name: example\n');
+      File(p.join(project.path, 'pubspec.yaml'))
+          .writeAsStringSync('name: example\n');
 
       final flutter = Directory(p.join(project.path, 'ios', 'Flutter'))
         ..createSync(recursive: true);
 
-      File(
-        p.join(flutter.path, 'Generated.xcconfig'),
-      ).writeAsStringSync('GENERATED_VALUE = generated\n');
+      File(p.join(flutter.path, 'Generated.xcconfig'))
+          .writeAsStringSync('GENERATED_VALUE = generated\n');
 
       File(p.join(flutter.path, 'prodDebug.xcconfig')).writeAsStringSync(
         '#include "Generated.xcconfig"\n'
@@ -139,7 +136,7 @@ void main() {
         p.join(project.path, 'ios', 'Runner.xcodeproj'),
       )..createSync(recursive: true);
 
-      File(p.join(xcodeproj.path, 'project.pbxproj')).writeAsStringSync(r'''
+      File(p.join(xcodeproj.path, 'project.pbxproj')).writeAsStringSync('''
 {
 	archiveVersion = 1;
 	objects = {
@@ -291,38 +288,33 @@ void main() {
     },
   );
 
-  test(
-    testOn: '!windows',
-
-    'declarative resolution uses configured tool and rejects missing configuration',
-    () async {
-      final project = await Directory.systemTemp.createTemp(
-        'flutter-resolution-',
-      );
-      addTearDown(() => project.delete(recursive: true));
-      final runtime = testIPhoneRuntime(
-        resolution: const FlutterResolutionConfiguration(
-          executable: '/xcross',
-          declarative: true,
-          tool: '/configured/flutter/bin/flutter',
-        ),
-      );
-      expect(
-        await runtime.resolveFlutterRoot(projectRoot: project.path),
-        '/configured/flutter',
-      );
-      final missing = testIPhoneRuntime(
-        resolution: const FlutterResolutionConfiguration(
-          executable: '/xcross',
-          declarative: true,
-        ),
-      );
-      await expectLater(
-        missing.resolveFlutterRoot(projectRoot: project.path),
-        throwsA(isA<XcrossBuildError>()),
-      );
-    },
-  );
+  test(testOn: '!windows', 'declarative resolution uses configured tool and rejects missing configuration', () async {
+    final project = await Directory.systemTemp.createTemp(
+      'flutter-resolution-',
+    );
+    addTearDown(() => project.delete(recursive: true));
+    final runtime = testIPhoneRuntime(
+      resolution: const FlutterResolutionConfiguration(
+        executable: '/xcross',
+        declarative: true,
+        tool: '/configured/flutter/bin/flutter',
+      ),
+    );
+    expect(
+      await runtime.resolveFlutterRoot(projectRoot: project.path),
+      '/configured/flutter',
+    );
+    final missing = testIPhoneRuntime(
+      resolution: const FlutterResolutionConfiguration(
+        executable: '/xcross',
+        declarative: true,
+      ),
+    );
+    await expectLater(
+      missing.resolveFlutterRoot(projectRoot: project.path),
+      throwsA(isA<XcrossBuildError>()),
+    );
+  });
 
   test(
     testOn: '!windows',
@@ -386,15 +378,13 @@ void main() {
         );
 
         expect(
-          File(
-            p.join(frameworks.path, 'Aggregate.framework', 'Aggregate'),
-          ).readAsStringSync(),
+          File(p.join(frameworks.path, 'Aggregate.framework', 'Aggregate'))
+              .readAsStringSync(),
           'aggregate',
         );
         expect(
-          File(
-            p.join(frameworks.path, 'Dependency.framework', 'Dependency'),
-          ).readAsStringSync(),
+          File(p.join(frameworks.path, 'Dependency.framework', 'Dependency'))
+              .readAsStringSync(),
           'dependency',
         );
         final plist = File(
@@ -404,9 +394,8 @@ void main() {
         expect(plist, contains('<string>FMWK</string>'));
         expect(plist, contains('<string>13.0</string>'));
         expect(
-          File(
-            p.join(frameworks.path, 'Aggregate.framework', 'Info.plist'),
-          ).readAsStringSync(),
+          File(p.join(frameworks.path, 'Aggregate.framework', 'Info.plist'))
+              .readAsStringSync(),
           allOf(
             contains('<string>aggregate.Aggregate</string>'),
             contains('<string>15.0</string>'),
@@ -434,9 +423,8 @@ void main() {
           ..createSync();
         File(p.join(source.path, 'Foo')).writeAsStringSync('binary');
         Directory(p.join(source.path, 'Resources')).createSync();
-        File(
-          p.join(source.path, 'Resources', 'Info.plist'),
-        ).writeAsStringSync('plist');
+        File(p.join(source.path, 'Resources', 'Info.plist'))
+            .writeAsStringSync('plist');
         final destination = Directory(p.join(tmp.path, 'Frameworks'))
           ..createSync();
 
@@ -445,9 +433,8 @@ void main() {
         ], destination.path);
 
         expect(
-          File(
-            p.join(destination.path, 'Foo.framework', 'Foo'),
-          ).readAsStringSync(),
+          File(p.join(destination.path, 'Foo.framework', 'Foo'))
+              .readAsStringSync(),
           'binary',
         );
         expect(
