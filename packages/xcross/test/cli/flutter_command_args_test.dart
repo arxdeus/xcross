@@ -231,19 +231,17 @@ void main() {
       );
     });
 
-    for (final mode in ['--profile', '--release']) {
-      test('DAP rejects a $mode launch', () async {
-        await expectLater(
-          run([mode], environment: const {'XCROSS_DAP': '1'}),
-          throwsA(
-            isA<XcrossError>().having(
-              (e) => e.message,
-              'message',
-              'DAP launch requires a debug build.',
-            ),
-          ),
-        );
-        expect(launched, isEmpty);
+    for (final mode in [
+      ('--profile', FlutterBuildMode.profile, true),
+      ('--release', FlutterBuildMode.release, false),
+    ]) {
+      test('DAP accepts a ${mode.$1} launch', () async {
+        await run([mode.$1], environment: const {'XCROSS_DAP': '1'});
+
+        final profile = launched.single;
+        expect(profile.buildMode, mode.$2);
+        expect(profile.hotReload, isNull);
+        expect(profile.debuggingEnabled, mode.$3);
       });
     }
   });

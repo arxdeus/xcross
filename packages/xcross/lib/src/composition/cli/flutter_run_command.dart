@@ -222,12 +222,11 @@ final class FlutterRunCommand<T extends PlatformHostInterface>
             verbose: options.verbose,
           );
     if (hotReload == null &&
+        !buildMode.isPrecompiled &&
         runtime.runner.effectiveEnvironment['XCROSS_DAP'] == '1') {
       throw XcrossError(
-        buildMode.isPrecompiled
-            ? 'DAP launch requires a debug build.'
-            : 'DAP launch requires the Flutter frontend_server artifacts '
-                  'needed for hot reload.',
+        'DAP launch requires the Flutter frontend_server artifacts '
+        'needed for hot reload.',
       );
     }
 

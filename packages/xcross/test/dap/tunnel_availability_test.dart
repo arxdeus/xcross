@@ -63,12 +63,19 @@ void main() {
       adapter.args = DartLaunchRequestArguments.fromJson({
         'program': 'lib/main.dart',
         'cwd': logicalRoot,
+        'args': ['--profile', '--flavor', 'prod'],
+        'env': {'XCROSS': 'true', 'XDG_CONFIG_HOME': '/profiles/zann'},
       });
       var responded = false;
       final watch = Stopwatch()..start();
       await adapter.launchAndRespond(() => responded = true);
       watch.stop();
       await Future<void>.delayed(Duration.zero);
+      final appStart = events.singleWhere(
+        (event) => event['event'] == 'flutter.appStart',
+      );
+
+      expect((appStart['body']! as Map<String, Object?>)['mode'], 'profile');
       expect(availability.calls, 1);
       expect(fileSystem.directories, [logicalRoot]);
       expect(
@@ -82,8 +89,15 @@ void main() {
         'run',
         '--target',
         'lib/main.dart',
+        '--profile',
+        '--flavor',
+        'prod',
       ]);
-      expect(processes.environment, {'XCROSS_DAP': '1'});
+      expect(processes.environment, {
+        'XCROSS': 'true',
+        'XDG_CONFIG_HOME': '/profiles/zann',
+        'XCROSS_DAP': '1',
+      });
       expect(processes.workingDirectory, logicalRoot);
       expect(
         adapter
