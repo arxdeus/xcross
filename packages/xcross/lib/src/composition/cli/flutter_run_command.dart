@@ -222,7 +222,7 @@ final class FlutterRunCommand<T extends PlatformHostInterface>
             verbose: options.verbose,
           );
     if (hotReload == null &&
-        !buildMode.isPrecompiled &&
+        buildMode.isJit &&
         runtime.runner.effectiveEnvironment['XCROSS_DAP'] == '1') {
       throw XcrossError(
         'DAP launch requires the Flutter frontend_server artifacts '

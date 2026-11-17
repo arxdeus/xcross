@@ -51,7 +51,7 @@ final class FlutterBuildOptions {
         '--split-debug-info.',
       );
     }
-    if (!buildMode.isPrecompiled && (obfuscate || splitDebugInfo != null)) {
+    if (buildMode.isJit && (obfuscate || splitDebugInfo != null)) {
       throw FlutterBuildError(
         '--obfuscate and --split-debug-info apply to profile and release '
         'builds only.',

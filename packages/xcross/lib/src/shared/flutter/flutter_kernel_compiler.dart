@@ -224,8 +224,7 @@ final class FlutterKernelCompiler<T extends PlatformHostInterface> {
     '--sdk-root', '${engineCache.patchedSdkRoot}/',
     '--target=flutter',
     '--no-print-incremental-dependencies',
-    if (!buildMode.isPrecompiled)
-      '-Ddart.developer.serviceExtensionStream.enabled=true',
+    if (buildMode.isJit) '-Ddart.developer.serviceExtensionStream.enabled=true',
     for (final define in dartDefines) '-D$define',
     ...buildMode.frontendServerOptions(dartDefines),
     if (buildMode.isPrecompiled) ...[

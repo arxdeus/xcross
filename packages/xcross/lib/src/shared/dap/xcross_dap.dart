@@ -106,7 +106,7 @@ final class XcrossDap
         'appId': 'xcross',
         'deviceId': 'ios',
         'mode': _flutterMode.name,
-        'supportsRestart': _flutterMode == FlutterBuildMode.debug,
+        'supportsRestart': _flutterMode.isJit,
       }),
       eventType: 'flutter.appStart',
     );
