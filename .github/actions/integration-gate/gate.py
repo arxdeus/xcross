@@ -34,11 +34,10 @@ def resolve(env, fetch_pull_request=pull_request):
             return {"run": False, "sha": "", "trusted": False, "pr": ""}
         number = env["ISSUE_NUMBER"]
         pull = fetch_pull_request(repository, number)
-        head_repo = (pull.get("head") or {}).get("repo") or {}
         return {
             "run": True,
             "sha": pull["head"]["sha"],
-            "trusted": head_repo.get("full_name") == repository,
+            "trusted": True,
             "pr": str(number),
         }
     return {"run": False, "sha": "", "trusted": False, "pr": ""}
@@ -53,8 +52,8 @@ def main():
         output.write(f"pr={decision['pr']}\n")
     if decision["run"] and not decision["trusted"]:
         print("::notice::Fork pull request: building the xcross CLI and toolchain only. "
-              "The private Apple SDK and the iOS build steps run once a maintainer "
-              "pushes the branch to this repository.")
+              "A maintainer /check comment runs the private Apple SDK, iOS build, "
+              "and simulator steps.")
 
 
 if __name__ == "__main__":

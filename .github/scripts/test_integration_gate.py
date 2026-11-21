@@ -43,10 +43,9 @@ class GateTests(unittest.TestCase):
                 decision = gate.resolve(comment(association=association), pull(REPO))
                 self.assertEqual(decision, {"run": True, "sha": "headsha", "trusted": True, "pr": "7"})
 
-    def test_check_on_fork_pull_request_runs_without_the_private_sdk(self):
-        decision = gate.resolve(comment(), pull("fork/repo"))
-        self.assertTrue(decision["run"])
-        self.assertFalse(decision["trusted"])
+    def test_check_on_fork_pull_request_runs_with_the_private_sdk(self):
+        decision = gate.resolve(comment(), pull("fork/repo", sha="forksha"))
+        self.assertEqual(decision, {"run": True, "sha": "forksha", "trusted": True, "pr": "7"})
 
     def test_non_maintainers_other_text_and_issues_do_not_run(self):
         fetched = []

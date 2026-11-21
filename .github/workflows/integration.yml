@@ -105,8 +105,8 @@ jobs:
             echo "available=false" >> "$GITHUB_OUTPUT"
             notice='Fork pull request: building the xcross CLI and toolchain'
             notice="$notice only. The private Apple SDK download and the iOS"
-            notice="$notice build steps run once a maintainer pushes the"
-            notice="$notice branch to this repository."
+            notice="$notice build steps run when a maintainer comments /check on the"
+            notice="$notice pull request."
             echo "::notice::$notice"
           else
             echo "available=true" >> "$GITHUB_OUTPUT"
@@ -1541,8 +1541,8 @@ jobs:
             echo "available=false" >> "$GITHUB_OUTPUT"
             notice='Fork pull request: building the xcross CLI and toolchain'
             notice="$notice only. The private Apple SDK download and the Compose"
-            notice="$notice build steps run once a maintainer pushes the"
-            notice="$notice branch to this repository."
+            notice="$notice build steps run when a maintainer comments /check on the"
+            notice="$notice pull request."
             echo "::notice::$notice"
           else
             echo "available=true" >> "$GITHUB_OUTPUT"
@@ -1890,7 +1890,7 @@ jobs:
     name: Simulator report
     # Waits on every test job so the report can list all failed jobs.
     needs: [gate, flutter-build, flutter-simulator, flutter-example-simulator-run, compose-simulator, compose-build, native-host]
-    if: ${{ !cancelled() && needs.gate.outputs.run == 'true' && (needs.gate.outputs.trusted == 'true' || github.event_name == 'issue_comment') }}
+    if: ${{ !cancelled() && needs.gate.outputs.trusted == 'true' }}
     runs-on: ubuntu-24.04
     permissions:
       contents: read

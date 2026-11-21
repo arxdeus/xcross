@@ -97,7 +97,7 @@ class ArchitectureWorkflowTests(unittest.TestCase):
         lines = jobs['simulator-report']
         text = '\n'.join(lines)
         self.assertIn(f"    needs: [gate, {', '.join(simulator_jobs)}]", lines)
-        self.assertIn("    if: ${{ !cancelled() && needs.gate.outputs.run == 'true' && (needs.gate.outputs.trusted == 'true' || github.event_name == 'issue_comment') }}", lines)
+        self.assertIn("    if: ${{ !cancelled() && needs.gate.outputs.trusted == 'true' }}", lines)
         self.assertIn('      contents: read', lines)
         self.assertNotIn('      contents: write', lines)
         self.assertIn('      actions: read', lines)
