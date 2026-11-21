@@ -1890,7 +1890,7 @@ jobs:
     name: Simulator report
     # Waits on every test job so the report can list all failed jobs.
     needs: [gate, flutter-build, flutter-simulator, flutter-example-simulator-run, compose-simulator, compose-build, native-host]
-    if: ${{ !cancelled() && needs.gate.outputs.trusted == 'true' }}
+    if: ${{ !cancelled() && needs.gate.outputs.run == 'true' }}
     runs-on: ubuntu-24.04
     permissions:
       contents: read
