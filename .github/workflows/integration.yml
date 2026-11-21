@@ -1,4 +1,8 @@
 name: Integration Tests
+run-name: >-
+  ${{ github.event_name == 'issue_comment' && startsWith(github.event.comment.body, '/check') &&
+  format('/check #{0}: {1}', github.event.issue.number, github.event.issue.title) ||
+  github.event.pull_request.title || github.event.issue.title || github.event.head_commit.message || github.workflow }}
 
 on:
   push:
