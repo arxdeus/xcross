@@ -22,7 +22,7 @@ executables:
 
 dependencies:
   apple_developer_kit: ^1.0.0
-  archive: ^4.5.2
+  archive: ^4.7.1
   args: ^2.7.0
   async: ^2.13.1
   basic_utils: ^5.8.2
@@ -38,7 +38,7 @@ dependencies:
   ffi: ^2.2.0
   frontend_server_kit: ^1.0.0
   http: ^1.6.0
-  image: ^4.12.0
+  image: ^4.13.1
   meta: ^1.19.0
   package_config: ^3.0.0
   path: ^1.9.1
