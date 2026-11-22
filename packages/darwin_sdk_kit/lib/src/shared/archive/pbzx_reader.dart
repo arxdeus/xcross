@@ -15,14 +15,6 @@ const int _pbzxChunkSize = 0x100_0000;
 /// Full `.xz` container magic (not raw/headerless LZMA1).
 const List<int> _xzMagic = [0xFD, 0x37, 0x7A, 0x58, 0x5A, 0x00];
 
-/// `.xz` stream header: 6-byte magic + 2 stream flags + 4-byte CRC32.
-const int _xzStreamHeaderSize = 12;
-
-/// LZMA2 control bytes for an uncompressed chunk. `0x01` also resets the
-/// dictionary; `0x02` leaves it as-is.
-const int _lzma2UncompressedReset = 0x01;
-const int _lzma2UncompressedNoReset = 0x02;
-
 /// Decodes the pbzx-framed byte range `[offset, offset + length)` of [file],
 /// yielding the fully decompressed payload — a raw cpio stream — as it
 /// becomes available.
@@ -93,27 +85,9 @@ abstract final class PbzxReader {
 
   static Uint8List _xzDecompress(Uint8List compressed) {
     try {
-      return XZDecoder().decodeBytes(
-        _fixInitialLzma2DictionaryReset(compressed),
-      );
+      return XZDecoder().decodeBytes(compressed);
     } on Object catch (e) {
       throw DarwinSdkError('pbzx: failed to decode an xz-compressed chunk: $e');
     }
-  }
-
-  static Uint8List _fixInitialLzma2DictionaryReset(Uint8List xz) {
-    if (xz.length <= _xzStreamHeaderSize) return xz;
-
-    final blockHeaderByte = xz[_xzStreamHeaderSize];
-    if (blockHeaderByte == 0) return xz;
-    final firstControl = _xzStreamHeaderSize + (blockHeaderByte + 1) * 4;
-    if (firstControl >= xz.length ||
-        xz[firstControl] != _lzma2UncompressedReset) {
-      return xz;
-    }
-
-    final fixed = Uint8List.fromList(xz);
-    fixed[firstControl] = _lzma2UncompressedNoReset;
-    return fixed;
   }
 }
