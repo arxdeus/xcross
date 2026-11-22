@@ -137,7 +137,7 @@ final class XcrossDap
       launcher,
       ['flutter', 'run', '--target', target, ...?launchArgs.args],
       workingDirectory: cwd,
-      environment: {...?launchArgs.env, 'XCROSS_DAP': '1'},
+      environment: {...?launchArgs.env, 'PWD': cwd, 'XCROSS_DAP': '1'},
     );
   }
 
