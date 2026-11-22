@@ -43,6 +43,25 @@ void main() {
   String read(String relative) =>
       File(p.join(destination.path, relative)).readAsStringSync();
 
+  for (final (asset, encode) in [
+    ('xcross-linux-x64.tar.gz', _tarGz),
+    ('xcross-windows-x64.zip', _zip),
+  ]) {
+    test('rejects a damaged $asset', () async {
+      final bytes = encode(_bundle());
+      bytes[bytes.length ~/ 2] ^= 0xff;
+      await expectLater(
+        ReleasePayload(LinuxHost()).extract(
+          bytes: bytes,
+          asset: asset,
+          destination: destination.path,
+          executableName: 'xcross',
+        ),
+        throwsA(isA<XcrossError>()),
+      );
+    });
+  }
+
   test('unpacks a tar.gz bundle', () async {
     await ReleasePayload(LinuxHost()).extract(
       bytes: _tarGz(_bundle()),

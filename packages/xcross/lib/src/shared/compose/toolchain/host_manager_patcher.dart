@@ -124,7 +124,7 @@ final class KotlinNativeJarPatcher {
     final jarBytes = files.file(jarPath).readAsBytesSync();
     _rejectDuplicateZipEntries(jarBytes);
     try {
-      final archive = ZipDecoder().decodeBytes(jarBytes);
+      final archive = ZipDecoder().decodeBytes(jarBytes, verify: true);
       _rejectDuplicateArchiveEntries(archive);
 
       // Check idempotency marker.

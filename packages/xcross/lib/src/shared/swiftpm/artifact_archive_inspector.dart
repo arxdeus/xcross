@@ -28,7 +28,7 @@ final class SwiftPmArtifactArchiveInspector {
   Archive decode(Uint8List bytes) {
     try {
       _rejectRawDuplicateEntries(bytes);
-      return ZipDecoder().decodeBytes(bytes);
+      return ZipDecoder().decodeBytes(bytes, verify: true);
     } on XcrossBuildError {
       rethrow;
     } on Object {

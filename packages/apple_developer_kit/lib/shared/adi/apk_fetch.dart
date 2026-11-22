@@ -154,7 +154,10 @@ class AdiLibraryFetcher {
   }
 
   void _extractLibraries() {
-    final archive = ZipDecoder().decodeBytes(_apkFile.readAsBytesSync());
+    final archive = ZipDecoder().decodeBytes(
+      _apkFile.readAsBytesSync(),
+      verify: true,
+    );
 
     final entries = <String, List<int>>{};
     for (final name in _libraryNames) {
