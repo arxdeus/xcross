@@ -1,3 +1,9 @@
+## 2.1.3
+
+- Flutter iOS builds no longer fail with "call to main actor-isolated static method 'register(with:)' in a synchronous nonisolated context" when a plugin's `register(with:)` is `@MainActor`. The generated plugin registrant is now isolated to the main actor. ([#171](https://github.com/arxdeus/xcross/pull/171))
+- `xcross update` refuses to install a damaged release archive instead of extracting partial files, and Xcode SDK payloads and Swift packages decode correctly with `archive` 4.7. ([#175](https://github.com/arxdeus/xcross/pull/175))
+- Flutter apps launched from the debug adapter get `PWD` set to the launch `cwd`, so SwiftPM manifests that read `PWD` to find the host app (such as `permission_handler_apple`) resolve against the project instead of a stale directory. ([#176](https://github.com/arxdeus/xcross/pull/176))
+
 ## 2.1.2
 
 - Linux and macOS release binaries ship a working `xcrun` again. Dart 3.14's `dart build cli` puts each executable's code in `lib/libdartaot<name>`, and the release copied only `bin/xcrun`, so it ran as a bare Dart runtime and Flutter native-asset builds failed with "Failed to find clang with xcrun". ([#165](https://github.com/arxdeus/xcross/issues/165))
