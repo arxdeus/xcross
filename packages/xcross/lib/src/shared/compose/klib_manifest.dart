@@ -15,7 +15,7 @@ final class KlibManifestReader {
     if (files.file(path).existsSync()) {
       final input = InputFileStream(files.file(path).path);
       try {
-        final archive = ZipDecoder().decodeStream(input);
+        final archive = ZipDecoder().decodeStream(input, verify: true);
         for (final entry in archive) {
           if (entry.isFile &&
               (entry.name == 'default/manifest' || entry.name == 'manifest')) {

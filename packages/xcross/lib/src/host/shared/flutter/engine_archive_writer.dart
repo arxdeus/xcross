@@ -15,7 +15,7 @@ final class FlutterEngineArchiveWriter<T extends PlatformHostInterface> {
     final input = InputFileStream(host.fileSystem.file(source).path);
     Archive? archive;
     try {
-      archive = ZipDecoder().decodeStream(input);
+      archive = ZipDecoder().decodeStream(input, verify: true);
       await extract(archive, destination);
     } finally {
       try {

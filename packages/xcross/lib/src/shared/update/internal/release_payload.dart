@@ -31,9 +31,17 @@ final class ReleasePayload {
     required String destination,
     required String executableName,
   }) async {
-    final archive = asset.endsWith('.zip')
-        ? ZipDecoder().decodeBytes(bytes)
-        : TarDecoder().decodeBytes(const GZipDecoder().decodeBytes(bytes));
+    final Archive archive;
+    try {
+      archive = asset.endsWith('.zip')
+          ? ZipDecoder().decodeBytes(bytes, verify: true)
+          : TarDecoder().decodeBytes(
+              const GZipDecoder().decodeBytes(bytes, verify: true),
+              verify: true,
+            );
+    } on ArchiveException catch (e) {
+      throw XcrossError('refusing to extract $asset: damaged archive ($e)');
+    }
 
     final paths = host.paths.context;
     await host.fileSystem.directory(destination).create(recursive: true);
@@ -63,7 +71,13 @@ final class ReleasePayload {
       await host.fileSystem
           .directory(paths.dirname(target))
           .create(recursive: true);
-      await host.fileSystem.file(target).writeAsBytes(entry.content);
+      final List<int> content;
+      try {
+        content = entry.content;
+      } on ArchiveException catch (e) {
+        throw XcrossError('refusing to extract $asset: damaged archive ($e)');
+      }
+      await host.fileSystem.file(target).writeAsBytes(content);
     }
 
     _assertComplete(

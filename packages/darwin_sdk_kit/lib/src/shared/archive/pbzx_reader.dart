@@ -85,7 +85,7 @@ abstract final class PbzxReader {
 
   static Uint8List _xzDecompress(Uint8List compressed) {
     try {
-      return XZDecoder().decodeBytes(compressed);
+      return XZDecoder().decodeBytes(compressed, verify: true);
     } on Object catch (e) {
       throw DarwinSdkError('pbzx: failed to decode an xz-compressed chunk: $e');
     }

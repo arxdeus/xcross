@@ -15,8 +15,11 @@ final class ArchiveExtractor<T extends PlatformHostInterface> {
     final bytes = await archiveFile.readAsBytes();
     final name = p.basename(archiveFile.path);
     final archive = name.endsWith('.zip')
-        ? ZipDecoder().decodeBytes(bytes)
-        : TarDecoder().decodeBytes(const GZipDecoder().decodeBytes(bytes));
+        ? ZipDecoder().decodeBytes(bytes, verify: true)
+        : TarDecoder().decodeBytes(
+            const GZipDecoder().decodeBytes(bytes, verify: true),
+            verify: true,
+          );
 
     await destination.create(recursive: true);
     for (final entry in archive.files) {
