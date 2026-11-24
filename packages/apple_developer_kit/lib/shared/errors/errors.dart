@@ -40,6 +40,18 @@ final class CapabilitiesUnsupported implements Exception {
       'This provisioning backend cannot manage App ID capabilities.';
 }
 
+/// Apple answered a capability create with a conflict and left it off.
+///
+/// Usually the team cannot have the capability at all, such as push on a free
+/// team, so provisioning warns and issues the profile without it rather than
+/// failing the build.
+final class CapabilityRefused extends AppleError {
+  const CapabilityRefused(this.capabilityType, String reason)
+    : super('Apple refused to enable the $capabilityType capability: $reason');
+
+  final String capabilityType;
+}
+
 /// The signing credentials in use cannot provision App Groups at all.
 ///
 /// This is a property of Apple's APIs rather than a transient failure: an App

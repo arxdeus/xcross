@@ -227,12 +227,17 @@ final class DeveloperServicesClient implements DevelopmentProvisioningClient {
         AscPayloads.capability(
           bundleIdResourceId: bundleIdResourceId,
           capabilityType: capabilityType,
+          linkCapability: true,
         ),
       );
     } on AppleApiError catch (error) {
-      if (error.statusCode == 409) return;
       if (_unsupported(error)) throw const CapabilitiesUnsupported();
-      rethrow;
+      if (error.statusCode != 409) rethrow;
+      // 409 means either "already on" or "refused"; only the listing can tell.
+      final enabled = await listEnabledCapabilities(bundleIdResourceId);
+      if (!enabled.contains(capabilityType)) {
+        throw CapabilityRefused(capabilityType, error.message);
+      }
     }
   }
 

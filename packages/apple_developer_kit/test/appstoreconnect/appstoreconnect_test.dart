@@ -437,6 +437,39 @@ void main() {
   );
 
   test(
+    'warns about a refused capability instead of reporting it enabled',
+    () async {
+      final temp = Directory.systemTemp.createTempSync('xcross_cap_refused');
+      addTearDown(() => temp.deleteSync(recursive: true));
+      final client = FakeProvisioningClient()
+        ..refusedCapabilities.add('PUSH_NOTIFICATIONS');
+      final progress = <String>[];
+
+      final result =
+          await AscProvisioning(
+            hostServices: testHostServices,
+            client: client,
+          ).provisionDevelopmentIdentity(
+            bundleId: 'com.example.app',
+            deviceUdids: const ['UDID'],
+            outputDir: temp.path,
+            capabilities: const {'HEALTHKIT', 'PUSH_NOTIFICATIONS'},
+            onProgress: progress.add,
+          );
+
+      expect(File(result.profilePath).existsSync(), isTrue);
+      expect(client.enabledCapabilities, {'HEALTHKIT'});
+      expect(progress, [
+        'Enabled the HEALTHKIT capability on com.example.app',
+        allOf(
+          contains('refused to enable the PUSH_NOTIFICATIONS capability'),
+          contains('provisioned without it'),
+        ),
+      ]);
+    },
+  );
+
+  test(
     'issues the profile anyway when the backend cannot do capabilities',
     () async {
       final temp = Directory.systemTemp.createTempSync(
@@ -757,6 +790,9 @@ class FakeProvisioningClient implements DevelopmentProvisioningClient {
 
   final Set<String> enabledCapabilities = {};
 
+  /// Capability types Apple answers with a conflict and leaves off.
+  final Set<String> refusedCapabilities = {};
+
   @override
   Future<Set<String>> listEnabledCapabilities(String bundleIdResourceId) async {
     if (!capabilitiesSupported) throw const CapabilitiesUnsupported();
@@ -770,6 +806,9 @@ class FakeProvisioningClient implements DevelopmentProvisioningClient {
   }) async {
     if (!capabilitiesSupported) throw const CapabilitiesUnsupported();
     enabledCapabilityRequests.add(capabilityType);
+    if (refusedCapabilities.contains(capabilityType)) {
+      throw CapabilityRefused(capabilityType, 'conflict');
+    }
     enabledCapabilities.add(capabilityType);
   }
 

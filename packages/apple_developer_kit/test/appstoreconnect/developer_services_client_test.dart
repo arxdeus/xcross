@@ -344,6 +344,115 @@ void main() {
     });
   });
 
+  group('DeveloperServicesClient capabilities', () {
+    DeveloperServicesClient capabilityClient({
+      required int createStatus,
+      Set<String> enabledAfter = const {},
+      List<Map<String, dynamic>>? creates,
+    }) => DeveloperServicesClient(
+      token: _token(),
+      teamId: 'TEAM',
+      fetchAnisetteHeaders: () async => {},
+      httpClient: MockClient((request) async {
+        if (request.headers['X-HTTP-Method-Override'] == 'GET') {
+          expect(
+            request.url.path,
+            '/services/v1/bundleIds/APPID/bundleIdCapabilities',
+          );
+          return http.Response(
+            jsonEncode({
+              'data': [
+                for (final type in enabledAfter)
+                  {
+                    'id': 'APPID_$type',
+                    'attributes': {'capabilityType': type},
+                  },
+              ],
+            }),
+            200,
+          );
+        }
+        expect(request.url.path, '/services/v1/bundleIdCapabilities');
+        creates?.add(jsonDecode(request.body) as Map<String, dynamic>);
+        return http.Response(
+          jsonEncode({
+            'errors': [
+              if (createStatus == 409) {'detail': 'conflict'},
+            ],
+          }),
+          createStatus,
+        );
+      }),
+    );
+
+    test('links the capability resource the create requires', () async {
+      final creates = <Map<String, dynamic>>[];
+      final client = capabilityClient(createStatus: 201, creates: creates);
+      addTearDown(client.close);
+
+      await client.enableCapability(
+        bundleIdResourceId: 'APPID',
+        capabilityType: 'HEALTHKIT',
+      );
+
+      expect(creates.single['data'], {
+        'type': 'bundleIdCapabilities',
+        'attributes': {'capabilityType': 'HEALTHKIT', 'teamId': 'TEAM'},
+        'relationships': {
+          'bundleId': {
+            'data': {'type': 'bundleIds', 'id': 'APPID'},
+          },
+          'capability': {
+            'data': {'type': 'capabilities', 'id': 'HEALTHKIT'},
+          },
+        },
+      });
+    });
+
+    test('accepts a conflict for a capability that is already on', () async {
+      final client = capabilityClient(
+        createStatus: 409,
+        enabledAfter: {'HEALTHKIT'},
+      );
+      addTearDown(client.close);
+
+      await client.enableCapability(
+        bundleIdResourceId: 'APPID',
+        capabilityType: 'HEALTHKIT',
+      );
+    });
+
+    test('reports a conflict that left the capability off', () async {
+      final client = capabilityClient(createStatus: 409);
+      addTearDown(client.close);
+
+      await expectLater(
+        client.enableCapability(
+          bundleIdResourceId: 'APPID',
+          capabilityType: 'HEALTHKIT',
+        ),
+        throwsA(
+          isA<CapabilityRefused>()
+              .having((e) => e.capabilityType, 'capabilityType', 'HEALTHKIT')
+              .having((e) => e.message, 'message', contains('conflict')),
+        ),
+      );
+    });
+
+    test('reports an endpoint that refuses capabilities', () async {
+      final client = capabilityClient(createStatus: 403);
+      addTearDown(client.close);
+
+      await expectLater(
+        client.enableCapability(
+          bundleIdResourceId: 'APPID',
+          capabilityType: 'HEALTHKIT',
+        ),
+        throwsA(isA<CapabilitiesUnsupported>()),
+      );
+    });
+  });
+
   group('DeveloperServicesClient App Groups', () {
     test('looks a group up over the legacy plist protocol', () async {
       final client = DeveloperServicesClient(

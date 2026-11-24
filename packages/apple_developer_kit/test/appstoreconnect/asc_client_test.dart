@@ -170,4 +170,87 @@ void main() {
       );
     });
   });
+
+  group('enableCapability', () {
+    AscClient capabilityClient({
+      required int createStatus,
+      Set<String> enabledAfter = const {},
+      List<Map<String, dynamic>>? creates,
+    }) => AscClient(
+      credentials,
+      httpClient: MockClient((request) async {
+        if (request.method == 'GET') {
+          expect(request.url.path, '/v1/bundleIds/APP/bundleIdCapabilities');
+          return http.Response(
+            jsonEncode({
+              'data': [
+                for (final type in enabledAfter)
+                  {
+                    'id': 'APP_$type',
+                    'attributes': {'capabilityType': type},
+                  },
+              ],
+            }),
+            200,
+          );
+        }
+        expect(request.url.path, '/v1/bundleIdCapabilities');
+        creates?.add(jsonDecode(request.body) as Map<String, dynamic>);
+        return http.Response(
+          jsonEncode({
+            'errors': [
+              if (createStatus == 409) {'detail': 'conflict'},
+            ],
+          }),
+          createStatus,
+        );
+      }),
+    );
+
+    test('sends only the public bundleId relationship', () async {
+      final creates = <Map<String, dynamic>>[];
+      final client = capabilityClient(createStatus: 201, creates: creates);
+      addTearDown(client.close);
+
+      await client.enableCapability(
+        bundleIdResourceId: 'APP',
+        capabilityType: 'HEALTHKIT',
+      );
+
+      final data = creates.single['data'] as Map<String, dynamic>;
+      expect((data['relationships'] as Map).keys, ['bundleId']);
+    });
+
+    test('accepts a conflict for a capability that is already on', () async {
+      final client = capabilityClient(
+        createStatus: 409,
+        enabledAfter: {'HEALTHKIT'},
+      );
+      addTearDown(client.close);
+
+      await client.enableCapability(
+        bundleIdResourceId: 'APP',
+        capabilityType: 'HEALTHKIT',
+      );
+    });
+
+    test('reports a conflict that left the capability off', () async {
+      final client = capabilityClient(createStatus: 409);
+      addTearDown(client.close);
+
+      await expectLater(
+        client.enableCapability(
+          bundleIdResourceId: 'APP',
+          capabilityType: 'HEALTHKIT',
+        ),
+        throwsA(
+          isA<CapabilityRefused>().having(
+            (e) => e.capabilityType,
+            'capabilityType',
+            'HEALTHKIT',
+          ),
+        ),
+      );
+    });
+  });
 }

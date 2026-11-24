@@ -271,13 +271,16 @@ final class AscProvisioning {
       );
       return;
     }
-    for (final type in capabilities.toList()..sort()) {
-      if (enabled.contains(type)) continue;
-      await client.enableCapability(
-        bundleIdResourceId: bundleIdResource.id,
-        capabilityType: type,
-      );
-      onProgress?.call('Enabled the $type capability on $bundleId');
+    for (final type in capabilities.difference(enabled).toList()..sort()) {
+      try {
+        await client.enableCapability(
+          bundleIdResourceId: bundleIdResource.id,
+          capabilityType: type,
+        );
+        onProgress?.call('Enabled the $type capability on $bundleId');
+      } on CapabilityRefused catch (refused) {
+        onProgress?.call('$refused\n  $bundleId is provisioned without it.');
+      }
     }
   }
 
