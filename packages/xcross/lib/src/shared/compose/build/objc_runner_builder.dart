@@ -114,6 +114,19 @@ final class ObjcRunnerBuilder<T extends PlatformHostInterface> {
       'UIKit',
       '-framework',
       'Foundation',
+      // Where the Swift runtime lives, for a KMP framework (or one of its
+      // dependencies) that contains Swift code and autolinks `-lswiftCore`
+      // and the `-lswiftCompatibility*` archives. swiftc adds both for the
+      // Swift runner. The SDK has the runtime's text stubs, and the
+      // toolchain has the compatibility archives. Without Swift objects the
+      // paths are never searched, so the output is unchanged (#180).
+      '-L',
+      p.join(iphoneSdk, 'usr', 'lib', 'swift'),
+      '-L',
+      p.join(
+        swiftResourceDir(toolchain.darwinSdkBundle),
+        toolchain.target.buildPlatform.sdkName,
+      ),
       '-lobjc',
       '-lc',
       // Apple clang's driver links compiler-rt implicitly; ld64.lld does not.

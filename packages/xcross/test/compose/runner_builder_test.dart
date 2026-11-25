@@ -204,6 +204,27 @@ void main() {
       );
       expect(calls.last.arguments, containsAllInOrder(['-framework', 'UIKit']));
       expect(calls.last.arguments, contains('-dead_strip'));
+      // A KMP framework with Swift dependencies autolinks the Swift runtime
+      // (#180): the SDK stubs and the toolchain's compatibility archives.
+      expect(
+        calls.last.arguments,
+        containsAllInOrder([
+          '-L',
+          p.join(fixture.iphoneSdk, 'usr', 'lib', 'swift'),
+          '-L',
+          p.join(
+            fixture.toolchain.darwinSdkBundle,
+            'Developer',
+            'Toolchains',
+            'XcodeDefault.xctoolchain',
+            'usr',
+            'lib',
+            'swift',
+            'iphoneos',
+          ),
+          '-lobjc',
+        ]),
+      );
       expect(
         calls.last.arguments,
         containsAllInOrder(['-rpath', '@executable_path/Frameworks']),

@@ -62,6 +62,22 @@ void main() {
       expect(results.flag('ipa'), isFalse);
       expect(results.flag('framework'), isFalse);
       expect(results.option('target-platform'), 'iphone');
+      expect(results.option('entry'), 'auto');
+    });
+
+    test('parses --entry', () {
+      expect(
+        command.argParser.parse(['--entry', 'swift']).option('entry'),
+        'swift',
+      );
+      expect(
+        command.argParser.parse(['--entry', 'kotlin']).option('entry'),
+        'kotlin',
+      );
+      expect(
+        () => command.argParser.parse(['--entry', 'bogus']),
+        throwsFormatException,
+      );
     });
 
     test('passes --framework through as a framework-only build', () async {
@@ -214,6 +230,14 @@ void main() {
         application.runtime,
         application.pymd,
         sockets: application.sockets,
+      );
+    });
+
+    test('parses --entry with auto default', () {
+      expect(command.argParser.parse([]).option('entry'), 'auto');
+      expect(
+        command.argParser.parse(['--entry', 'kotlin']).option('entry'),
+        'kotlin',
       );
     });
 

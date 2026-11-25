@@ -27,6 +27,7 @@ typedef ComposeDetectProject =
       String? bundleId,
       String? appName,
       String gradleTarget,
+      ComposeEntryPreference entry,
     });
 @internal
 typedef ComposePackProject =
@@ -122,12 +123,14 @@ final class ComposePackOperation<T extends PlatformHostInterface> {
             bundleIdOverride: options.bundleId,
             appNameOverride: options.appName,
             gradleTarget: target.gradleTarget,
+            entry: _entry(options),
           ).detect()
         : detectProject(
             _currentDirectory(),
             bundleId: options.bundleId,
             appName: options.appName,
             gradleTarget: target.gradleTarget,
+            entry: _entry(options),
           );
     final project = options.frameworkOnly
         ? detected.asFrameworkOnly()
@@ -157,6 +160,11 @@ final class ComposePackOperation<T extends PlatformHostInterface> {
     ).pack();
     return packed;
   }
+
+  /// `--framework` builds only the framework whatever entry the project has,
+  /// so a missing `--entry` choice must not fail detection then.
+  static ComposeEntryPreference _entry(ComposeBuildOptions options) =>
+      options.frameworkOnly ? ComposeEntryPreference.auto : options.entry;
 
   Future<void> _deleteStaleOutputs(KmpProject project) async {
     for (final path in [

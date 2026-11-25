@@ -65,6 +65,15 @@ final class ComposeRunArgs {
   late List<String> appArgument;
 
   @CliOption(
+    defaultsTo: ComposeEntryPreference.auto,
+    help:
+        'App entry point: auto (the SwiftUI @main host in iosApp when '
+        'present, else the Kotlin ComposeUIViewController), swift, or '
+        'kotlin.',
+  )
+  late ComposeEntryPreference entry;
+
+  @CliOption(
     help:
         'Watch Kotlin sources and rebuild, reinstall, and relaunch on "r". '
         'Kotlin/Native is AOT-compiled, so this is a fast restart, not an '
@@ -177,7 +186,10 @@ final class ComposeRunCommand<T extends PlatformHostInterface>
   Future<void> run() async {
     if (options.verbose) log.setVerbose();
     final pack = await _packOperation(
-      options: ComposeBuildOptions(bundleId: options.bundleId),
+      options: ComposeBuildOptions(
+        bundleId: options.bundleId,
+        entry: options.entry,
+      ),
       requireRunnableApp: true,
       targetPlatform: 'iphone',
     );
@@ -210,7 +222,10 @@ final class ComposeRunCommand<T extends PlatformHostInterface>
         files: files,
       ),
       rebuild: () => _packOperation(
-        options: ComposeBuildOptions(bundleId: options.bundleId),
+        options: ComposeBuildOptions(
+          bundleId: options.bundleId,
+          entry: options.entry,
+        ),
         requireRunnableApp: true,
         targetPlatform: 'iphone',
       ),
