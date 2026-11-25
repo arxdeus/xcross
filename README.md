@@ -431,11 +431,66 @@ xcross compose build
 xcross compose run -d <device>
 ```
 
-Projects with a Kotlin `ComposeUIViewController` entry or a SwiftUI `@main` host produce an `.app`. When a project has both, xcross builds the SwiftUI host in `iosApp/`, as Xcode would, so its launch setup and Swift dependencies are kept. Pass `--entry kotlin` to `xcross compose build` or `run` to launch the Kotlin entry from a generated runner instead, or `--entry swift` to require the SwiftUI host. Framework-only KMP modules still build the iOS framework, but `xcross compose run` and `--ipa` are unavailable until the project has a runnable app entry. Physical-device launch requires iOS 17 or later.
+Projects with a Kotlin `ComposeUIViewController` entry or a SwiftUI `@main` host produce an `.app`. Framework-only KMP modules still build the iOS framework, but `xcross compose run` and `--ipa` are unavailable until the project has a runnable app entry. Physical-device launch requires iOS 17 or later.
+
+### Choosing the app entry point
+
+`xcross compose build` and `xcross compose run` take `--entry` to pick what the `.app` launches:
+
+| `--entry` | Builds | When the entry is missing |
+|---|---|---|
+| `auto` (default) | The SwiftUI `@main` host in `iosApp/` when there is one, otherwise the Kotlin `ComposeUIViewController` entry from `src/iosMain`, otherwise only the framework | Falls through to the next one |
+| `swift` | The SwiftUI `@main` host, compiled with `swiftc` together with the host's Swift packages | Fails with `--entry swift: no SwiftUI @main App found` |
+| `kotlin` | A generated Objective-C runner whose window shows the Kotlin entry, ignoring any Swift host | Fails with `--entry kotlin: no Kotlin ComposeUIViewController entry found` |
+
+When a project has both, `auto` builds the SwiftUI host, as Xcode would, so its launch setup (`init()`, `@UIApplicationDelegateAdaptor`, SDK configuration) and Swift dependencies are kept. Use `--entry kotlin` to skip the host and launch the Compose screen directly. The generated runner links the Swift runtime too, so a KMP framework with Swift dependencies still links. It does not build the host's Swift packages or run the host's Swift code.
+
+```sh
+xcross compose build                   # auto: SwiftUI host if present
+xcross compose build --entry kotlin    # generated runner around the Kotlin entry
+xcross compose run -d <device> --entry swift
+```
+
+`--framework` takes precedence over `--entry`: it builds only the framework, whatever entry point the project has.
+
+<details>
+<summary><b><code>xcross compose build</code> options</b></summary>
+
+```text
+    --configuration      debug | release (default: debug)
+    --bundle-id          override CFBundleIdentifier
+    --app-name           override the iOS product name
+    --ipa                output an .ipa instead of an .app
+    --framework          build only the Kotlin/Native framework
+    --entry              auto | swift | kotlin (default: auto)
+    --target-platform    iphone | simulator (default: iphone)
+-v, --verbose            full Gradle, Kotlin/Native, and linker output
+```
+</details>
+
+<details>
+<summary><b><code>xcross compose run</code> options</b></summary>
+
+```text
+-d, --device-id            device id or name
+-u, --udid                 device UDID
+    --usb / --wifi         search USB-attached or wireless devices only
+    --device-connection    attached | wireless | both (default: both)
+    --bundle-id            override CFBundleIdentifier
+-a, --app-argument         argument passed to the app, repeatable
+    --entry                auto | swift | kotlin (default: auto)
+    --watch                rebuild, reinstall, and relaunch on "r"
+-v, --verbose
+```
+</details>
+
+### SwiftUI host
 
 A SwiftUI host can import the KMP framework, any module of the installed Darwin SDK (`SwiftUI`, `UIKit`, `CoreMotion`, `AVFoundation`, `MapKit`, ...), and the Swift packages its app target depends on in `iosApp/*.xcodeproj`. xcross builds those packages (remote, local, with C targets, resources or binary targets) with the same SwiftPM engine it uses for Flutter plugins, respecting the versions pinned in Xcode's `Package.resolved`, and embeds them as Xcode does: one `XcrossHostPackages.framework` under `Frameworks/`, binary frameworks next to it, and resource bundles in the app root. Packages used only by test or extension targets are left out, and the app is built for the app target's `IPHONEOS_DEPLOYMENT_TARGET` when that is above 15.0. Projects without packages build exactly as before. CocoaPods are not supported. An import that neither the SDK nor a declared package provides fails the build with the importing `file:line`, always before the Kotlin compile. When the modules of every package are known up front (no packages, only local ones, or remote ones an earlier build already fetched, transitive dependencies included) this happens before any download, and `xcross compose doctor` reports it as a failure. A remote package not fetched yet can bring modules beyond its product names (product `FirebaseAnalytics` makes `FirebaseCore` importable, as in Xcode), so such an import is checked right after the packages are built, and doctor shows it as a warning. Wrap optional ones in `#if canImport(Module)`, or build just the framework with `xcross compose build --framework` and link it from your own host.
 
 Two limits apply to host packages. The Xcode project is looked up only directly in `iosApp/`, the same folder the SwiftUI host is discovered in, so a project kept elsewhere (such as `ios/App.xcodeproj`) contributes no packages. And packages are compiled in SwiftPM's debug configuration for every build configuration, as Flutter plugins are, so `--configuration release` optimizes the Kotlin code but not the packages.
+
+### Debugging and fast restart
 
 Compose launches use native attached debugging to supervise the process after install. There is no Kotlin source DAP yet.
 
