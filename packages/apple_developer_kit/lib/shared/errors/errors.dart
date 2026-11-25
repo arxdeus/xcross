@@ -42,9 +42,8 @@ final class CapabilitiesUnsupported implements Exception {
 
 /// Apple answered a capability create with a conflict and left it off.
 ///
-/// Usually the team cannot have the capability at all, such as push on a free
-/// team, so provisioning warns and issues the profile without it rather than
-/// failing the build.
+/// Provisioning warns and issues the profile without it rather than failing
+/// the build.
 final class CapabilityRefused extends AppleError {
   const CapabilityRefused(this.capabilityType, String reason)
     : super('Apple refused to enable the $capabilityType capability: $reason');

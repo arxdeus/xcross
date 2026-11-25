@@ -362,11 +362,7 @@ void main() {
           return http.Response(
             jsonEncode({
               'data': [
-                for (final type in enabledAfter)
-                  {
-                    'id': 'APPID_$type',
-                    'attributes': {'capabilityType': type},
-                  },
+                for (final type in enabledAfter) _capabilityJson('APPID', type),
               ],
             }),
             200,
@@ -384,6 +380,33 @@ void main() {
         );
       }),
     );
+
+    test('reads enabled capability types from the resource ids', () async {
+      final client = DeveloperServicesClient(
+        token: _token(),
+        teamId: 'TEAM',
+        fetchAnisetteHeaders: () async => {},
+        httpClient: MockClient(
+          (_) async => http.Response(
+            jsonEncode({
+              'data': [
+                _capabilityJson('APPID', 'HEALTHKIT'),
+                _capabilityJson('APPID', 'PUSH_NOTIFICATIONS'),
+                _capabilityJson('APPID', 'HOMEKIT', enabled: false),
+                _capabilityJson('OTHER', 'GAME_CENTER'),
+              ],
+            }),
+            200,
+          ),
+        ),
+      );
+      addTearDown(client.close);
+
+      expect(await client.listEnabledCapabilities('APPID'), {
+        'HEALTHKIT',
+        'PUSH_NOTIFICATIONS',
+      });
+    });
 
     test('links the capability resource the create requires', () async {
       final creates = <Map<String, dynamic>>[];
@@ -927,6 +950,31 @@ void main() {
 Map<String, Object?> _deviceJson(String udid) => {
   'id': 'device-$udid',
   'attributes': {'udid': udid, 'name': udid, 'status': 'ENABLED'},
+};
+
+/// A capability as developerservices2 lists it: no `capabilityType`, and a
+/// `capability` relationship with links only.
+Map<String, dynamic> _capabilityJson(
+  String bundleIdResourceId,
+  String type, {
+  bool enabled = true,
+}) => {
+  'type': 'bundleIdCapabilities',
+  'id': '${bundleIdResourceId}_$type',
+  'attributes': {
+    'ownerType': 'BUNDLE',
+    'enabled': enabled,
+    'entitlements': [
+      {'key': type},
+      {'key': '${type}_EXTRA'},
+    ],
+    'settings': null,
+  },
+  'relationships': {
+    'capability': {
+      'links': {'self': 'https://example.com/self'},
+    },
+  },
 };
 
 DeveloperServicesLoginToken _token({bool expired = false}) =>

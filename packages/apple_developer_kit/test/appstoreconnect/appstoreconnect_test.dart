@@ -469,6 +469,42 @@ void main() {
     },
   );
 
+  for (final (name, failure, warning) in <(String, Exception, String)>[
+    (
+      'Apple rejects a capability outright',
+      const AppleApiError(400, 'not available for this team'),
+      'not available for this team',
+    ),
+    (
+      'the backend refuses the capability create',
+      const CapabilitiesUnsupported(),
+      'cannot switch App ID capabilities on',
+    ),
+  ]) {
+    test('issues the profile anyway when $name', () async {
+      final temp = Directory.systemTemp.createTempSync('xcross_cap_failure');
+      addTearDown(() => temp.deleteSync(recursive: true));
+      final client = FakeProvisioningClient()
+        ..enableCapabilityFailure = failure;
+      final progress = <String>[];
+
+      final result =
+          await AscProvisioning(
+            hostServices: testHostServices,
+            client: client,
+          ).provisionDevelopmentIdentity(
+            bundleId: 'com.example.app',
+            deviceUdids: const ['UDID'],
+            outputDir: temp.path,
+            capabilities: const {'PUSH_NOTIFICATIONS'},
+            onProgress: progress.add,
+          );
+
+      expect(File(result.profilePath).existsSync(), isTrue);
+      expect(progress.single, contains(warning));
+    });
+  }
+
   test(
     'issues the profile anyway when the backend cannot do capabilities',
     () async {
@@ -793,6 +829,8 @@ class FakeProvisioningClient implements DevelopmentProvisioningClient {
   /// Capability types Apple answers with a conflict and leaves off.
   final Set<String> refusedCapabilities = {};
 
+  Exception? enableCapabilityFailure;
+
   @override
   Future<Set<String>> listEnabledCapabilities(String bundleIdResourceId) async {
     if (!capabilitiesSupported) throw const CapabilitiesUnsupported();
@@ -806,6 +844,8 @@ class FakeProvisioningClient implements DevelopmentProvisioningClient {
   }) async {
     if (!capabilitiesSupported) throw const CapabilitiesUnsupported();
     enabledCapabilityRequests.add(capabilityType);
+    final failure = enableCapabilityFailure;
+    if (failure != null) throw failure;
     if (refusedCapabilities.contains(capabilityType)) {
       throw CapabilityRefused(capabilityType, 'conflict');
     }
