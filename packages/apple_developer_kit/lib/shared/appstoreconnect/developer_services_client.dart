@@ -210,11 +210,21 @@ final class DeveloperServicesClient implements DevelopmentProvisioningClient {
       rethrow;
     }
     return {
-      for (final entry in entries)
-        if (entry case {'attributes': {'capabilityType': final String type}})
-          type,
+      for (final entry in entries) ?_capabilityType(entry, bundleIdResourceId),
     };
   }
+
+  /// developerservices2 leaves `attributes.capabilityType` out and gives the
+  /// `capability` relationship links only, so the type is read from the
+  /// resource id, `<bundleIdResourceId>_<TYPE>`.
+  static String? _capabilityType(Object? entry, String bundleIdResourceId) =>
+      switch (entry) {
+        {'attributes': {'enabled': false}} => null,
+        {'attributes': {'capabilityType': final String type}} => type,
+        {'id': final String id} when id.startsWith('${bundleIdResourceId}_') =>
+          id.substring(bundleIdResourceId.length + 1),
+        _ => null,
+      };
 
   @override
   Future<void> enableCapability({
@@ -227,12 +237,17 @@ final class DeveloperServicesClient implements DevelopmentProvisioningClient {
         AscPayloads.capability(
           bundleIdResourceId: bundleIdResourceId,
           capabilityType: capabilityType,
+          linkCapability: true,
         ),
       );
     } on AppleApiError catch (error) {
-      if (error.statusCode == 409) return;
       if (_unsupported(error)) throw const CapabilitiesUnsupported();
-      rethrow;
+      if (error.statusCode != 409) rethrow;
+      // 409 means either "already on" or "refused"; only the listing can tell.
+      final enabled = await listEnabledCapabilities(bundleIdResourceId);
+      if (!enabled.contains(capabilityType)) {
+        throw CapabilityRefused(capabilityType, error.message);
+      }
     }
   }
 

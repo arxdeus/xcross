@@ -24,9 +24,14 @@ abstract final class AscPayloads {
   /// `ICLOUD_VERSION`, `DATA_PROTECTION_PERMISSION_LEVEL` and
   /// `APPLE_ID_AUTH_APP_CONSENT` take a setting, and sending a setting for
   /// anything else is a 409 naming those three.
+  ///
+  /// [linkCapability] also relates the create to the `capabilities` resource
+  /// itself. developerservices2 refuses the create with a 409 without it, and
+  /// App Store Connect's public schema has no such relationship.
   static Map<String, dynamic> capability({
     required String bundleIdResourceId,
     required String capabilityType,
+    bool linkCapability = false,
   }) => {
     'data': {
       'type': 'bundleIdCapabilities',
@@ -35,6 +40,10 @@ abstract final class AscPayloads {
         'bundleId': {
           'data': {'type': 'bundleIds', 'id': bundleIdResourceId},
         },
+        if (linkCapability)
+          'capability': {
+            'data': {'type': 'capabilities', 'id': capabilityType},
+          },
       },
     },
   };

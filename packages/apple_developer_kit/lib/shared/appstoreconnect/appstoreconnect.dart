@@ -260,24 +260,36 @@ final class AscProvisioning {
     ProvisioningProgress? onProgress,
   }) async {
     if (capabilities.isEmpty) return;
+    void warnUnsupported() => onProgress?.call(
+      'This backend cannot switch App ID capabilities on, so any the app '
+      'declares (Sign in with Apple, Associated Domains, push) will be '
+      'missing from its profile. Use an App Store Connect API key for those.',
+    );
     final Set<String> enabled;
     try {
       enabled = await client.listEnabledCapabilities(bundleIdResource.id);
     } on CapabilitiesUnsupported {
-      onProgress?.call(
-        'This backend cannot switch App ID capabilities on, so any the app '
-        'declares (Sign in with Apple, Associated Domains, push) will be '
-        'missing from its profile. Use an App Store Connect API key for those.',
-      );
-      return;
+      return warnUnsupported();
     }
-    for (final type in capabilities.toList()..sort()) {
-      if (enabled.contains(type)) continue;
-      await client.enableCapability(
-        bundleIdResourceId: bundleIdResource.id,
-        capabilityType: type,
-      );
-      onProgress?.call('Enabled the $type capability on $bundleId');
+    for (final type in capabilities.difference(enabled).toList()..sort()) {
+      try {
+        await client.enableCapability(
+          bundleIdResourceId: bundleIdResource.id,
+          capabilityType: type,
+        );
+        onProgress?.call('Enabled the $type capability on $bundleId');
+      } on CapabilitiesUnsupported {
+        return warnUnsupported();
+      } on CapabilityRefused catch (refused) {
+        onProgress?.call('$refused\n  $bundleId is provisioned without it.');
+      } on AppleApiError catch (error) {
+        // A capability the team cannot have must not cost it the build: the
+        // app still installs and runs without the one entitlement.
+        onProgress?.call(
+          'Could not enable the $type capability: ${error.message}\n'
+          '  $bundleId is provisioned without it.',
+        );
+      }
     }
   }
 

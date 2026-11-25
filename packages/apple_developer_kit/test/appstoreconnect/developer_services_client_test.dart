@@ -344,6 +344,138 @@ void main() {
     });
   });
 
+  group('DeveloperServicesClient capabilities', () {
+    DeveloperServicesClient capabilityClient({
+      required int createStatus,
+      Set<String> enabledAfter = const {},
+      List<Map<String, dynamic>>? creates,
+    }) => DeveloperServicesClient(
+      token: _token(),
+      teamId: 'TEAM',
+      fetchAnisetteHeaders: () async => {},
+      httpClient: MockClient((request) async {
+        if (request.headers['X-HTTP-Method-Override'] == 'GET') {
+          expect(
+            request.url.path,
+            '/services/v1/bundleIds/APPID/bundleIdCapabilities',
+          );
+          return http.Response(
+            jsonEncode({
+              'data': [
+                for (final type in enabledAfter) _capabilityJson('APPID', type),
+              ],
+            }),
+            200,
+          );
+        }
+        expect(request.url.path, '/services/v1/bundleIdCapabilities');
+        creates?.add(jsonDecode(request.body) as Map<String, dynamic>);
+        return http.Response(
+          jsonEncode({
+            'errors': [
+              if (createStatus == 409) {'detail': 'conflict'},
+            ],
+          }),
+          createStatus,
+        );
+      }),
+    );
+
+    test('reads enabled capability types from the resource ids', () async {
+      final client = DeveloperServicesClient(
+        token: _token(),
+        teamId: 'TEAM',
+        fetchAnisetteHeaders: () async => {},
+        httpClient: MockClient(
+          (_) async => http.Response(
+            jsonEncode({
+              'data': [
+                _capabilityJson('APPID', 'HEALTHKIT'),
+                _capabilityJson('APPID', 'PUSH_NOTIFICATIONS'),
+                _capabilityJson('APPID', 'HOMEKIT', enabled: false),
+                _capabilityJson('OTHER', 'GAME_CENTER'),
+              ],
+            }),
+            200,
+          ),
+        ),
+      );
+      addTearDown(client.close);
+
+      expect(await client.listEnabledCapabilities('APPID'), {
+        'HEALTHKIT',
+        'PUSH_NOTIFICATIONS',
+      });
+    });
+
+    test('links the capability resource the create requires', () async {
+      final creates = <Map<String, dynamic>>[];
+      final client = capabilityClient(createStatus: 201, creates: creates);
+      addTearDown(client.close);
+
+      await client.enableCapability(
+        bundleIdResourceId: 'APPID',
+        capabilityType: 'HEALTHKIT',
+      );
+
+      expect(creates.single['data'], {
+        'type': 'bundleIdCapabilities',
+        'attributes': {'capabilityType': 'HEALTHKIT', 'teamId': 'TEAM'},
+        'relationships': {
+          'bundleId': {
+            'data': {'type': 'bundleIds', 'id': 'APPID'},
+          },
+          'capability': {
+            'data': {'type': 'capabilities', 'id': 'HEALTHKIT'},
+          },
+        },
+      });
+    });
+
+    test('accepts a conflict for a capability that is already on', () async {
+      final client = capabilityClient(
+        createStatus: 409,
+        enabledAfter: {'HEALTHKIT'},
+      );
+      addTearDown(client.close);
+
+      await client.enableCapability(
+        bundleIdResourceId: 'APPID',
+        capabilityType: 'HEALTHKIT',
+      );
+    });
+
+    test('reports a conflict that left the capability off', () async {
+      final client = capabilityClient(createStatus: 409);
+      addTearDown(client.close);
+
+      await expectLater(
+        client.enableCapability(
+          bundleIdResourceId: 'APPID',
+          capabilityType: 'HEALTHKIT',
+        ),
+        throwsA(
+          isA<CapabilityRefused>()
+              .having((e) => e.capabilityType, 'capabilityType', 'HEALTHKIT')
+              .having((e) => e.message, 'message', contains('conflict')),
+        ),
+      );
+    });
+
+    test('reports an endpoint that refuses capabilities', () async {
+      final client = capabilityClient(createStatus: 403);
+      addTearDown(client.close);
+
+      await expectLater(
+        client.enableCapability(
+          bundleIdResourceId: 'APPID',
+          capabilityType: 'HEALTHKIT',
+        ),
+        throwsA(isA<CapabilitiesUnsupported>()),
+      );
+    });
+  });
+
   group('DeveloperServicesClient App Groups', () {
     test('looks a group up over the legacy plist protocol', () async {
       final client = DeveloperServicesClient(
@@ -818,6 +950,31 @@ void main() {
 Map<String, Object?> _deviceJson(String udid) => {
   'id': 'device-$udid',
   'attributes': {'udid': udid, 'name': udid, 'status': 'ENABLED'},
+};
+
+/// A capability as developerservices2 lists it: no `capabilityType`, and a
+/// `capability` relationship with links only.
+Map<String, dynamic> _capabilityJson(
+  String bundleIdResourceId,
+  String type, {
+  bool enabled = true,
+}) => {
+  'type': 'bundleIdCapabilities',
+  'id': '${bundleIdResourceId}_$type',
+  'attributes': {
+    'ownerType': 'BUNDLE',
+    'enabled': enabled,
+    'entitlements': [
+      {'key': type},
+      {'key': '${type}_EXTRA'},
+    ],
+    'settings': null,
+  },
+  'relationships': {
+    'capability': {
+      'links': {'self': 'https://example.com/self'},
+    },
+  },
 };
 
 DeveloperServicesLoginToken _token({bool expired = false}) =>

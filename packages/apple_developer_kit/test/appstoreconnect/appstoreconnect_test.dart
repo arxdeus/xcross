@@ -437,6 +437,75 @@ void main() {
   );
 
   test(
+    'warns about a refused capability instead of reporting it enabled',
+    () async {
+      final temp = Directory.systemTemp.createTempSync('xcross_cap_refused');
+      addTearDown(() => temp.deleteSync(recursive: true));
+      final client = FakeProvisioningClient()
+        ..refusedCapabilities.add('PUSH_NOTIFICATIONS');
+      final progress = <String>[];
+
+      final result =
+          await AscProvisioning(
+            hostServices: testHostServices,
+            client: client,
+          ).provisionDevelopmentIdentity(
+            bundleId: 'com.example.app',
+            deviceUdids: const ['UDID'],
+            outputDir: temp.path,
+            capabilities: const {'HEALTHKIT', 'PUSH_NOTIFICATIONS'},
+            onProgress: progress.add,
+          );
+
+      expect(File(result.profilePath).existsSync(), isTrue);
+      expect(client.enabledCapabilities, {'HEALTHKIT'});
+      expect(progress, [
+        'Enabled the HEALTHKIT capability on com.example.app',
+        allOf(
+          contains('refused to enable the PUSH_NOTIFICATIONS capability'),
+          contains('provisioned without it'),
+        ),
+      ]);
+    },
+  );
+
+  for (final (name, failure, warning) in <(String, Exception, String)>[
+    (
+      'Apple rejects a capability outright',
+      const AppleApiError(400, 'not available for this team'),
+      'not available for this team',
+    ),
+    (
+      'the backend refuses the capability create',
+      const CapabilitiesUnsupported(),
+      'cannot switch App ID capabilities on',
+    ),
+  ]) {
+    test('issues the profile anyway when $name', () async {
+      final temp = Directory.systemTemp.createTempSync('xcross_cap_failure');
+      addTearDown(() => temp.deleteSync(recursive: true));
+      final client = FakeProvisioningClient()
+        ..enableCapabilityFailure = failure;
+      final progress = <String>[];
+
+      final result =
+          await AscProvisioning(
+            hostServices: testHostServices,
+            client: client,
+          ).provisionDevelopmentIdentity(
+            bundleId: 'com.example.app',
+            deviceUdids: const ['UDID'],
+            outputDir: temp.path,
+            capabilities: const {'PUSH_NOTIFICATIONS'},
+            onProgress: progress.add,
+          );
+
+      expect(File(result.profilePath).existsSync(), isTrue);
+      expect(progress.single, contains(warning));
+    });
+  }
+
+  test(
     'issues the profile anyway when the backend cannot do capabilities',
     () async {
       final temp = Directory.systemTemp.createTempSync(
@@ -757,6 +826,11 @@ class FakeProvisioningClient implements DevelopmentProvisioningClient {
 
   final Set<String> enabledCapabilities = {};
 
+  /// Capability types Apple answers with a conflict and leaves off.
+  final Set<String> refusedCapabilities = {};
+
+  Exception? enableCapabilityFailure;
+
   @override
   Future<Set<String>> listEnabledCapabilities(String bundleIdResourceId) async {
     if (!capabilitiesSupported) throw const CapabilitiesUnsupported();
@@ -770,6 +844,11 @@ class FakeProvisioningClient implements DevelopmentProvisioningClient {
   }) async {
     if (!capabilitiesSupported) throw const CapabilitiesUnsupported();
     enabledCapabilityRequests.add(capabilityType);
+    final failure = enableCapabilityFailure;
+    if (failure != null) throw failure;
+    if (refusedCapabilities.contains(capabilityType)) {
+      throw CapabilityRefused(capabilityType, 'conflict');
+    }
     enabledCapabilities.add(capabilityType);
   }
 

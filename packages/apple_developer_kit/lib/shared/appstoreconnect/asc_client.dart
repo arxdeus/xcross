@@ -84,6 +84,9 @@ abstract interface class DevelopmentProvisioningClient {
   Future<Set<String>> listEnabledCapabilities(String bundleIdResourceId);
 
   /// Switches one capability type on for [bundleIdResourceId].
+  ///
+  /// Throws [CapabilityRefused] when Apple answers with a conflict and the
+  /// capability is still off afterwards.
   Future<void> enableCapability({
     required String bundleIdResourceId,
     required String capabilityType,
@@ -280,10 +283,12 @@ final class AscClient implements DevelopmentProvisioningClient {
         ),
       );
     } on AppleApiError catch (error) {
-      // Apple answers 409 for a capability that is already on, which is the state
-      // the caller asked for.
-      if (error.statusCode == 409) return;
-      rethrow;
+      if (error.statusCode != 409) rethrow;
+      // 409 means either "already on" or "refused"; only the listing can tell.
+      final enabled = await listEnabledCapabilities(bundleIdResourceId);
+      if (!enabled.contains(capabilityType)) {
+        throw CapabilityRefused(capabilityType, error.message);
+      }
     }
   }
 
