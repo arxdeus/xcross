@@ -6,6 +6,7 @@ import 'dart:isolate';
 
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
+import 'package:xcross/src/shared/compose/models/compose_build_options.dart';
 import 'package:xcross/src/shared/compose/project/kmp_project.dart';
 import 'package:xcross/src/shared/errors/errors.dart';
 
@@ -348,6 +349,95 @@ kotlin {
       final project = session.detectKmpProject(root.path);
 
       expect(project.moduleName, 'other');
+    });
+
+    group('entry precedence', () {
+      const swiftMain =
+          'import SwiftUI\nimport Shared\n@main struct Demo: App { var body: some Scene { WindowGroup { Text("Hi") } } }';
+
+      Directory both() {
+        final root = _fixture();
+        _settings(root, 'include(":shared")');
+        _framework(root, 'shared', baseName: 'Shared');
+        _kotlinEntry(root, 'shared', file: 'MainViewController.kt');
+        _swift(root, p.join('iosApp', 'App.swift'), swiftMain);
+        return root;
+      }
+
+      test('prefers the SwiftUI host over a Kotlin entry by default', () {
+        final root = both();
+        final project = session.detectKmpProject(root.path);
+        expect(project.entryKind, KmpEntryKind.swiftApp);
+        expect(project.swiftAppDir, p.join(root.path, 'iosApp'));
+        expect(project.swiftSources, [
+          p.join(root.path, 'iosApp', 'App.swift'),
+        ]);
+        expect(project.entryClass, isNull);
+      });
+
+      test('entry kotlin selects the Kotlin entry when both exist', () {
+        final root = both();
+        final project = session.detectKmpProject(
+          root.path,
+          entry: ComposeEntryPreference.kotlin,
+        );
+        expect(project.entryKind, KmpEntryKind.runnableApp);
+        expect(project.entryClass, 'MainViewControllerKt');
+      });
+
+      test('entry swift without a SwiftUI host throws', () {
+        final root = _fixture();
+        _settings(root, 'include(":shared")');
+        _framework(root, 'shared', baseName: 'Shared');
+        _kotlinEntry(root, 'shared', file: 'MainViewController.kt');
+        expect(
+          () => session.detectKmpProject(
+            root.path,
+            entry: ComposeEntryPreference.swift,
+          ),
+          throwsA(
+            isA<XcrossError>().having(
+              (e) => e.toString(),
+              'message',
+              contains('--entry swift'),
+            ),
+          ),
+        );
+      });
+
+      test('entry kotlin without a Kotlin entry throws', () {
+        final root = _fixture();
+        _settings(root, 'include(":shared")');
+        _framework(root, 'shared', baseName: 'Shared');
+        _swift(root, p.join('iosApp', 'App.swift'), swiftMain);
+        expect(
+          () => session.detectKmpProject(
+            root.path,
+            entry: ComposeEntryPreference.kotlin,
+          ),
+          throwsA(
+            isA<XcrossError>().having(
+              (e) => e.toString(),
+              'message',
+              contains('--entry kotlin'),
+            ),
+          ),
+        );
+      });
+
+      test('UIKit-only Swift files do not override a Kotlin entry', () {
+        final root = _fixture();
+        _settings(root, 'include(":shared")');
+        _framework(root, 'shared', baseName: 'Shared');
+        _kotlinEntry(root, 'shared', file: 'MainViewController.kt');
+        _swift(
+          root,
+          p.join('iosApp', 'ViewController.swift'),
+          'import UIKit\nimport Shared\nclass ViewController: UIViewController {}',
+        );
+        final project = session.detectKmpProject(root.path);
+        expect(project.entryKind, KmpEntryKind.runnableApp);
+      });
     });
 
     test('detects Swift @main app and excludes Preview Content sources', () {

@@ -27,6 +27,10 @@ ComposeBuildArgs _$parseComposeBuildArgsResult(ArgResults result) =>
       ..appName = result['app-name'] as String?
       ..ipa = result['ipa'] as bool
       ..framework = result['framework'] as bool
+      ..entry = _$enumValueHelper(
+        _$ComposeEntryPreferenceEnumMapBuildCli,
+        result['entry'] as String,
+      )
       ..targetPlatform = result['target-platform'] as String
       ..verbose = result['verbose'] as bool;
 
@@ -34,6 +38,13 @@ const _$ComposeConfigurationEnumMapBuildCli = <ComposeConfiguration, String>{
   ComposeConfiguration.debug: 'debug',
   ComposeConfiguration.release: 'release',
 };
+
+const _$ComposeEntryPreferenceEnumMapBuildCli =
+    <ComposeEntryPreference, String>{
+      ComposeEntryPreference.auto: 'auto',
+      ComposeEntryPreference.swift: 'swift',
+      ComposeEntryPreference.kotlin: 'kotlin',
+    };
 
 ArgParser _$populateComposeBuildArgsParser(ArgParser parser) => parser
   ..addOption(
@@ -55,6 +66,13 @@ ArgParser _$populateComposeBuildArgsParser(ArgParser parser) => parser
     help:
         'Build only the Kotlin/Native framework, even when the project has a Swift app or a Kotlin entry point.',
     negatable: false,
+  )
+  ..addOption(
+    'entry',
+    help:
+        'App entry point: auto (the SwiftUI @main host in iosApp when present, else the Kotlin ComposeUIViewController), swift, or kotlin.',
+    defaultsTo: 'auto',
+    allowed: ['auto', 'swift', 'kotlin'],
   )
   ..addOption(
     'target-platform',

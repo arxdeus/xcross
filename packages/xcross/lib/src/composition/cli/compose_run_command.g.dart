@@ -29,6 +29,10 @@ ComposeRunArgs _$parseComposeRunArgsResult(ArgResults result) =>
       )
       ..bundleId = result['bundle-id'] as String?
       ..appArgument = result['app-argument'] as List<String>
+      ..entry = _$enumValueHelper(
+        _$ComposeEntryPreferenceEnumMapBuildCli,
+        result['entry'] as String,
+      )
       ..watch = result['watch'] as bool
       ..verbose = result['verbose'] as bool;
 
@@ -37,6 +41,13 @@ const _$DeviceConnectionEnumMapBuildCli = <DeviceConnection, String>{
   DeviceConnection.wireless: 'wireless',
   DeviceConnection.both: 'both',
 };
+
+const _$ComposeEntryPreferenceEnumMapBuildCli =
+    <ComposeEntryPreference, String>{
+      ComposeEntryPreference.auto: 'auto',
+      ComposeEntryPreference.swift: 'swift',
+      ComposeEntryPreference.kotlin: 'kotlin',
+    };
 
 ArgParser _$populateComposeRunArgsParser(ArgParser parser) => parser
   ..addOption(
@@ -62,6 +73,13 @@ ArgParser _$populateComposeRunArgsParser(ArgParser parser) => parser
     'app-argument',
     abbr: 'a',
     help: 'Pass arguments to the app main() (repeatable).',
+  )
+  ..addOption(
+    'entry',
+    help:
+        'App entry point: auto (the SwiftUI @main host in iosApp when present, else the Kotlin ComposeUIViewController), swift, or kotlin.',
+    defaultsTo: 'auto',
+    allowed: ['auto', 'swift', 'kotlin'],
   )
   ..addFlag(
     'watch',

@@ -61,13 +61,53 @@ void main() {
         log: session.fixtureLog,
         downloader: session.fixtureDownloader,
         currentDirectory: () => '/virtual-compose',
-        detectProject: (path, {bundleId, appName, gradleTarget = 'iosArm64'}) =>
-            project,
+        detectProject:
+            (
+              path, {
+              bundleId,
+              appName,
+              gradleTarget = 'iosArm64',
+              entry = ComposeEntryPreference.auto,
+            }) => project,
         packProject: ({required project, required options}) async =>
             PackResult(outputPath: 'Demo.app', bundleId: project.bundleId),
       );
       await operation.pack(options: const ComposeBuildOptions());
       expect(app.existsSync(), isFalse);
+      ComposeEntryPreference? seenEntry;
+      await ComposePackOperation.withSeams(
+        target,
+        runner: ProcessRunner(
+          host,
+          log: session.fixtureLog,
+          stdinStream: const Stream<List<int>>.empty(),
+          stdoutSink: session.stdoutSink,
+          stderrSink: session.stderrSink,
+        ),
+        tools: session.fixtureToolsFor(host),
+        sdkRepository: session.fixtureSdkRepositoryFor(host),
+        log: session.fixtureLog,
+        downloader: session.fixtureDownloader,
+        currentDirectory: () => '/virtual-compose',
+        detectProject:
+            (
+              path, {
+              bundleId,
+              appName,
+              gradleTarget = 'iosArm64',
+              entry = ComposeEntryPreference.auto,
+            }) {
+              seenEntry = entry;
+              return project;
+            },
+        packProject: ({required project, required options}) async =>
+            PackResult(outputPath: 'Demo.app', bundleId: project.bundleId),
+      ).pack(
+        options: const ComposeBuildOptions(
+          entry: ComposeEntryPreference.kotlin,
+        ),
+      );
+      expect(seenEntry, ComposeEntryPreference.kotlin);
       expect(framework.existsSync(), isFalse);
       expect(
         files.requests,
@@ -253,7 +293,13 @@ kotlin {
           downloader: session.fixtureDownloader,
           currentDirectory: () => root.path,
           detectProject:
-              (path, {bundleId, appName, gradleTarget = 'iosArm64'}) {
+              (
+                path, {
+                bundleId,
+                appName,
+                gradleTarget = 'iosArm64',
+                entry = ComposeEntryPreference.auto,
+              }) {
                 detections++;
                 expect(gradleTarget, 'iosSimulatorArm64');
                 return project;
@@ -315,7 +361,13 @@ kotlin {
           downloader: session.fixtureDownloader,
           currentDirectory: () => root.path,
           detectProject:
-              (path, {bundleId, appName, gradleTarget = 'iosArm64'}) {
+              (
+                path, {
+                bundleId,
+                appName,
+                gradleTarget = 'iosArm64',
+                entry = ComposeEntryPreference.auto,
+              }) {
                 expect(gradleTarget, 'iosArm64');
                 events.add('detect:$path:$bundleId:$appName');
                 return project;
@@ -364,10 +416,17 @@ kotlin {
         ),
         downloader: session.fixtureDownloader,
         currentDirectory: () => root.path,
-        detectProject: (path, {bundleId, appName, gradleTarget = 'iosArm64'}) {
-          events.add('detect');
-          return _project(root.path, KmpEntryKind.frameworkOnly);
-        },
+        detectProject:
+            (
+              path, {
+              bundleId,
+              appName,
+              gradleTarget = 'iosArm64',
+              entry = ComposeEntryPreference.auto,
+            }) {
+              events.add('detect');
+              return _project(root.path, KmpEntryKind.frameworkOnly);
+            },
         packProject: ({required project, required options}) async {
           events.add('pack');
           return PackResult(
@@ -412,10 +471,17 @@ kotlin {
         ),
         downloader: session.fixtureDownloader,
         currentDirectory: () => root.path,
-        detectProject: (path, {bundleId, appName, gradleTarget = 'iosArm64'}) {
-          events.add('detect');
-          return _project(root.path, KmpEntryKind.frameworkOnly);
-        },
+        detectProject:
+            (
+              path, {
+              bundleId,
+              appName,
+              gradleTarget = 'iosArm64',
+              entry = ComposeEntryPreference.auto,
+            }) {
+              events.add('detect');
+              return _project(root.path, KmpEntryKind.frameworkOnly);
+            },
         packProject: ({required project, required options}) async {
           events.add('pack');
           return PackResult(
@@ -459,7 +525,13 @@ kotlin {
           downloader: session.fixtureDownloader,
           currentDirectory: () => projectRoot,
           detectProject:
-              (path, {bundleId, appName, gradleTarget = 'iosArm64'}) {
+              (
+                path, {
+                bundleId,
+                appName,
+                gradleTarget = 'iosArm64',
+                entry = ComposeEntryPreference.auto,
+              }) {
                 events.add('detect');
                 return _project(projectRoot, KmpEntryKind.swiftApp);
               },
@@ -502,10 +574,17 @@ kotlin {
         ),
         downloader: session.fixtureDownloader,
         currentDirectory: () => root.path,
-        detectProject: (path, {bundleId, appName, gradleTarget = 'iosArm64'}) {
-          events.add('detect');
-          return _project(root.path, KmpEntryKind.swiftApp);
-        },
+        detectProject:
+            (
+              path, {
+              bundleId,
+              appName,
+              gradleTarget = 'iosArm64',
+              entry = ComposeEntryPreference.auto,
+            }) {
+              events.add('detect');
+              return _project(root.path, KmpEntryKind.swiftApp);
+            },
         packProject: ({required project, required options}) async {
           events.add('pack');
           return PackResult(

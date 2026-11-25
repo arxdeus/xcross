@@ -249,7 +249,11 @@ void main() {
       ..parent.createSync(recursive: true)
       ..writeAsStringSync(content);
 
-    void project({required String swift, bool kotlinEntry = false}) {
+    void project({
+      required String swift,
+      bool kotlinEntry = false,
+      bool swiftApp = true,
+    }) {
       write('/project/settings.gradle.kts', 'include(":shared")');
       write(
         '/project/shared/build.gradle.kts',
@@ -263,7 +267,7 @@ void main() {
       }
       write(
         '/project/iosApp/App.swift',
-        '@main\nstruct DemoApp: App {}\n$swift',
+        swiftApp ? '@main\nstruct DemoApp: App {}\n$swift' : swift,
       );
     }
 
@@ -528,10 +532,17 @@ let package = Package(
     });
 
     test('non-Swift projects get no row', () async {
-      project(swift: 'import Firebase', kotlinEntry: true);
+      project(swift: 'import Firebase', kotlinEntry: true, swiftApp: false);
       installSdk();
       final checks = await run();
       expect(checks.map((c) => c.name), isNot(contains('Swift imports')));
+    });
+
+    test('a SwiftUI host next to a Kotlin entry is checked (#180)', () async {
+      project(swift: 'import Firebase', kotlinEntry: true);
+      installSdk();
+      final checks = await run();
+      expect(checks.map((c) => c.name), contains('Swift imports'));
     });
   });
 

@@ -56,6 +56,15 @@ final class ComposeBuildArgs {
   late bool framework;
 
   @CliOption(
+    defaultsTo: ComposeEntryPreference.auto,
+    help:
+        'App entry point: auto (the SwiftUI @main host in iosApp when '
+        'present, else the Kotlin ComposeUIViewController), swift, or '
+        'kotlin.',
+  )
+  late ComposeEntryPreference entry;
+
+  @CliOption(
     defaultsTo: 'iphone',
     help: 'Target platform: iphone or simulator.',
   )
@@ -129,6 +138,7 @@ final class ComposeBuildCommand<T extends PlatformHostInterface>
       appName: options.appName,
       ipa: options.ipa,
       frameworkOnly: options.framework,
+      entry: options.entry,
     );
     final result = await _packOperation(
       options: buildOptions,

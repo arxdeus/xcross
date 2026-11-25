@@ -22,6 +22,7 @@ import 'package:xcross/src/shared/compose/build/framework_build_stamp.dart';
 import 'package:xcross/src/shared/compose/compose_host.dart';
 import 'package:xcross/src/shared/compose/compose_simulator_signing.dart';
 import 'package:xcross/src/shared/compose/kmp_project_detector.dart';
+import 'package:xcross/src/shared/compose/models/compose_build_options.dart';
 import 'package:xcross/src/shared/compose/project/kmp_project.dart';
 import 'package:xcross/src/shared/compose/watch/kotlin_source_watcher.dart';
 import 'package:xcross/src/target/iphone/compose/iphone_compose_target.dart';
@@ -162,6 +163,7 @@ final class ComposeTestSession {
     String? bundleId,
     String? appName,
     String gradleTarget = 'iosArm64',
+    ComposeEntryPreference entry = ComposeEntryPreference.auto,
   }) => KmpProjectDetector(
     files: fixtureRunner.host.fileSystem,
     log: fixtureLog,
@@ -169,6 +171,7 @@ final class ComposeTestSession {
     bundleIdOverride: bundleId,
     appNameOverride: appName,
     gradleTarget: gradleTarget,
+    entry: entry,
   ).detect();
   FrameworkBuildStamp fixtureFrameworkStamp(String path) =>
       FrameworkBuildStamp.forFramework(

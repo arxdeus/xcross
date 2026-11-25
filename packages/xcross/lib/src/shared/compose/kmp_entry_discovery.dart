@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:cli_kit/shared/platform/platform_host.dart';
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
+import 'package:xcross/src/shared/compose/models/compose_build_options.dart';
 import 'package:xcross/src/shared/compose/project/kmp_project.dart';
 import 'package:xcross/src/shared/compose/swift/swift_host_paths.dart';
 import 'package:xcross/src/shared/compose/swift/swift_import.dart';
@@ -80,13 +81,31 @@ final class KmpEntryDiscovery {
   ComposeEntryResult classifyEntry(
     String modulePath,
     String projectRoot,
-    String baseName,
-  ) {
-    final kotlinEntry = _detectKotlinEntry(modulePath);
-    final swiftEntry = _detectSwiftAppEntry(projectRoot, baseName);
-    if (swiftEntry != null && kotlinEntry == null) return swiftEntry;
-    if (kotlinEntry != null) return kotlinEntry;
-    return const ComposeEntryResult(KmpEntryKind.frameworkOnly);
+    String baseName, {
+    ComposeEntryPreference entry = ComposeEntryPreference.auto,
+  }) {
+    switch (entry) {
+      case ComposeEntryPreference.swift:
+        return _detectSwiftAppEntry(projectRoot, baseName) ??
+            (throw XcrossError(
+              '--entry swift: no SwiftUI `@main` App found in '
+              '${p.join(projectRoot, swiftHostDirectory)}.',
+            ));
+      case ComposeEntryPreference.kotlin:
+        return _detectKotlinEntry(modulePath) ??
+            (throw XcrossError(
+              '--entry kotlin: no Kotlin ComposeUIViewController entry found '
+              'in ${p.join(modulePath, 'src', 'iosMain')}.',
+            ));
+      case ComposeEntryPreference.auto:
+        // The SwiftUI `@main` host wins over a Kotlin
+        // `ComposeUIViewController` entry: it is the app Xcode builds,
+        // usually hosts that very entry, and may do launch setup (and link
+        // Swift dependencies) that a generated Objective-C runner would skip.
+        return _detectSwiftAppEntry(projectRoot, baseName) ??
+            _detectKotlinEntry(modulePath) ??
+            const ComposeEntryResult(KmpEntryKind.frameworkOnly);
+    }
   }
 
   ComposeEntryResult? _detectKotlinEntry(String modulePath) {

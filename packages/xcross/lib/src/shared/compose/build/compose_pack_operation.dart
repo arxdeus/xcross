@@ -27,6 +27,7 @@ typedef ComposeDetectProject =
       String? bundleId,
       String? appName,
       String gradleTarget,
+      ComposeEntryPreference entry,
     });
 @internal
 typedef ComposePackProject =
@@ -122,12 +123,14 @@ final class ComposePackOperation<T extends PlatformHostInterface> {
             bundleIdOverride: options.bundleId,
             appNameOverride: options.appName,
             gradleTarget: target.gradleTarget,
+            entry: options.entry,
           ).detect()
         : detectProject(
             _currentDirectory(),
             bundleId: options.bundleId,
             appName: options.appName,
             gradleTarget: target.gradleTarget,
+            entry: options.entry,
           );
     final project = options.frameworkOnly
         ? detected.asFrameworkOnly()

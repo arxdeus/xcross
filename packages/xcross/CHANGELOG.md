@@ -1,3 +1,7 @@
+## Unreleased
+
+- `xcross compose build` and `run` build the existing SwiftUI `@main` host in `iosApp/` when a project also has a Kotlin `ComposeUIViewController` entry, instead of generating an Objective-C runner around the Kotlin entry. The generated runner skipped the Swift app and its launch setup, and failed to link when a dependency needed the Swift runtime libraries. A new `--entry auto|swift|kotlin` option picks the entry point explicitly: `auto` (the default) prefers the SwiftUI host, and `--entry kotlin` restores the generated runner. ([#180](https://github.com/arxdeus/xcross/issues/180))
+
 ## 2.1.3
 
 - Flutter iOS builds no longer fail with "call to main actor-isolated static method 'register(with:)' in a synchronous nonisolated context" when a plugin's `register(with:)` is `@MainActor`. The generated plugin registrant is now isolated to the main actor. ([#171](https://github.com/arxdeus/xcross/pull/171))

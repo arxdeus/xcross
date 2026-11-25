@@ -6,6 +6,7 @@ import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 import 'package:xcross/src/shared/compose/gradle_kmp_metadata.dart';
 import 'package:xcross/src/shared/compose/kmp_entry_discovery.dart';
+import 'package:xcross/src/shared/compose/models/compose_build_options.dart';
 import 'package:xcross/src/shared/compose/project/ios_app_config.dart';
 import 'package:xcross/src/shared/compose/project/kmp_project.dart';
 import 'package:xcross/src/shared/errors/errors.dart';
@@ -19,6 +20,7 @@ final class KmpProjectDetector {
     this.bundleIdOverride,
     this.appNameOverride,
     this.gradleTarget = 'iosArm64',
+    this.entry = ComposeEntryPreference.auto,
   }) : metadata = GradleKmpMetadataParser(log),
        entries = KmpEntryDiscovery(files);
 
@@ -29,6 +31,7 @@ final class KmpProjectDetector {
   final String? bundleIdOverride;
   final String? appNameOverride;
   final String gradleTarget;
+  final ComposeEntryPreference entry;
 
   KmpProject detect() {
     final rootDir = files.directory(root);
@@ -40,10 +43,11 @@ final class KmpProjectDetector {
     final chosen = candidates.length == 1
         ? candidates.first
         : entries.pickBySwiftImport(root, candidates);
-    final entry = entries.classifyEntry(
+    final found = entries.classifyEntry(
       chosen.modulePath,
       root,
       chosen.baseName,
+      entry: entry,
     );
     final iosConfig = IosAppConfigLoader(files).load(root);
     final defaults = _defaultIdentity(root);
@@ -52,7 +56,7 @@ final class KmpProjectDetector {
       modulePath: chosen.modulePath,
       moduleName: chosen.moduleName,
       baseName: chosen.baseName,
-      entryKind: entry.kind,
+      entryKind: found.kind,
       isStaticFramework: chosen.isStaticFramework,
       // An xcconfig that sets only some keys (the bundle id often lives in
       // the Xcode project instead) must not produce an empty identity.
@@ -64,11 +68,11 @@ final class KmpProjectDetector {
           appNameOverride ??
           _nonEmpty(iosConfig?.productName) ??
           defaults.appName,
-      entryClass: entry.entryClass,
-      entrySelector: entry.entrySelector,
-      swiftAppDir: entry.swiftAppDir,
-      swiftSources: entry.swiftSources,
-      swiftImports: entry.swiftImports,
+      entryClass: found.entryClass,
+      entrySelector: found.entrySelector,
+      swiftAppDir: found.swiftAppDir,
+      swiftSources: found.swiftSources,
+      swiftImports: found.swiftImports,
       iosConfig: iosConfig,
     );
   }
