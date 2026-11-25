@@ -1,6 +1,6 @@
 ## Unreleased
 
-- `xcross compose build` and `run` build the existing SwiftUI `@main` host in `iosApp/` when a project also has a Kotlin `ComposeUIViewController` entry, instead of generating an Objective-C runner around the Kotlin entry. The generated runner skipped the Swift app and its launch setup, and failed to link when a dependency needed the Swift runtime libraries. A new `--entry auto|swift|kotlin` option picks the entry point explicitly: `auto` (the default) prefers the SwiftUI host, and `--entry kotlin` restores the generated runner. ([#180](https://github.com/arxdeus/xcross/issues/180))
+- `xcross compose build` and `run` build the existing SwiftUI `@main` host in `iosApp/` when a project also has a Kotlin `ComposeUIViewController` entry, instead of generating an Objective-C runner around the Kotlin entry. The generated runner skipped the Swift app and its launch setup, and failed to link when a dependency needed the Swift runtime libraries. A new `--entry auto|swift|kotlin` option picks the entry point explicitly: `auto` (the default) prefers the SwiftUI host, and `--entry kotlin` restores the generated runner. That runner now also links the Swift runtime from the Darwin SDK and toolchain, so a KMP framework with Swift dependencies links without a SwiftUI host. ([#180](https://github.com/arxdeus/xcross/issues/180))
 
 ## 2.1.3
 
